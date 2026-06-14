@@ -16,7 +16,7 @@ services:
     buildCommand: pip install -r requirements.txt
     # ONE worker so exactly one reminder ticker runs and SQLite has a single
     # writer; threads handle request concurrency. Ample for a single business.
-    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT
     disk:
       name: ringback-data
       mountPath: /var/data        # the SQLite DB + WAL live here -> survives deploys

@@ -25,6 +25,8 @@ import alerts
 import reminders
 import compliance
 import triage
+import contact_import
+import google_contacts
 from config import (APP_NAME, TAGLINE, DEBUG, SECRET_KEY, TASKS_SECRET,
                     SESSION_COOKIE_SECURE, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD,
                     app_tz, VOICE_PUBLIC_URL)
@@ -367,8 +369,11 @@ def analytics_page():
 @login_required
 def callers_page():
     """The caller-triage inbox: review RingBack's suggestions (To review / Sorted /
-    Dismissed) and manage the screened-numbers directory. JS-driven via /api/*."""
-    return render_template("callers.html")
+    Dismissed), import an address book, and manage the screened-numbers directory.
+    JS-driven via /api/*."""
+    return render_template("callers.html",
+                           gc_configured=google_contacts.configured(),
+                           gc_connected=google_contacts.is_connected(current_business()["id"]))
 
 
 @app.route("/api/analytics")
@@ -898,6 +903,82 @@ def api_suggestions_bulk():
             db.set_suggestion_status(sid, "pending")
         done += 1
     return jsonify(ok=True, count=done)
+
+
+# ---- Contact import: bulk-load an address book into the review queue ----
+_MAX_IMPORT_BYTES = 5 * 1024 * 1024   # 5 MB is ample for a vCard / CSV export
+
+
+@app.route("/api/contacts/import", methods=["POST"])
+@login_required
+def api_contacts_import():
+    """Upload a vCard (.vcf) or CSV export -> parse -> pre-sort -> queue each contact
+    as a PENDING suggestion in the review inbox. Nothing is screened automatically;
+    the owner confirms (in bulk). Returns an import summary for the UI."""
+    biz = current_business()
+    f = request.files.get("file")
+    if not f or not (f.filename or "").strip():
+        return jsonify(error="Choose a .vcf or .csv file to import."), 400
+    raw = f.read(_MAX_IMPORT_BYTES + 1)
+    if len(raw) > _MAX_IMPORT_BYTES:
+        return jsonify(error="That file is too large (limit 5 MB)."), 413
+    try:
+        contacts = contact_import.parse_file(f.filename, raw)
+    except Exception as e:
+        print(f"[ringback] contact import parse failed: {e}", file=sys.stderr, flush=True)
+        return jsonify(error="Could not read that file. Export a vCard (.vcf) or a CSV."), 400
+    if not contacts:
+        return jsonify(error="No contacts with phone numbers were found in that file."), 400
+    summary = contact_import.ingest(biz["id"], contacts, source="import-file")
+    return jsonify(ok=True, **summary)
+
+
+# ---- Google Contacts import (a SEPARATE OAuth connection from Calendar, gated) ----
+@app.route("/api/contacts/google/connect")
+@login_required
+def google_contacts_connect():
+    if not google_contacts.configured():
+        return redirect("/callers?gcerror=unconfigured")
+    state = secrets.token_urlsafe(16)
+    session["gc_state"] = state           # CSRF guard, verified on callback
+    return redirect(google_contacts.auth_url(state))
+
+
+@app.route("/api/contacts/google/callback")
+@login_required
+def google_contacts_callback():
+    expected = session.pop("gc_state", None)
+    if request.args.get("error") or not request.args.get("code"):
+        return redirect("/callers?gcerror=denied")
+    if not expected or request.args.get("state") != expected:
+        return redirect("/callers?gcerror=state")
+    try:
+        google_contacts.connect_with_code(current_business()["id"], request.args["code"])
+    except Exception as e:
+        print(f"[ringback] google contacts connect failed: {e}", file=sys.stderr, flush=True)
+        return redirect("/callers?gcerror=exchange")
+    return redirect("/callers?gcsync=1")   # the UI auto-runs a first sync on return
+
+
+@app.route("/api/contacts/google/sync", methods=["POST"])
+@login_required
+def google_contacts_sync():
+    biz = current_business()
+    if not google_contacts.is_connected(biz["id"]):
+        return jsonify(error="Connect Google Contacts first."), 400
+    try:
+        summary = google_contacts.sync(biz["id"])
+    except Exception as e:
+        print(f"[ringback] google contacts sync failed: {e}", file=sys.stderr, flush=True)
+        return jsonify(error="Google Contacts sync failed. Please try again."), 502
+    return jsonify(ok=True, **summary)
+
+
+@app.route("/api/contacts/google/disconnect", methods=["POST"])
+@login_required
+def google_contacts_disconnect():
+    google_contacts.disconnect(current_business()["id"])
+    return jsonify(connected=False)
 
 
 def _cancel_estimate_for(biz, caller):

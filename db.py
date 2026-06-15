@@ -770,6 +770,34 @@ def set_integration(business_id, provider, connected):
     return bool(connected)
 
 
+def set_oauth_tokens(business_id, provider, access_token, refresh_token, token_expiry):
+    """Store (or clear) OAuth tokens for any provider, keyed by (business_id,
+    provider). Provider-agnostic sibling of set_google_tokens (no calendar_id),
+    used by the Google Contacts import connection.
+
+    On connect/refresh (access_token given): upsert and KEEP an existing refresh
+    token when this response omitted one. On disconnect (access_token None): clear
+    the tokens outright and mark disconnected -- a real forget, not just inactive."""
+    conn = get_conn()
+    if access_token is None:
+        conn.execute(
+            "UPDATE integrations SET connected=0, connected_at=NULL, access_token=NULL, "
+            "refresh_token=NULL, token_expiry=NULL WHERE business_id=? AND provider=?",
+            (business_id, provider))
+    else:
+        conn.execute(
+            "INSERT INTO integrations (business_id, provider, connected, connected_at, "
+            "access_token, refresh_token, token_expiry) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(business_id, provider) DO UPDATE SET "
+            "connected=excluded.connected, connected_at=excluded.connected_at, "
+            "access_token=excluded.access_token, "
+            "refresh_token=COALESCE(excluded.refresh_token, integrations.refresh_token), "
+            "token_expiry=excluded.token_expiry",
+            (business_id, provider, 1, now_iso(), access_token, refresh_token, token_expiry))
+    conn.commit()
+    conn.close()
+
+
 def set_google_tokens(business_id, access_token, refresh_token, token_expiry,
                       calendar_id="primary"):
     """Store (or clear) a business's Google OAuth tokens and mark it connected."""

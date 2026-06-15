@@ -736,6 +736,116 @@ function addMeta(container, text) {
       if (e.key === "Enter") { e.preventDefault(); addContact(); }
     }));
 
+  // ===== Contact import: file upload + Google Contacts =====
+  const importForm = document.getElementById("cl-import-form");
+  const fileEl = document.getElementById("cl-file");
+  const fileNameEl = document.getElementById("cl-file-name");
+  const importBtn = document.getElementById("cl-import-btn");
+  const resultEl = document.getElementById("cl-import-result");
+
+  function showResult(msg, isError) {
+    if (!resultEl) return;
+    resultEl.textContent = msg;
+    resultEl.classList.toggle("is-error", !!isError);
+  }
+  function importSummary(d) {
+    const n = d.suggested || 0;
+    let lead;
+    if (n) {
+      const bits = [];
+      if (d.customers) bits.push(d.customers + " past client" + (d.customers === 1 ? "" : "s"));
+      if (d.vendors) bits.push(d.vendors + (d.vendors === 1 ? " company" : " companies"));
+      lead = "Added " + n + " to review" + (bits.length ? " (" + bits.join(", ") + ")" : "") + ".";
+    } else {
+      lead = "No new clients or companies to review.";
+    }
+    const tail = [];
+    if (d.unclassified) tail.push(d.unclassified + " left as normal prospects");
+    if (d.skipped) tail.push(d.skipped + " already sorted");
+    const c = d.contacts || 0;
+    return "Imported " + c + " contact" + (c === 1 ? "" : "s") + ". " + lead
+      + (tail.length ? " " + tail.join("; ") + "." : "");
+  }
+  function selectPendingTab() {
+    if (tab === "pending") return;
+    const pendingTab = tabs.find((t) => t.dataset.tab === "pending");
+    if (!pendingTab) return;
+    tabs.forEach((x) => { x.classList.remove("is-active"); x.setAttribute("aria-selected", "false"); });
+    pendingTab.classList.add("is-active"); pendingTab.setAttribute("aria-selected", "true");
+    tab = "pending"; selected.clear();
+  }
+
+  if (fileEl) fileEl.addEventListener("change", () => {
+    const f = fileEl.files && fileEl.files[0];
+    fileNameEl.textContent = f ? f.name : "No file chosen";
+  });
+  if (importForm) importForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const file = fileEl.files && fileEl.files[0];
+    if (!file) { fileEl.click(); return; }
+    importBtn.disabled = true;
+    showResult("Importing…", false);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const d = await apiFetch("/api/contacts/import", { method: "POST", body: fd });
+      showResult(importSummary(d), false);
+      fileEl.value = ""; fileNameEl.textContent = "No file chosen";
+      selectPendingTab();
+      await loadTab();
+      loadDirectory();
+    } catch (err) {
+      showResult(err.message, true);
+    } finally {
+      importBtn.disabled = false;
+    }
+  });
+
+  const gcSync = document.getElementById("cl-gc-sync");
+  const gcDisconnect = document.getElementById("cl-gc-disconnect");
+  async function runGoogleSync() {
+    if (gcSync) gcSync.disabled = true;
+    showResult("Syncing from Google…", false);
+    try {
+      const d = await apiFetch("/api/contacts/google/sync", { method: "POST" });
+      showResult(importSummary(d), false);
+      selectPendingTab();
+      await loadTab();
+      loadDirectory();
+    } catch (err) {
+      showResult(err.message, true);
+    } finally {
+      if (gcSync) gcSync.disabled = false;
+    }
+  }
+  if (gcSync) gcSync.addEventListener("click", runGoogleSync);
+  if (gcDisconnect) gcDisconnect.addEventListener("click", async () => {
+    gcDisconnect.disabled = true;
+    try {
+      await apiFetch("/api/contacts/google/disconnect", { method: "POST" });
+      window.location = "/callers";
+    } catch (err) { gcDisconnect.disabled = false; showResult(err.message, true); }
+  });
+
+  // On return from the Google OAuth flow: auto-run a first sync (or surface an
+  // error), then strip the query so a refresh doesn't repeat it.
+  (function handleGoogleReturn() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("gcsync")) {
+      history.replaceState(null, "", "/callers");
+      runGoogleSync();
+    } else if (p.get("gcerror")) {
+      history.replaceState(null, "", "/callers");
+      const m = {
+        unconfigured: "Google Contacts isn’t set up yet.",
+        denied: "Google sign-in was canceled.",
+        state: "That Google sign-in expired. Please try again.",
+        exchange: "Could not connect to Google. Please try again.",
+      };
+      showResult(m[p.get("gcerror")] || "Google Contacts connection failed.", true);
+    }
+  })();
+
   loadTab();
   loadDirectory();
 })();

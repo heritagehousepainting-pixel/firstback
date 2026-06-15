@@ -50,6 +50,12 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get(
     "GOOGLE_REDIRECT_URI", "http://127.0.0.1:8800/api/calendar/google/callback")
+# Google Contacts import (the People API) is a SEPARATE OAuth connection from the
+# calendar, so it has its own redirect URI (add this one to the same OAuth client's
+# "Authorized redirect URIs" too). Same GOOGLE_CLIENT_ID/SECRET power both.
+GOOGLE_CONTACTS_REDIRECT_URI = os.environ.get(
+    "GOOGLE_CONTACTS_REDIRECT_URI",
+    "http://127.0.0.1:8800/api/contacts/google/callback")
 
 # --- Twilio (optional real SMS / voice) -----------------------------------
 # Powers real outbound texts (reminders, owner alerts) and, later, inbound SMS

@@ -8,6 +8,33 @@
 
 {% block content %}
 <div id="callers">
+  {% call card(title='Import your contacts', subtitle='Bring your whole address book in at once, then sort it below. RingBack adds each contact to the review queue as a suggestion — it never screens anyone automatically.') %}
+    <div class="cl-import">
+      <form id="cl-import-form" class="cl-import-row">
+        <label class="cl-file">
+          <input type="file" id="cl-file" name="file" accept=".vcf,.csv,text/vcard,text/x-vcard,text/csv">
+          <span class="cl-file-btn">Choose file</span>
+          <span class="cl-file-name" id="cl-file-name">No file chosen</span>
+        </label>
+        {{ button('Import contacts', size='sm', type='submit', id='cl-import-btn') }}
+      </form>
+      <div class="cl-import-google">
+        {% if gc_connected %}
+          {{ button('Sync from Google', size='sm', variant='secondary', id='cl-gc-sync') }}
+          {{ button('Disconnect', size='sm', variant='ghost', id='cl-gc-disconnect') }}
+          <span class="cl-import-hint">Google Contacts connected.</span>
+        {% elif gc_configured %}
+          {{ button('Connect Google Contacts', size='sm', variant='secondary', href='/api/contacts/google/connect', id='cl-gc-connect') }}
+        {% else %}
+          {{ button('Connect Google Contacts', size='sm', variant='secondary', disabled=true) }}
+          <span class="cl-import-hint">Coming soon.</span>
+        {% endif %}
+      </div>
+      <p class="cl-import-note">We keep only each contact’s name, number, and company — nothing else from your phone.</p>
+      <p class="cl-import-result" id="cl-import-result" role="status" aria-live="polite"></p>
+    </div>
+  {% endcall %}
+
   {% call card(title='For review', subtitle='RingBack watched these callers and guessed where they belong. Confirm it, change it, or dismiss it — one at a time or in bulk.', flush=true) %}
     <div class="cl-toolbar">
       <div class="cl-tabs" role="tablist" aria-label="Caller review">

@@ -51,15 +51,15 @@
         {% if is_signup %}{{ field('Your name', name='owner', value=request.form.get('owner',''), placeholder='Jonathan') }}{% endif %}
         {{ field('Work email', name='email', type='email', value=request.form.get('email',''), placeholder='you@yourcompany.com', required=true, autocomplete='email') }}
         {{ field('Password', name='password', type='password', placeholder='••••••••', required=true, minlength=('8' if is_signup else ''), autocomplete=('new-password' if is_signup else 'current-password')) }}
-        {% if not is_signup %}<a class="au-forgot" href="#">Forgot password?</a>{% endif %}
+        {% if not is_signup %}<a class="au-forgot" href="/contact">Forgot password?</a>{% endif %}
         {{ button('Create account' if is_signup else 'Sign in', type='submit', block=true) }}
       </form>
 
       <p class="au-alt">
         {{ 'Already have an account?' if is_signup else 'New to RingBack?' }}
-        <a href="{{ '/login' if is_signup else '/signup' }}">{{ 'Log in' if is_signup else 'Sign up free' }}</a>
+        <a href="{{ '/login' if is_signup else '/signup' }}">{{ 'Log in' if is_signup else 'Sign up' }}</a>
       </p>
-      <p class="au-terms">By continuing you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.</p>
+      <p class="au-terms">By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
     </div>
   </main>
 

@@ -1,34 +1,30 @@
 {% extends "marketing_base.html" %}
-{% set star %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.56l-5.9 3.1 1.13-6.57L2.45 9.44l6.6-.96z"/></svg>{% endset %}
-{% set stars %}<span class="stars" aria-label="5 out of 5">{{ star }}{{ star }}{{ star }}{{ star }}{{ star }}</span>{% endset %}
 {% block title %}Customer stories{% endblock %}
 {% block content %}
 <header class="mk-head"><div class="mk-wrap">
   <a href="/resources" class="mk-eyebrow">← Resources</a>
   <h1 class="mk-h1">Customer stories</h1>
-  <p class="mk-lead">How real crews booked more work without hiring a front desk.</p>
+  <p class="mk-lead">RingBack is just getting started. As contractors go live, their real results will show up here — no invented quotes, no stock photos.</p>
 </div></header>
 
 <section class="mk-section" style="padding-top:clamp(24px,3vw,40px)"><div class="mk-wrap">
   <div class="mk-grid mk-grid-3">
     <div class="mk-card mk-story">
-      {{ stars }}
-      <blockquote>“It booked two estimates while I was up on a ladder. Paid for itself the first week.”</blockquote>
-      <span class="who">Marcus B. — Heritage House Painting</span>
-      <span class="result"><b>+9 estimates</b> booked in month one</span>
+      <blockquote>Your first customer’s quote goes here — a real contractor, in their own words.</blockquote>
+      <span class="who">Be the first →</span>
     </div>
     <div class="mk-card mk-story">
-      {{ stars }}
-      <blockquote>“No-heat calls used to go to voicemail at night. Now they hit my phone flagged urgent — I haven’t lost one since.”</blockquote>
-      <span class="who">Dana W. — Whitfield Heating & Air</span>
-      <span class="result"><b>0 missed</b> emergency calls last winter</span>
+      <blockquote>Real results from a real crew will land here once they’re live and happy to share.</blockquote>
+      <span class="who">Your shop?</span>
     </div>
     <div class="mk-card mk-story">
-      {{ stars }}
-      <blockquote>“Customers think they’re texting me. They’re not — but the estimate’s on my calendar before I’m off the job.”</blockquote>
-      <span class="who">Priya A. — Anand Plumbing</span>
-      <span class="result"><b>4 sec</b> average reply, day or night</span>
+      <blockquote>We’d rather show one true story than three invented ones. This space is waiting for yours.</blockquote>
+      <span class="who">Coming soon</span>
     </div>
+  </div>
+  <div class="mk-cta-actions" style="justify-content:center;margin-top:clamp(24px,3vw,40px)">
+    <a class="ob-btn ob-btn-accent ob-btn-lg" href="/signup">Get started</a>
+    <a class="ob-btn ob-btn-light ob-btn-lg" href="/contact">Talk to sales</a>
   </div>
 </div></section>
 {% endblock %}

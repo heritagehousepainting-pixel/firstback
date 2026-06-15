@@ -57,7 +57,7 @@
       <div class="ob-actions">
         <a class="ob-login" href="/login">Log in</a>
         <a class="ob-btn ob-btn-light" href="/contact">Talk to sales</a>
-        <a class="ob-btn ob-btn-accent" href="/signup">Sign up for free</a>
+        <a class="ob-btn ob-btn-accent" href="/signup">Get started</a>
       </div>
     </div>
   </header>
@@ -114,7 +114,7 @@
             </span>
           </div>
           <div class="ob-thread">
-            <div class="ob-sms-meta">texted back in 4s</div>
+            <div class="ob-sms-meta">texted back in seconds</div>
             <div class="ob-sms ob-sms-out">Hi! Sorry we missed your call. What were you looking to get painted?</div>
             <div class="ob-sms ob-sms-in">Kitchen and living room</div>
             <div class="ob-sms ob-sms-out">Got it — what part of town are you in?</div>
@@ -136,7 +136,7 @@
 {
   <span class="k">"lead"</span>:       <span class="s">"Homeowner · Downtown"</span>,
   <span class="k">"job"</span>:        <span class="s">"Kitchen + living room"</span>,
-  <span class="k">"replied_in"</span>: <span class="s">"4s"</span>,
+  <span class="k">"replied_in"</span>: <span class="s">"seconds"</span>,
   <span class="k">"estimate"</span>:   <span class="s">"Thu 10:00 AM"</span>,
   <span class="k">"reminder"</span>:   <span class="s">"auto-sent"</span>,
   <span class="k">"status"</span>:     <span class="g">"booked"</span>
@@ -146,13 +146,13 @@
 
     <div class="ob-works">
       <span class="lbl">works with</span>
-      <span>Jobber</span><span>Housecall Pro</span><span>Google Calendar</span><span>Your existing number</span>
+      <span>Google Calendar</span><span>Your existing number</span>
     </div>
   </main>
 
-  <button class="ob-chat" aria-label="Chat with us">
+  <a class="ob-chat" href="/contact" aria-label="Contact us">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>
-  </button>
+  </a>
 </div>
 
 <script>
@@ -165,7 +165,7 @@
     },
     call: {
       eyebrow: 'AI voice callback',
-      sub: 'Prefer to talk? RingBack calls the customer back in your name, speaks with them, answers their questions, and books the estimate — a real AI voice on the line, 24/7.'
+      sub: 'Prefer to talk? RingBack calls the customer back in your name, speaks with them, answers their questions, and books the estimate — a real AI voice on the line. Currently in beta.'
     }
   };
   var obSub = document.getElementById('ob-sub');

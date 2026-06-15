@@ -86,6 +86,16 @@ except ValueError:
     VOICE_SERVICE_PORT = 8810
 CONVERSATIONRELAY_VOICE = os.environ.get("RINGBACK_VOICE_TTS", "")
 
+# The voice service runs as a SEPARATE process/Render service and cannot share the
+# web app's SQLite disk, so it relays each spoken turn to the web app's
+# /internal/voice/turn endpoint rather than writing the DB directly — keeping booking
+# writes single-writer. WEB_INTERNAL_URL is the web app's base URL (set ON the voice
+# service); INTERNAL_SECRET is the shared secret both sides check (constant-time).
+# When WEB_INTERNAL_URL is empty (local/tests), the voice service runs the shared
+# engine in-process instead, so nothing extra is needed to develop or test.
+WEB_INTERNAL_URL = os.environ.get("RINGBACK_WEB_URL", "")
+INTERNAL_SECRET = os.environ.get("RINGBACK_INTERNAL_SECRET", "")
+
 # --- Email / SMTP (optional — owner alerts by email) ----------------------
 # Lets RingBack email the owner when a lead arrives or an estimate books. Until
 # SMTP_HOST and SMTP_FROM are set, mail.configured() is False and email alerts

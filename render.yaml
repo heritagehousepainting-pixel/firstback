@@ -31,6 +31,8 @@ services:
         generateValue: true
       - key: RINGBACK_TASKS_SECRET  # guards the scheduler endpoint /tasks/run-due
         generateValue: true
+      - key: RINGBACK_INTERNAL_SECRET  # shared secret for the voice service's /internal/voice/turn seam
+        generateValue: true
       - key: RINGBACK_RUN_TICKER    # start the reminders/follow-ups scheduler in-process
         value: "1"
       - key: RINGBACK_HTTPS         # secure session cookies (Render serves HTTPS)
@@ -46,25 +48,46 @@ services:
       # Real texts/calls (later, see USER_TO_DO.md):
       #   PUBLIC_BASE_URL = https://<your-render-url>
       #   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER
+      # AI voice callback (after deploying the ringback-voice service below):
+      #   RINGBACK_VOICE_URL = https://ringback-voice.onrender.com  (that service's URL)
       # Email alerts (optional):
       #   SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM
       # First-login owner (optional; defaults to the seeded creds you then change):
       #   RINGBACK_OWNER_EMAIL / RINGBACK_OWNER_PASSWORD
 
-# ---- OPTIONAL: the AI voice agent (Phase 3) as a second service. ----
-# Do NOT just uncomment: a separate Render service cannot share this one's SQLite
-# disk, so enabling voice in production first needs a SHARED database (Render
-# Postgres) or routing the voice service's booking writes back through the web app.
-# We'll wire that when you turn on the "reply CALL" voice callback. For now the
-# voice leg stays off and an SMS "call me" simply keeps the text conversation going.
-#
-#  - type: web
-#    name: ringback-voice
-#    runtime: python
-#    plan: starter
-#    buildCommand: pip install -r requirements.txt
-#    startCommand: uvicorn voice_service:fastapi_app --host 0.0.0.0 --port $PORT
-#    envVars:
-#      - key: PYTHON_VERSION
-#        value: "3.12.7"
-#      # + a SHARED database + RINGBACK_PROVIDER/ANTHROPIC_API_KEY
+# ---- The AI voice agent (Phase 3) as a second service. ----
+# The voice service is STATELESS: it relays each spoken turn to the web app's
+# /internal/voice/turn endpoint (see voice_service.py + app.py), so it needs NO
+# database disk and NO AI key — the web app owns the DB and the brain, which keeps
+# booking writes single-writer (the SQLite-can't-be-shared problem, solved).
+# To turn the voice leg ON:
+#   1. Deploy — this service comes up at e.g. https://ringback-voice.onrender.com.
+#   2. On the WEB service above, set RINGBACK_VOICE_URL to THIS service's URL (in the
+#      dashboard). That env var is the master switch app.py checks for "reply CALL".
+#   3. Connect Twilio (creds + a number + PUBLIC_BASE_URL) per USER_TO_DO.md, and
+#      finish A2P 10DLC + the TCPA review before real customers.
+# Leaving RINGBACK_VOICE_URL unset on the web service keeps voice dormant (an SMS
+# "call me" just continues by text), even with this service running.
+  - type: web
+    name: ringback-voice
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn voice_service:fastapi_app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /twiml
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      # The web app's public base URL (needs the https:// scheme) — where this
+      # service relays each turn. Set it in the dashboard after the web app is up.
+      - key: RINGBACK_WEB_URL
+        sync: false
+      # The shared seam secret — synced automatically from the web service.
+      - key: RINGBACK_INTERNAL_SECRET
+        fromService:
+          type: web
+          name: ringback
+          envVarKey: RINGBACK_INTERNAL_SECRET
+      # Optional: override Twilio's ConversationRelay TTS voice id.
+      # - key: RINGBACK_VOICE_TTS
+      #   value: en-US-Neural2-J

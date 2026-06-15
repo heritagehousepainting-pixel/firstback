@@ -11,6 +11,7 @@ import sys
 import threading
 from datetime import datetime
 from functools import wraps
+from urllib.parse import quote
 
 from flask import (Flask, render_template, request, redirect, jsonify, session,
                    url_for)
@@ -29,7 +30,7 @@ import contact_import
 import google_contacts
 from config import (APP_NAME, TAGLINE, DEBUG, SECRET_KEY, TASKS_SECRET,
                     SESSION_COOKIE_SECURE, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD,
-                    app_tz, VOICE_PUBLIC_URL)
+                    app_tz, VOICE_PUBLIC_URL, INTERNAL_SECRET)
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -1159,7 +1160,8 @@ def twilio_sms_inbound():
             return _twiml("<Response><Message>Thanks. It is currently after hours, so "
                           "we will call you during business hours. You can also keep "
                           "texting here any time.</Message></Response>")
-        twiml_url = VOICE_PUBLIC_URL.rstrip("/") + f"/twiml?biz={biz['id']}&lead={lead['id']}"
+        twiml_url = (VOICE_PUBLIC_URL.rstrip("/")
+                     + f"/twiml?biz={biz['id']}&lead={lead['id']}&name={quote(biz.get('name') or '')}")
         res = messaging.place_call(biz, caller, twiml_url)
         if res.get("status") in ("placed", "simulated"):
             return _twiml("<Response><Message>Calling you now.</Message></Response>")
@@ -1189,6 +1191,31 @@ def tasks_run_due():
     if not TASKS_SECRET or not secrets.compare_digest(sent, TASKS_SECRET):
         return jsonify(error="Forbidden."), 403
     return jsonify(reminders.tick_once())
+
+
+# ---- Internal seam for the separate voice service (Phase 3 production split) ----
+# voice_service.py runs as its own process and cannot share this app's SQLite disk,
+# so it relays each spoken turn here. The web app owns the DB and runs the SAME
+# handle_inbound the SMS/simulator paths use, so a voice turn books + alerts + queues
+# reminders identically and booking writes stay single-writer. Locked behind a shared
+# secret (constant-time compared); disabled (always 403) until RINGBACK_INTERNAL_SECRET
+# is set on both services.
+@app.route("/internal/voice/turn", methods=["POST"])
+def internal_voice_turn():
+    sent = request.headers.get("X-Internal-Secret", "")
+    if not INTERNAL_SECRET or not secrets.compare_digest(sent, INTERNAL_SECRET):
+        return jsonify(error="Forbidden."), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        biz_id, lead_id = int(data.get("biz")), int(data.get("lead"))
+    except (TypeError, ValueError):
+        return jsonify(error="biz and lead must be integers."), 400
+    biz = db.get_business(biz_id)
+    lead = db.get_lead(lead_id, biz["id"]) if biz else None
+    if not biz or not lead:
+        return jsonify(error="Unknown business or lead."), 404
+    reply, booked, urgent = handle_inbound(biz, lead, (data.get("text") or "").strip())
+    return jsonify(reply=reply, booked=booked, urgent=urgent)
 
 
 # Under a production WSGI server (gunicorn) the __main__ block below never runs, so

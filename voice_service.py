@@ -29,9 +29,13 @@ import sys
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 
-import db
-import app as flask_app   # reuse the shared conversation engine (handle_inbound)
-from config import VOICE_PUBLIC_URL, CONVERSATIONRELAY_VOICE, VOICE_SERVICE_PORT
+from config import (VOICE_PUBLIC_URL, CONVERSATIONRELAY_VOICE, VOICE_SERVICE_PORT,
+                    WEB_INTERNAL_URL, INTERNAL_SECRET)
+
+# This service does NOT import the Flask app or the DB at module load. In production
+# (WEB_INTERNAL_URL set) it relays each turn to the web app's /internal/voice/turn
+# over HTTP, so it stays stateless and never needs the shared SQLite disk. Only the
+# local / in-process fallback (WEB_INTERNAL_URL unset) lazily imports app + db.
 
 fastapi_app = FastAPI()
 
@@ -61,11 +65,47 @@ def _wss_base():
     return base
 
 
-def build_twiml(biz_id, lead_id, wss_base=None):
-    """The ConversationRelay TwiML for an AI voice call. Pure + testable."""
+def _greeting_name(biz_id, name=None):
+    """Business name for the spoken greeting. In production it arrives as the ?name=
+    query param the web app builds into the TwiML URL (no DB needed here); locally
+    (no WEB_INTERNAL_URL) we look it up directly."""
+    if name:
+        return name
+    if WEB_INTERNAL_URL:
+        return "our team"   # stateless: never touch a DB this service doesn't own
+    try:
+        import db
+        biz = db.get_business(int(biz_id)) if _isint(biz_id) else None
+        return (biz or {}).get("name") or "our team"
+    except Exception:
+        return "our team"
+
+
+def _process_turn(biz_id, lead_id, text):
+    """Get the AI's reply for one spoken turn. Production (WEB_INTERNAL_URL set):
+    POST to the web app's internal seam so booking writes stay single-writer on the
+    DB owner. Local/tests: run the shared engine in-process."""
+    if WEB_INTERNAL_URL:
+        import requests
+        r = requests.post(
+            WEB_INTERNAL_URL.rstrip("/") + "/internal/voice/turn",
+            json={"biz": biz_id, "lead": lead_id, "text": text},
+            headers={"X-Internal-Secret": INTERNAL_SECRET}, timeout=30)
+        r.raise_for_status()
+        return (r.json() or {}).get("reply", "")
+    import db
+    import app as flask_app
     biz = db.get_business(int(biz_id)) if _isint(biz_id) else None
-    name = (biz or {}).get("name") or "our team"
-    greeting = (f"Hi, this is the scheduling assistant for {name}. "
+    lead = db.get_lead(int(lead_id)) if _isint(lead_id) else None
+    if not biz or not lead:
+        return ""
+    reply, _booked, _urgent = flask_app.handle_inbound(biz, lead, text)
+    return reply
+
+
+def build_twiml(biz_id, lead_id, wss_base=None, name=None):
+    """The ConversationRelay TwiML for an AI voice call. Pure + testable."""
+    greeting = (f"Hi, this is the scheduling assistant for {_greeting_name(biz_id, name)}. "
                 "This call may be recorded. How can I help you book your free estimate?")
     base = (wss_base or _wss_base() or "").rstrip("/")
     ws_url = f"{base}/ws?biz={biz_id}&lead={lead_id}"
@@ -84,12 +124,13 @@ def build_twiml(biz_id, lead_id, wss_base=None):
 async def twiml(request: Request):
     biz_id = request.query_params.get("biz", "")
     lead_id = request.query_params.get("lead", "")
+    name = request.query_params.get("name", "")
     # If VOICE_PUBLIC_URL isn't set (e.g. local ngrok), derive wss from the host
     # Twilio reached us on. Twilio always uses TLS, so wss:// is correct.
     fallback = None
     if not _wss_base():
         fallback = "wss://" + request.headers.get("host", "")
-    return Response(content=build_twiml(biz_id, lead_id, fallback),
+    return Response(content=build_twiml(biz_id, lead_id, fallback, name or None),
                     media_type="text/xml")
 
 
@@ -101,7 +142,7 @@ def _say(text, last=True):
 @fastapi_app.websocket("/ws")
 async def ws(websocket: WebSocket):
     await websocket.accept()
-    biz = lead = None
+    biz_id = lead_id = None
     loop = asyncio.get_event_loop()
     try:
         while True:
@@ -115,17 +156,16 @@ async def ws(websocket: WebSocket):
                 params = msg.get("customParameters") or {}
                 biz_id = params.get("biz") or websocket.query_params.get("biz")
                 lead_id = params.get("lead") or websocket.query_params.get("lead")
-                biz = db.get_business(int(biz_id)) if _isint(biz_id) else None
-                lead = db.get_lead(int(lead_id)) if _isint(lead_id) else None
             elif mtype == "prompt":
                 text = (msg.get("voicePrompt") or "").strip()
-                if not text or not biz or not lead:
+                if not text or not _isint(biz_id) or not _isint(lead_id):
                     continue
-                # handle_inbound is synchronous (DB + LLM); keep it off the event
-                # loop so other calls' sockets stay responsive.
-                reply, _booked, _urgent = await loop.run_in_executor(
-                    None, flask_app.handle_inbound, biz, lead, text)
-                await websocket.send_text(_say(reply, last=True))
+                # _process_turn is synchronous (HTTP relay, or DB+LLM in-process);
+                # keep it off the event loop so other calls' sockets stay responsive.
+                reply = await loop.run_in_executor(
+                    None, _process_turn, biz_id, lead_id, text)
+                if reply:
+                    await websocket.send_text(_say(reply, last=True))
             elif mtype == "interrupt":
                 # The caller barged in. We send whole turns, so there's nothing
                 # half-spoken to reconcile; just keep listening.

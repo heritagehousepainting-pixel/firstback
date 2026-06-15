@@ -25,7 +25,11 @@
   background:radial-gradient(46% 32% at 50% -4%, rgba(234,88,12,.10) 0%, rgba(234,88,12,0) 70%)}
 
 /* ---- Top nav (shared with marketing_base — keep these classes intact) ---- */
-.ob-nav{position:relative;z-index:2;display:flex;align-items:center;gap:40px;
+/* z-index must sit ABOVE the dropdown scrim (.ob-scrim, z-index:39 in motion.css):
+   .ob-nav is a stacking context, so it caps its dropdown panel (.ob-ddmenu, z-50)
+   to this level. At 2 the body-level scrim painted over the open menu and stole its
+   clicks; 40 lets the nav + its dropdown render above the scrim. */
+.ob-nav{position:relative;z-index:40;display:flex;align-items:center;gap:40px;
   padding:22px clamp(20px,4vw,56px)}
 .ob-logo{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;
   font-size:22px;font-weight:800;letter-spacing:-.02em}

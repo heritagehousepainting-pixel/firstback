@@ -17,8 +17,11 @@ _BUSINESS_COLS = ["name", "trade", "service_area", "hours", "owner_name",
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
+    # Never let a lock hang the process forever (e.g. during a deploy while the prior
+    # instance is still releasing the DB on the shared disk). Wait briefly, then error.
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -29,9 +32,12 @@ def now_iso():
 def init_db():
     conn = get_conn()
     c = conn.cursor()
-    # WAL lets the Flask app and the voice service (two processes) read/write the
-    # same SQLite file concurrently without lock storms.
-    c.execute("PRAGMA journal_mode=WAL")
+    # NOT WAL. The DB lives on Render's network-attached /var/data disk, where SQLite
+    # WAL's shared-memory (-shm / mmap) is unreliable and can hang the worker on boot
+    # ("No open HTTP ports detected"). The voice service relays over HTTP
+    # (/internal/voice/turn) and never opens this file directly, so a single-writer
+    # rollback journal is correct here and safe on a network filesystem.
+    c.execute("PRAGMA journal_mode=DELETE")
     c.executescript(
         """
         CREATE TABLE IF NOT EXISTS businesses (

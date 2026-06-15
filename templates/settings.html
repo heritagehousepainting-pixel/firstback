@@ -39,6 +39,20 @@
     </div>
   {% endcall %}
 
+  {% call card(title='Phone & AI voice callback', subtitle='Ring your own cell first, and let a caller ask the AI to call them back — out loud.') %}
+    <div class="field-grid">
+      {{ field('Ring my cell first (optional)', name='forward_to', value=business.forward_to or '', type='tel', placeholder='+1 555 123 4567', help='An inbound call rings this number first. If you don’t pick up, RingBack takes over and texts the caller back.') }}
+    </div>
+    <div class="toggle-list">
+      {{ alert_toggle('voice_callback_enabled', 'Let a caller reply “CALL” to get an AI phone callback', business.voice_callback_enabled) }}
+    </div>
+    {% if voice_configured and sms_configured %}
+    <p class="provider-note provider-note-ok">Voice callback is <strong>live</strong>. When a caller replies CALL, RingBack phones them, talks through the job, and books the estimate — within quiet hours only.</p>
+    {% else %}
+    <p class="provider-note provider-note-soft">The AI voice callback goes live once you connect <strong>Twilio</strong> and deploy the voice service. Until then, a caller who replies CALL simply keeps chatting by <strong>text</strong> — nothing breaks.</p>
+    {% endif %}
+  {% endcall %}
+
   {% call card(title='Connect your calendar', subtitle='Link Google Calendar so booked estimates show up there automatically and the AI never offers a time you’re already busy.') %}
     {% if gconnected %}<p class="provider-note provider-note-ok">Google Calendar is connected. New estimates sync to it, and your busy times are kept open-free.</p>{% endif %}
     {% if gerror %}<p class="provider-note provider-note-err">{{ 'Add your Google credentials to enable this.' if gerror == 'unconfigured' else 'We couldn’t finish connecting Google. Please try again.' }}</p>{% endif %}

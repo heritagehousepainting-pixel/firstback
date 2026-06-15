@@ -414,6 +414,10 @@ def settings():
             db.set_avg_job_value(biz["id"], float(raw_avg) if raw_avg else None)
         except ValueError:
             pass  # leave it unchanged on a non-numeric entry
+        db.update_phone_voice(
+            biz["id"],
+            forward_to=(request.form.get("forward_to") or "").strip(),
+            voice_callback_enabled=1 if request.form.get("voice_callback_enabled") else 0)
         return redirect("/settings?saved=1")
     return render_template("settings.html", business=biz,
                            integrations=db.list_integrations(biz["id"]),
@@ -426,6 +430,7 @@ def settings():
                            pwerror=request.args.get("pwerror"),
                            sms_configured=messaging.configured(),
                            email_configured=mail.configured(),
+                           voice_configured=bool(VOICE_PUBLIC_URL),
                            owner_email=db.owner_email(biz["id"]))
 
 

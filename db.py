@@ -359,6 +359,26 @@ def update_business(business_id, fields):
     conn.close()
 
 
+def update_phone_voice(business_id, forward_to=None, voice_callback_enabled=None):
+    """Persist the phone-forwarding + AI-voice-callback settings. Kept separate from
+    update_business because _BUSINESS_COLS is also used for the seed INSERT (keyed to
+    DEFAULT_BUSINESS), so these columns must not be added to that list."""
+    sets, vals = [], []
+    if forward_to is not None:
+        sets.append("forward_to=?")
+        vals.append(forward_to)
+    if voice_callback_enabled is not None:
+        sets.append("voice_callback_enabled=?")
+        vals.append(1 if voice_callback_enabled else 0)
+    if not sets:
+        return
+    conn = get_conn()
+    conn.execute(f"UPDATE businesses SET {', '.join(sets)} WHERE id=?",
+                 tuple(vals) + (business_id,))
+    conn.commit()
+    conn.close()
+
+
 def get_business_by_twilio_number(number):
     """The tenant that owns a given RingBack/Twilio number (a webhook's `To`).
     Matches on the last 10 digits so +1 / formatting differences never matter."""

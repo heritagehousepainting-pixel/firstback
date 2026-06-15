@@ -1,0 +1,71 @@
+/* ============================================================================
+   RingBack — Motion layer (Firecrawl-inspired).
+   Scroll reveals (driven by motion.js inline styles), nav mega-menu dropdowns,
+   and micro-interactions. Loads after ui.css. Honors prefers-reduced-motion
+   (ui.css already neutralises transitions globally under that setting).
+   ============================================================================ */
+
+/* ---- Scroll reveal: fallback class (motion.js mainly uses inline styles) ---- */
+.reveal{opacity:0;transform:translateY(18px)}
+.reveal.in{opacity:1;transform:none;
+  transition:opacity .55s cubic-bezier(.16,.84,.44,1), transform .55s cubic-bezier(.16,.84,.44,1)}
+
+/* ============================================================================
+   Nav mega-menu dropdown (Firecrawl-style: ruled panel, fade + slide-down)
+   Works inside the shared .ob-nav (marketing + homepage).
+   ============================================================================ */
+.ob-dd{position:relative;display:inline-flex}
+.ob-ddtrigger{display:inline-flex;align-items:center;gap:5px;background:none;border:0;cursor:pointer;
+  font-family:var(--font);font-size:15px;font-weight:500;color:var(--ink);opacity:.92;padding:0;
+  transition:opacity .12s ease}
+.ob-ddtrigger:hover,.ob-dd.open .ob-ddtrigger{opacity:1}
+.ob-ddtrigger .chev{width:13px;height:13px;opacity:.55;transition:transform .2s ease}
+.ob-dd.open .ob-ddtrigger .chev{transform:rotate(180deg)}
+.ob-ddtrigger:focus-visible{outline:2px solid var(--accent-strong);outline-offset:4px;border-radius:4px}
+
+.ob-ddmenu{position:absolute;top:calc(100% + 16px);left:50%;z-index:50;
+  transform:translateX(-50%) translateY(-8px);
+  width:min(540px,92vw);background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  box-shadow:0 1px 2px rgba(11,14,20,.05),0 20px 48px rgba(11,14,20,.16);
+  padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:2px;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .18s ease, transform .18s cubic-bezier(.16,.84,.44,1), visibility .18s}
+.ob-dd.open .ob-ddmenu{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+/* a hover bridge so the menu doesn't close in the 16px gap */
+.ob-ddmenu::before{content:"";position:absolute;left:0;right:0;top:-16px;height:16px}
+
+.ob-dditem{display:flex;align-items:flex-start;gap:11px;padding:11px 12px;border-radius:8px;
+  text-decoration:none;transition:background .12s ease}
+.ob-dditem:hover{background:var(--bg)}
+.ob-dditem .ic{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:32px;height:32px;
+  border-radius:7px;background:var(--accent-bg);color:var(--accent-strong)}
+.ob-dditem .ic svg{width:17px;height:17px}
+.ob-dditem .tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ob-dditem .t{font-size:14px;font-weight:600;color:var(--ink);line-height:1.2}
+.ob-dditem .d{font-size:12px;color:var(--ink-soft);line-height:1.3}
+.ob-ddmenu .full{grid-column:1 / -1}
+.ob-ddmenu .ob-ddlabel{grid-column:1 / -1;padding:8px 12px 4px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint)}
+
+/* page scrim while a menu is open */
+.ob-scrim{position:fixed;inset:0;z-index:39;background:rgba(11,14,20,.18);
+  opacity:0;visibility:hidden;transition:opacity .2s ease, visibility .2s}
+body.dd-open .ob-scrim{opacity:1;visibility:visible}
+
+/* keep dropdowns out of the mobile stacked menu (they collapse to plain links) */
+@media(max-width:820px){
+  .ob-dd{display:block;width:100%}
+  .ob-ddmenu{position:static;transform:none;width:auto;opacity:1;visibility:visible;pointer-events:auto;
+    box-shadow:none;border:0;padding:0;grid-template-columns:1fr;display:none}
+  .ob-dd.open .ob-ddmenu{display:grid}
+  .ob-scrim{display:none}
+}
+
+/* sticky marketing nav gains a soft shadow once the page is scrolled */
+.mk-nav{transition:box-shadow .2s ease}
+.mk-nav.scrolled{box-shadow:0 1px 0 var(--border), 0 10px 28px rgba(11,14,20,.07)}
+
+/* ---- Micro-interactions ---- */
+.mk-card,.mk-trade,.mk-price{will-change:border-color}
+.mk-card .more{transition:gap .14s ease}
+.mk-card:hover .more{gap:10px}

@@ -1,117 +1,118 @@
-{% extends "base.html" %}
-{% block title %}{{ app_name }}{% endblock %}
+{% extends "marketing_base.html" %}
+{% block title %}{{ app_name }} — Every missed call, booked by AI{% endblock %}
 {% block content %}
 
 <!-- ===== HERO ===== -->
-<section class="hero">
-  <div class="container hero-inner">
-    <div class="hero-copy">
-      <span class="eyebrow">AI-powered missed-call assistant</span>
-      <h1>Turn every missed call into a booked job.</h1>
-      <p class="lead">When you can't pick up, RingBack's AI texts the customer back in
-      seconds, answers their questions, and books the estimate &mdash; so the job doesn't
-      go to the next painter.</p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="/simulator">See the live demo
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+<section class="mk-hero">
+  <div class="mk-hero-inner">
+    <div class="mk-hero-copy">
+      <span class="mk-pill"><span class="live"></span> AI-powered missed-call assistant</span>
+      <h1>Turn every missed call into a booked job<span class="dot">.</span></h1>
+      <p class="mk-lead">When you can’t pick up, {{ app_name }}’s AI texts the customer back in
+        seconds, answers their questions, and books the estimate — so the job doesn’t go to
+        the next painter.</p>
+      <div class="mk-hero-cta">
+        <a class="ob-btn ob-btn-accent ob-btn-lg" href="/simulator">See it live
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </a>
-        <a class="btn btn-outline" href="#how">How it works</a>
+        <a class="ob-btn ob-btn-light ob-btn-lg" href="#how">How it works</a>
       </div>
-      <div class="trust-row">
-        <span>No contracts</span><span>Flat monthly rate</span><span>Set up for you</span>
+      <div class="mk-trust">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> No contracts</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Flat monthly rate</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Set up for you</span>
       </div>
     </div>
 
-    <div class="device-stage">
-      <div class="phone">
-        <div class="screen">
-          <div class="phone-top">{{ business.name if business else 'Heritage House Painting' }}</div>
-          <div class="thread">
-            <div class="sms-meta">Missed call &middot; just now</div>
-            <div class="sms sms-out">Hi! Sorry we missed your call. What were you looking to get painted?</div>
-            <div class="sms sms-in">Kitchen and living room</div>
-            <div class="sms sms-out">Got it. What part of town are you in?</div>
-            <div class="sms sms-in">Downtown</div>
-            <div class="sms sms-out">Perfect &mdash; I can get someone out Thursday 10 AM for a free estimate. Want me to book it?</div>
-            <div class="sms sms-in">Yes please</div>
-            <div class="sms sms-out">Booked. You're set for Thursday 10 AM &mdash; we'll text a reminder.</div>
+    <div class="mk-stage">
+      <div class="mk-phone" role="img" aria-label="Text conversation: the AI replies to a missed call and books a painting estimate for Thursday at 10 AM.">
+        <div class="mk-phone-screen">
+          <div class="mk-phone-top">
+            <span class="av">{{ (business.name if business else 'Heritage House Painting')[:1] }}</span>
+            <span>
+              <span class="nm">{{ business.name if business else 'Heritage House Painting' }}</span><br>
+              <span class="st">Missed call · just now</span>
+            </span>
+          </div>
+          <div class="mk-thread">
+            <div class="mk-sms-meta">Texted back in 4 seconds</div>
+            <div class="mk-sms mk-sms-out">Hi! Sorry we missed your call. What were you looking to get painted?</div>
+            <div class="mk-sms mk-sms-in">Kitchen and living room</div>
+            <div class="mk-sms mk-sms-out">Got it. What part of town are you in?</div>
+            <div class="mk-sms mk-sms-in">Downtown</div>
+            <div class="mk-sms mk-sms-out">Perfect — I can get someone out Thursday 10 AM for a free estimate. Want me to book it?</div>
+            <div class="mk-sms mk-sms-in">Yes please</div>
+            <div class="mk-sms-booked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Booked — Thursday 10 AM</div>
           </div>
         </div>
       </div>
-      <div class="device-cap">Replied in 4 seconds &middot; estimate booked &middot; zero effort</div>
     </div>
   </div>
 </section>
 
 <!-- ===== VALUE ===== -->
-<section class="block">
-  <div class="container">
-    <div class="section-head reveal">
-      <span class="kicker">Why it wins you the job</span>
-      <h2>The first to respond wins the work.</h2>
-      <p>Most customers hire whoever gets back to them first. RingBack's AI makes sure that's always you.</p>
+<section class="mk-section">
+  <div class="mk-wrap">
+    <div class="mk-section-head">
+      <span class="mk-kicker">Why it wins you the job</span>
+      <h2 class="mk-h2">The first to respond wins the work.</h2>
+      <p>Most customers hire whoever gets back to them first. {{ app_name }}’s AI makes sure that’s always you.</p>
     </div>
-    <div class="features">
-      <div class="feature reveal"><div class="idx">01</div><h3>AI texts back in seconds</h3><p>Answers instantly, in your voice &mdash; before they call your competitor.</p></div>
-      <div class="feature reveal"><div class="idx">02</div><h3>Books the estimate</h3><p>Qualifies the job and schedules it while you're up on the ladder.</p></div>
-      <div class="feature reveal"><div class="idx">03</div><h3>Flags urgent jobs</h3><p>Flooding, no heat, no AC &mdash; you're notified the second it can't wait.</p></div>
-      <div class="feature reveal"><div class="idx">04</div><h3>Every lead in one place</h3><p>Each conversation and booking, organized. Nothing slips through.</p></div>
+    <div class="mk-grid mk-grid-2">
+      <article class="mk-card"><span class="mk-index">01</span><h3>AI texts back in seconds</h3><p>Answers instantly, in your voice — before they call your competitor.</p></article>
+      <article class="mk-card"><span class="mk-index">02</span><h3>Books the estimate</h3><p>Qualifies the job and schedules it while you’re up on the ladder.</p></article>
+      <article class="mk-card"><span class="mk-index">03</span><h3>Flags urgent jobs</h3><p>Flooding, no heat, no AC — you’re notified the second it can’t wait.</p></article>
+      <article class="mk-card"><span class="mk-index">04</span><h3>Every lead in one place</h3><p>Each conversation and booking, organized. Nothing slips through.</p></article>
     </div>
   </div>
 </section>
 
 <!-- ===== HOW IT WORKS ===== -->
-<section class="block" id="how">
-  <div class="container">
-    <div class="section-head reveal">
-      <span class="kicker">Up and running in a day</span>
-      <h2>How it works</h2>
+<section class="mk-section" id="how">
+  <div class="mk-wrap">
+    <div class="mk-section-head">
+      <span class="mk-kicker">Up and running in a day</span>
+      <h2 class="mk-h2">How it works</h2>
     </div>
-    <div class="steps">
-      <div class="step-card reveal"><div class="step-num">1</div><h3>We train the AI on your business</h3><p>Your services, pricing, service area, and hours &mdash; speaking in your voice.</p></div>
-      <div class="step-card reveal"><div class="step-num">2</div><h3>Customize how it talks</h3><p>Set the greeting, the questions it asks, and your available estimate times.</p></div>
-      <div class="step-card reveal"><div class="step-num">3</div><h3>Forward your missed calls</h3><p>RingBack handles the rest, 24/7. You just show up to booked estimates.</p></div>
+    <div class="mk-steps">
+      <div class="mk-step"><div class="n">1</div><h3>We train the AI on your business</h3><p>Your services, pricing, service area, and hours — speaking in your voice.</p></div>
+      <div class="mk-step"><div class="n">2</div><h3>Customize how it talks</h3><p>Set the greeting, the questions it asks, and your available estimate times.</p></div>
+      <div class="mk-step"><div class="n">3</div><h3>Forward your missed calls</h3><p>{{ app_name }} handles the rest, 24/7. You just show up to booked estimates.</p></div>
     </div>
   </div>
 </section>
 
-<!-- ===== TRADES + TOOLS (inverted) ===== -->
-<section class="band on-dark">
-  <div class="container">
+<!-- ===== TRADES + TOOLS ===== -->
+<section class="mk-darkband">
+  <div class="mk-wrap">
     <p class="lbl">Built for the trades</p>
-    <div class="trades">
-      <span class="trade-pill">Painting</span><span class="trade-pill">HVAC</span>
-      <span class="trade-pill">Plumbing</span><span class="trade-pill">Roofing</span>
-      <span class="trade-pill">Electrical</span><span class="trade-pill">Landscaping</span>
+    <div class="mk-pillrow">
+      <span class="mk-tradepill">Painting</span>
+      <span class="mk-tradepill">HVAC</span>
+      <span class="mk-tradepill">Plumbing</span>
+      <span class="mk-tradepill">Roofing</span>
+      <span class="mk-tradepill">Electrical</span>
+      <span class="mk-tradepill">Landscaping</span>
     </div>
-    <p class="lbl" style="margin-top:34px">Works with the tools you already use</p>
-    <div class="chips">
-      <span class="chip">Jobber</span><span class="chip">Housecall Pro</span>
-      <span class="chip">Google Calendar</span><span class="chip">Angi</span>
-      <span class="chip">Your existing number</span>
+    <p class="lbl" style="margin-top:30px">Works with the tools you already use</p>
+    <div class="mk-pillrow">
+      <span class="mk-tradepill chip">Jobber</span>
+      <span class="mk-tradepill chip">Housecall Pro</span>
+      <span class="mk-tradepill chip">Google Calendar</span>
+      <span class="mk-tradepill chip">Angi</span>
+      <span class="mk-tradepill chip">Your existing number</span>
     </div>
   </div>
 </section>
 
 <!-- ===== TESTIMONIAL ===== -->
-<section class="block">
-  <div class="container">
-    <div class="quote-card reveal">
-      <div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-      <p class="q">"[ Your first customer's quote goes here &mdash; we'll drop in a real one the moment you land client #1. ]"</p>
-      <p class="by">&mdash; Name, Business</p>
+<section class="mk-section">
+  <div class="mk-wrap">
+    <div class="mk-story" style="max-width:680px;margin:0 auto;text-align:center;align-items:center">
+      <div style="color:var(--star);font-size:1.15rem;letter-spacing:3px">★★★★★</div>
+      <blockquote>“[ Your first customer’s quote goes here — we’ll drop in a real one the moment you land client #1. ]”</blockquote>
+      <p class="who">— Name, Business</p>
     </div>
-  </div>
-</section>
-
-<!-- ===== PRICING / CTA (inverted) ===== -->
-<section class="pricing on-dark">
-  <div class="container">
-    <h2>Flat monthly rate. No per-call or per-minute fees, ever.</h2>
-    <p>Cancel anytime. Set up for you, personally &mdash; by someone who runs a real crew.</p>
-    <a class="btn btn-primary" href="/simulator">See the live demo
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-    </a>
   </div>
 </section>
 

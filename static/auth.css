@@ -8,14 +8,17 @@
 .au-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.04fr);min-height:100vh}
 
 /* ---- Left brand panel (orange) ---- */
+/* Firecrawl-style: dark blueprint "terminal" panel. White text on near-black
+   clears AA with huge margin; orange stays a confined glow (a scalpel). */
 .au-art{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:40px;
   padding:clamp(32px,4vw,56px);color:#fff;overflow:hidden;
-  background-color:#C24E0E;
+  background-color:#0B0E14;
   background-image:
-    radial-gradient(60% 55% at 85% 15%, #F77E2E 0%, rgba(247,126,46,0) 60%),
-    radial-gradient(70% 70% at 15% 100%, #9A3D08 0%, rgba(154,61,8,0) 60%),
-    radial-gradient(50% 45% at 50% 55%, #F2741C 0%, rgba(242,116,28,0) 65%),
-    linear-gradient(150deg, #EF6A1C 0%, #E5610F 42%, #C24E0E 74%, #9A3D08 100%);}
+    linear-gradient(to right, rgba(255,255,255,.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,.05) 1px, transparent 1px);
+  background-size:54px 54px;}
+.au-art::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(58% 42% at 82% 6%, rgba(234,88,12,.30) 0%, rgba(234,88,12,0) 60%)}
 .au-art > *{position:relative;z-index:1}
 .au-logo{display:inline-flex;align-items:center;gap:10px;color:#fff;text-decoration:none;
   font-size:20px;font-weight:800;letter-spacing:-.02em}
@@ -25,8 +28,8 @@
 .au-art-body{max-width:34ch}
 .au-art-title{font-size:clamp(2rem,3.2vw,2.9rem);font-weight:900;letter-spacing:-.03em;line-height:1.02;margin:0}
 .au-art-sub{font-size:1.05rem;line-height:1.55;color:rgba(255,255,255,.92);margin:18px 0 0}
-.au-proof{padding:20px 22px;border-radius:14px;background:rgba(11,14,20,.18);
-  border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(6px);max-width:42ch}
+.au-proof{padding:20px 22px;border-radius:10px;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.12);max-width:42ch}
 .au-stars{display:inline-flex;gap:2px;color:var(--star)}
 .au-stars svg{width:16px;height:16px;fill:currentColor}
 .au-quote{font-size:1.05rem;line-height:1.45;font-weight:500;margin:12px 0 0;color:#fff}
@@ -57,6 +60,8 @@
 .au-terms a{color:var(--ink-soft);text-decoration:underline}
 
 @media(max-width:840px){
-  .au-wrap{grid-template-columns:1fr}
+  .au-wrap{display:block;min-height:100vh}
   .au-art{display:none}
+  .au-form-col{min-height:100vh;padding:clamp(22px,6vw,40px)}
+  .au-form{width:100%;max-width:420px;margin:0 auto}   /* fills the padded width, capped — no overflow */
 }

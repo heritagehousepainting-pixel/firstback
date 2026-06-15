@@ -136,6 +136,25 @@
   .dash-2col,.sim-2col{grid-template-columns:1fr}
   .page-body{padding:var(--space-6)}
 }
+@media(max-width:640px){
+  .field-grid,.provider-grid{grid-template-columns:1fr}
+  .page-head{flex-wrap:wrap;row-gap:var(--space-3)}
+  .page-actions{flex-wrap:wrap}
+  .stat-row{grid-template-columns:1fr 1fr}
+  .stat-tile{border-right:1px solid var(--border)}
+  .stat-tile:nth-child(2n){border-right:0}
+  .stat-tile:nth-child(n+3){border-top:1px solid var(--border)}
+  .page-body{padding:var(--space-4)}
+  /* keep wide inner widgets from forcing horizontal scroll */
+  .provider-card{flex-wrap:wrap}
+  .provider-card .provider-btn,.provider-card .btn{flex:1 1 100%;margin-top:var(--space-2)}
+  .cal-head{flex-wrap:wrap;row-gap:var(--space-2)}
+  .cal-grid-wrap{padding:var(--space-3);overflow-x:auto}
+  .cal-dow,.cal-grid{gap:4px;min-width:300px}
+  .save-bar{flex-wrap:wrap;row-gap:var(--space-2)}
+  /* let cards/columns shrink to the viewport instead of pushing it wider */
+  .settings-col,.card,.page-body,.content{min-width:0}
+}
 
 /* ============================ Scheduling: provider connect cards ============================ */
 .provider-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--space-3)}

@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/ui.css">
   <link rel="stylesheet" href="/static/onboarding.css">
+  <link rel="stylesheet" href="/static/motion.css">
 </head>
 <body class="ob">
 <div class="ob-hero">
@@ -24,9 +25,32 @@
     </button>
     <div class="ob-menu" id="ob-menu">
       <nav class="ob-links">
-        <a href="/product">Product</a>
+        <div class="ob-dd">
+          <button class="ob-ddtrigger" type="button" data-dd aria-haspopup="true" aria-expanded="false" aria-controls="hd-product">Product
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="ob-ddmenu" id="hd-product" role="menu">
+            <a class="ob-dditem" href="/product" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span><span class="tx"><span class="t">Overview</span><span class="d">What RingBack does</span></span></a>
+            <a class="ob-dditem" href="/simulator" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></span><span class="tx"><span class="t">Live demo</span><span class="d">Watch it book a job</span></span></a>
+            <a class="ob-dditem" href="/solutions" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span><span class="tx"><span class="t">By trade</span><span class="d">Painting, HVAC, plumbing…</span></span></a>
+            <a class="ob-dditem" href="/pricing" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></span><span class="tx"><span class="t">Pricing</span><span class="d">Flat monthly, no per-call fees</span></span></a>
+          </div>
+        </div>
         <a href="/solutions">Solutions</a>
-        <a href="/resources">Resources</a>
+        <div class="ob-dd">
+          <button class="ob-ddtrigger" type="button" data-dd aria-haspopup="true" aria-expanded="false" aria-controls="hd-resources">Resources
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="ob-ddmenu" id="hd-resources" role="menu">
+            <span class="ob-ddlabel">// learn</span>
+            <a class="ob-dditem" href="/guides" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span><span class="tx"><span class="t">Guides</span><span class="d">Set-up playbooks</span></span></a>
+            <a class="ob-dditem" href="/help" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span><span class="tx"><span class="t">Help center</span><span class="d">Answers, fast</span></span></a>
+            <a class="ob-dditem" href="/blog" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span><span class="tx"><span class="t">Blog</span><span class="d">Tips for the trades</span></span></a>
+            <span class="ob-ddlabel">// proof</span>
+            <a class="ob-dditem" href="/customers" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span><span class="tx"><span class="t">Customer stories</span><span class="d">Crews using RingBack</span></span></a>
+            <a class="ob-dditem" href="/webinars" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></span><span class="tx"><span class="t">Webinars</span><span class="d">Live walk-throughs</span></span></a>
+          </div>
+        </div>
         <a href="/company">Company</a>
         <a href="/pricing">Pricing</a>
       </nav>
@@ -39,38 +63,91 @@
   </header>
 
   <main class="ob-content">
-    <div class="ob-announce">
-      <span id="ob-announce-text">From missed call to booked estimate — automatically</span>
-      <a class="ob-announce-cta" href="/simulator">See it live</a>
-    </div>
+    <span class="ob-eyebrow">
+      <span class="live"></span>
+      <span class="br">[</span> <span class="n">01</span> / 01 <span class="br">]</span> · <span id="ob-eyebrow-text">Missed-call autopilot</span>
+    </span>
 
-    <h1 class="ob-title">Every missed call,<br>booked by AI in seconds<span class="dot">.</span></h1>
+    <h1 class="ob-title">Every missed call,<br>booked by AI <span class="hot">in seconds.</span></h1>
 
-    <p class="ob-sub" id="ob-sub">When you can’t pick up, RingBack texts the caller back, answers their questions,
+    <p class="ob-sub" id="ob-sub">When you can’t pick up, {{ app_name }} texts the caller back, answers their questions,
       and books the estimate. No missed jobs. No voicemail. No waiting.</p>
 
-    <div class="ob-toggle" role="tablist">
-      <button class="ob-seg active" type="button" data-seg="text">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>
-        Text
-      </button>
-      <button class="ob-seg" type="button" data-seg="call">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.57 2.34.7A2 2 0 0 1 22 16.92z"/></svg>
-        Call
-      </button>
-    </div>
-
-    <form class="ob-input" action="/signup" method="get">
-      <input type="text" name="phone" placeholder="(555) 123-4567" autocomplete="off" aria-label="Your business number">
-      <button class="ob-submit" type="submit" aria-label="Start">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-      </button>
+    <form class="ob-search" action="/signup" method="get">
+      <div class="ob-search-row">
+        <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.57 2.34.7A2 2 0 0 1 22 16.92z"/></svg></span>
+        <input type="text" name="phone" placeholder="(555) 123-4567" autocomplete="off" aria-label="Your business number">
+        <button class="ob-submit" type="submit" aria-label="Start">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+      <div class="ob-tabs" role="tablist">
+        <button class="ob-seg active" type="button" data-seg="text">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>
+          Text
+        </button>
+        <button class="ob-seg" type="button" data-seg="call">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.57 2.34.7A2 2 0 0 1 22 16.92z"/></svg>
+          Call
+        </button>
+      </div>
     </form>
 
     <a class="ob-try" href="/signup">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/></svg>
-      Try it on your phone!
+      Try it on your phone
     </a>
+
+    <!-- Proof: ruled frame, registration ticks, phone + booking.json -->
+    <div class="ob-proof">
+      <span class="ob-proof-label">live · missed-call → booked</span>
+      <span class="ob-tick tl" aria-hidden="true"></span><span class="ob-tick tr" aria-hidden="true"></span>
+      <span class="ob-tick bl" aria-hidden="true"></span><span class="ob-tick br" aria-hidden="true"></span>
+
+      <div class="ob-phone" role="img" aria-label="Text conversation: the AI replies to a missed call and books a painting estimate for Thursday at 10 AM.">
+        <div class="ob-phone-screen">
+          <div class="ob-phone-top">
+            <span class="av">{{ (business.name if business else 'Heritage House Painting')[:1] }}</span>
+            <span class="who">
+              <span class="nm">{{ business.name if business else 'Heritage House Painting' }}</span>
+              <span class="st">Missed call · just now</span>
+            </span>
+          </div>
+          <div class="ob-thread">
+            <div class="ob-sms-meta">texted back in 4s</div>
+            <div class="ob-sms ob-sms-out">Hi! Sorry we missed your call. What were you looking to get painted?</div>
+            <div class="ob-sms ob-sms-in">Kitchen and living room</div>
+            <div class="ob-sms ob-sms-out">Got it — what part of town are you in?</div>
+            <div class="ob-sms ob-sms-in">Downtown</div>
+            <div class="ob-sms ob-sms-out">Perfect. I can get someone out Thursday 10 AM for a free estimate — book it?</div>
+            <div class="ob-sms ob-sms-in">Yes please</div>
+            <div class="ob-sms-booked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Booked — Thursday 10 AM</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ob-term">
+        <div class="ob-term-bar">
+          <span class="ob-term-dots"><i></i><i></i><i></i></span>
+          <span class="ob-term-name">booking.json</span>
+          <span class="ob-term-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> copy</span>
+        </div>
+<pre class="ob-term-body"><span class="c">// captured from a missed call — no human touched it</span>
+{
+  <span class="k">"lead"</span>:       <span class="s">"Homeowner · Downtown"</span>,
+  <span class="k">"job"</span>:        <span class="s">"Kitchen + living room"</span>,
+  <span class="k">"replied_in"</span>: <span class="s">"4s"</span>,
+  <span class="k">"estimate"</span>:   <span class="s">"Thu 10:00 AM"</span>,
+  <span class="k">"reminder"</span>:   <span class="s">"auto-sent"</span>,
+  <span class="k">"status"</span>:     <span class="g">"booked"</span>
+}</pre>
+      </div>
+    </div>
+
+    <div class="ob-works">
+      <span class="lbl">works with</span>
+      <span>Jobber</span><span>Housecall Pro</span><span>Google Calendar</span><span>Your existing number</span>
+    </div>
   </main>
 
   <button class="ob-chat" aria-label="Chat with us">
@@ -83,26 +160,27 @@
   // AI-voice-callback product, so "Call" actually tells the voice story.
   var OB_MODES = {
     text: {
-      announce: 'From missed call to booked estimate — automatically',
+      eyebrow: 'Missed-call autopilot',
       sub: 'When you can’t pick up, RingBack texts the caller back, answers their questions, and books the estimate. No missed jobs. No voicemail. No waiting.'
     },
     call: {
-      announce: 'From missed call to an AI callback — automatically',
+      eyebrow: 'AI voice callback',
       sub: 'Prefer to talk? RingBack calls the customer back in your name, speaks with them, answers their questions, and books the estimate — a real AI voice on the line, 24/7.'
     }
   };
   var obSub = document.getElementById('ob-sub');
-  var obAnnounce = document.getElementById('ob-announce-text');
+  var obEyebrow = document.getElementById('ob-eyebrow-text');
   document.querySelectorAll('[data-seg]').forEach(function (seg) {
     seg.addEventListener('click', function () {
       document.querySelectorAll('[data-seg]').forEach(function (s) { s.classList.remove('active'); });
       seg.classList.add('active');
       var m = OB_MODES[seg.getAttribute('data-seg')] || OB_MODES.text;
       if (obSub) obSub.textContent = m.sub;
-      if (obAnnounce) obAnnounce.textContent = m.announce;
+      if (obEyebrow) obEyebrow.textContent = m.eyebrow;
     });
   });
 </script>
 <script src="/static/app.js"></script>
+<script src="/static/motion.js"></script>
 </body>
 </html>

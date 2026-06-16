@@ -63,27 +63,9 @@ if db.count_users() == 0:
     db.create_user(SEED_OWNER_EMAIL, generate_password_hash(SEED_OWNER_PASSWORD), 1)
 
 
-# ---- Auth ----
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-def current_user():
-    uid = session.get("uid")
-    return db.get_user(uid) if uid else None
-
-
-def current_business():
-    u = current_user()
-    return db.get_business(u["business_id"]) if u else None
-
-
-def login_required(view):
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        if not session.get("uid"):
-            return redirect(url_for("login", next=request.path))
-        return view(*args, **kwargs)
-    return wrapped
+# ---- Auth ----  (kernel: current_user/current_business/login_required/_safe_next/
+# _EMAIL_RE live in auth.py — edit trades_core/auth.py, then run trades_core/sync.py)
+from auth import current_user, current_business, login_required, _safe_next, _EMAIL_RE
 
 
 def require_twilio_signature(view):
@@ -103,12 +85,6 @@ def require_twilio_signature(view):
             return ("Invalid Twilio signature", 403)
         return view(*args, **kwargs)
     return wrapped
-
-
-def _safe_next(target):
-    """Only allow same-site relative redirects (never //evil.com)."""
-    return (target if (target and target.startswith("/")
-                       and not target.startswith("//")) else "/dashboard")
 
 
 def _default_ai_instructions(name, trade):

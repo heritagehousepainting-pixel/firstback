@@ -1,0 +1,46 @@
+/* ============================================================================
+   trades_core — shared design tokens (vendored into each product's static/).
+   Identical across JobMagnet & RingBack. Each product keeps ONLY its accent
+   family (and RB its --mono) in its own ui.css :root, loaded AFTER this file via
+   `@import url("tokens.css");`. The two :root blocks union (disjoint properties).
+   Edit trades_core/static/tokens.css, then run `python3 trades_core/sync.py`.
+   ============================================================================ */
+:root{
+  /* ---- Color · ink / surfaces / borders ---- */
+  --ink:#0B0E14;            /* primary text & headlines */
+  --ink-soft:#4A5160;       /* secondary text */
+  --ink-faint:#8A91A0;      /* tertiary / labels / placeholders */
+  --bg:#FAFAF8;             /* page background — not pure white */
+  --surface:#FFFFFF;        /* cards & inputs sit on bg */
+  --surface-2:#F1F1EE;      /* sunken surface (pressed secondary, subtle fills) */
+  --border:#E6E7EB;         /* hairlines */
+  --border-strong:#CDD0D8;
+
+  /* ---- Color · status ---- */
+  --success:#15803D;  --success-bg:#E7F6EC;
+  --warning:#B45309;  --warning-bg:#FBF0DB;
+  --danger:#B91C1C;   --danger-bg:#FCE9E9;   --danger-ring:rgba(185,28,28,.20);
+  --star:#F59E0B;     /* review stars — AMBER, never the accent */
+
+  /* ---- Type scale (rem) ---- */
+  --text-xs:.75rem;  --text-sm:.875rem; --text-base:1rem;  --text-md:1.125rem;
+  --text-lg:1.25rem; --text-xl:1.5rem;  --text-2xl:2rem;   --text-3xl:2.5rem;
+  --text-4xl:3.5rem; --text-5xl:4.5rem;
+
+  /* ---- Spacing (4px base) ---- */
+  --space-1:4px;  --space-2:8px;   --space-3:12px;  --space-4:16px;  --space-6:24px;
+  --space-8:32px; --space-12:48px; --space-16:64px; --space-24:96px;
+
+  /* ---- Radius ---- */
+  --radius:8px;            /* product components: inputs, cards, pills */
+  --radius-sm:6px;
+  --radius-tail:4px;       /* chat-bubble tail corner */
+  --radius-bubble:14px;    /* chat bubbles read as "messaging" */
+  --radius-pill:999px;
+
+  /* ---- Elevation ---- */
+  --shadow-card:0 1px 2px rgba(11,14,20,.04), 0 1px 3px rgba(11,14,20,.06);
+  --shadow-pop:0 4px 12px rgba(11,14,20,.08), 0 2px 4px rgba(11,14,20,.05);
+
+  --font:"Archivo",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}

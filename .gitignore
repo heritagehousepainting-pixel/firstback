@@ -6,6 +6,7 @@
 *.db
 *.db-journal
 *.db-wal
+*.db-shm
 *.db.bak-*
 
 # Runtime / logs

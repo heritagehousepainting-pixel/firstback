@@ -16,6 +16,9 @@ from config import (
     PROVIDER, MINIMAX_API_KEY, MINIMAX_MODEL, MINIMAX_BASE_URL,
     ANTHROPIC_API_KEY, CLAUDE_MODEL,
 )
+# Provider plumbing (MiniMax/Claude/demo selection + the HTTP/SDK call) lives in the
+# trades_core kernel; this file keeps RingBack's conversation + booking logic.
+from llm import active_provider as _active_provider, strip_think as _strip_think, complete as _complete
 
 # Marker the AI emits when it wants to book a slot. We parse it out so the
 # product can create a real appointment, then strip it from the visible text.
@@ -105,51 +108,15 @@ def _to_turns(history):
     return turns
 
 
-def _strip_think(text):
-    """Remove a MiniMax reasoning block. Handles an UNCLOSED <think> (the model
-    can run out of tokens mid-reasoning), so partial reasoning never leaks into a
-    customer reply or a notes payload; in that case the caller sees an empty
-    string and falls back (demo reply / retry / rule-based notes)."""
-    return re.sub(r"<think>.*?(?:</think>|$)", "", text or "", flags=re.DOTALL).strip()
-
-
 def _minimax_reply(business, history, slots):
     """MiniMax via its OpenAI-compatible chat-completions endpoint."""
-    import requests  # bundles certifi so TLS verifies cleanly on macOS
-
-    resp = requests.post(
-        f"{MINIMAX_BASE_URL}/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {MINIMAX_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": MINIMAX_MODEL,
-            "messages": [{"role": "system", "content": _system_prompt(business, slots)}] + _to_turns(history),
-            "max_completion_tokens": 512,
-            "temperature": 1.0,
-            "thinking": {"type": "disabled"},  # skip chain-of-thought -> much faster/cheaper for SMS
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
-    # MiniMax reasoning models can prepend chain-of-thought wrapped in
-    # <think>...</think> — strip it so the customer never sees it.
-    return _strip_think(content)
+    return _complete("minimax", _system_prompt(business, slots), _to_turns(history),
+                     max_tokens=512, temperature=1.0)
 
 
 def _claude_reply(business, history, slots):
-    import anthropic  # imported lazily so the other paths need no install
-
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    resp = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=300,
-        system=_system_prompt(business, slots),
-        messages=_to_turns(history),
-    )
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+    return _complete("claude", _system_prompt(business, slots), _to_turns(history),
+                     max_tokens=300)
 
 
 # --------------------------------------------------------------------------
@@ -347,15 +314,6 @@ def _slot_fallback(history, slots):
     return pick["label"] if pick else None
 
 
-def _active_provider():
-    """Which brain is actually usable right now (chosen provider + its key present)."""
-    if PROVIDER == "claude" and ANTHROPIC_API_KEY:
-        return "claude"
-    if PROVIDER == "minimax" and MINIMAX_API_KEY:
-        return "minimax"
-    return "demo"
-
-
 def _canonicalize_slot(text, slots):
     """Resolve the model's [[BOOK]] marker to the exact open slot it names, or None.
     Tries the slot id first (what we ask the model to echo), then the full label,
@@ -494,30 +452,16 @@ _NOTES_SYSTEM = (
 
 
 def _llm_complete(provider, system, user_text):
-    """Single-shot completion for note extraction (low temperature, no reasoning)."""
+    """Single-shot completion for note extraction (low temperature, no reasoning).
+    The generous MiniMax budget matters: it still emits a reasoning block despite
+    thinking 'disabled', and at 400 it often ran out mid-think before producing the
+    JSON (empty notes); 1024 leaves room."""
     if provider == "minimax":
-        import requests
-        resp = requests.post(
-            f"{MINIMAX_BASE_URL}/v1/chat/completions",
-            headers={"Authorization": f"Bearer {MINIMAX_API_KEY}",
-                     "Content-Type": "application/json"},
-            json={"model": MINIMAX_MODEL,
-                  "messages": [{"role": "system", "content": system},
-                               {"role": "user", "content": user_text}],
-                  # Generous budget: MiniMax still emits a reasoning block despite
-                  # thinking 'disabled', and at 400 it often ran out mid-think
-                  # before producing the JSON (empty notes). 1024 leaves room.
-                  "max_completion_tokens": 1024, "temperature": 0.2,
-                  "thinking": {"type": "disabled"}},
-            timeout=30)
-        resp.raise_for_status()
-        return _strip_think(resp.json()["choices"][0]["message"]["content"])
+        return _complete("minimax", system, [{"role": "user", "content": user_text}],
+                         max_tokens=1024, temperature=0.2)
     if provider == "claude":
-        import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        resp = client.messages.create(model=CLAUDE_MODEL, max_tokens=400, system=system,
-                                       messages=[{"role": "user", "content": user_text}])
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
+        return _complete("claude", system, [{"role": "user", "content": user_text}],
+                         max_tokens=400)
     return ""
 
 

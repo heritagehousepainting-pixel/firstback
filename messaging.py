@@ -211,6 +211,10 @@ def valid_signature(url, params, signature, auth_token=None):
     compared in constant time.
     """
     token = (auth_token if auth_token is not None else TWILIO_AUTH_TOKEN) or ""
+    # Fail CLOSED when Twilio is unconfigured: an empty auth token yields a signature
+    # any anonymous caller could compute, so reject rather than authenticate against "".
+    if not token:
+        return False
     data = url + "".join(f"{k}{params[k]}" for k in sorted(params or {}))
     digest = hmac.new(token.encode("utf-8"), data.encode("utf-8"),
                       hashlib.sha1).digest()

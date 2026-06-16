@@ -28,8 +28,13 @@ def get_conn():
     return conn
 
 
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+# Shared data-core (trades_core kernel): timestamp + users/auth CRUD + assistant-subsystem
+# helpers, byte-identical with JobMagnet. Inject our connection factory, then re-export the
+# names so every existing db.now_iso()/db.get_user()/… call site is unchanged.
+import db_core as _core
+_core.get_conn = get_conn
+from db_core import (now_iso, get_user, get_user_by_email, create_user,  # noqa: E402,F401
+                     log_turn, get_convo_turns, flag_counts)
 
 
 def init_db():
@@ -361,38 +366,8 @@ def init_db():
     conn.close()
 
 
-# ---- Users / auth ----
-def create_user(email, password_hash, business_id):
-    """Create a login. Returns the new user id, or None if the email is taken."""
-    conn = get_conn()
-    try:
-        cur = conn.execute(
-            "INSERT INTO users (email, password_hash, business_id, created_at) "
-            "VALUES (?,?,?,?)",
-            (email.strip().lower(), password_hash, business_id, now_iso()))
-        conn.commit()
-        uid = cur.lastrowid
-    except sqlite3.IntegrityError:
-        uid = None  # email already registered
-    conn.close()
-    return uid
-
-
-def get_user_by_email(email):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE email=?",
-                       (email.strip().lower(),)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_user(user_id):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
+# ---- Users / auth ----  (create_user / get_user / get_user_by_email are in the
+# trades_core db_core kernel; imported + re-exported near the top of this file.)
 def count_users():
     conn = get_conn()
     n = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -1797,17 +1772,6 @@ def start_or_get_convo(business_id, session_key):
     return cid
 
 
-def log_turn(convo_id, business_id, role, content, tool=None, status=None):
-    conn = get_conn()
-    tid = conn.execute(
-        "INSERT INTO assistant_turns (convo_id, business_id, role, content, tool, status, "
-        "created_at) VALUES (?,?,?,?,?,?,?)",
-        (convo_id, business_id, role, content, tool, status, now_iso())).lastrowid
-    conn.commit()
-    conn.close()
-    return tid
-
-
 def recent_user_turns(convo_id, business_id, limit=6):
     conn = get_conn()
     rows = conn.execute(
@@ -1840,15 +1804,6 @@ def list_convos(business_id, limit=30):
     return [dict(r) for r in rows]
 
 
-def get_convo_turns(convo_id, business_id):
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM assistant_turns WHERE convo_id=? AND business_id=? ORDER BY id",
-        (convo_id, business_id)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
 def list_flags(business_id, resolved=0, limit=50):
     conn = get_conn()
     rows = conn.execute(
@@ -1858,15 +1813,6 @@ def list_flags(business_id, resolved=0, limit=50):
         (business_id, resolved, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def flag_counts(business_id):
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT kind, COUNT(*) AS n FROM assistant_flags WHERE business_id=? AND resolved=0 "
-        "GROUP BY kind", (business_id,)).fetchall()
-    conn.close()
-    return {r["kind"]: r["n"] for r in rows}
 
 
 def get_flag(business_id, flag_id):

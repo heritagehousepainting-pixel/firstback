@@ -9,33 +9,17 @@ business is so the UI never implies "live" before it really is.
 
 Not legal advice.
 """
-import re
 from datetime import datetime
 
 from config import app_tz, QUIET_START, QUIET_END
-
-# Natural-language opt-out ("any reasonable means", per the 2025 FCC consent-
-# revocation rule), beyond the exact CTIA keywords (STOP/UNSUBSCRIBE/...) the
-# webhook matches separately. Conservative patterns so ordinary words like
-# "stop by the house" do not trip it.
-_REVOKE_RES = [re.compile(p) for p in (
-    r"\bstop (texting|messaging|contacting|calling|msg|the texts?)",
-    r"\b(do ?not|don'?t|please don'?t|never) (text|message|msg|contact|call|phone) me",
-    r"\b(take|remove) me off",
-    r"\bremove me\b",
-    r"\bunsubscribe me\b",
-    r"\bno more (texts?|messages?|calls?)\b",
-    r"\bleave me alone\b",
-    r"\bquit (texting|messaging|contacting|calling)\b",
-    r"\bnot interested\b.*\b(stop|don'?t)\b",
-)]
+import consent  # trades_core kernel: the ONE shared opt-out brain (both products)
 
 
 def detect_revocation(text):
-    """True if the message is a plain-language request to stop contact, even when
-    it isn't the exact keyword STOP."""
-    t = (text or "").lower()
-    return any(p.search(t) for p in _REVOKE_RES)
+    """True if the message is a plain-language request to stop contact, even when it
+    isn't the exact keyword STOP. Delegates to the shared trades_core opt-out detector
+    so JobMagnet and RingBack honor opt-outs identically (one auditable implementation)."""
+    return consent.opt_out_nlu(text)
 
 
 def voice_allowed_now(now=None, quiet_start=None, quiet_end=None):

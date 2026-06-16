@@ -75,11 +75,19 @@ don't offer a clean way to do this yet.)
 
 ## 📱 When you want real texting (Twilio)
 
-RingBack's reminders and owner-alerts (coming next) work right now in
-**simulated** mode: the message shows up on the lead's conversation, but no real
-text is sent. To make those texts actually reach a phone, connect a Twilio
-number. This is optional and costs money per text, so do it only when you're
-ready to go live.
+> **The easy path: the in-app Go Live wizard (`/setup`).** A contractor no longer needs
+> the Twilio console or a server shell. The **Go Live** page in the app walks them through
+> their number (buy a local one or attach an existing one — it auto-wires the webhooks),
+> carrier A2P registration (submit + live status), and call forwarding (the exact star code
+> for their carrier, tap-to-dial). It's honest: it never shows "live" until the number is
+> bound, A2P is **approved**, and forwarding is set. The server-side Twilio **credentials**
+> below (`TWILIO_ACCOUNT_SID/AUTH_TOKEN`, `RINGBACK_PUBLIC_URL`) are still set once by the
+> operator in Render env; everything else is self-serve. The steps below are the manual
+> reference / what the wizard does under the hood.
+
+RingBack's reminders and owner-alerts work in **simulated** mode until Twilio is
+connected: the message shows up on the lead's conversation, but no real text is sent.
+To make those texts actually reach a phone, connect a Twilio number.
 
 **Steps (the outbound part — sending texts):**
 1. Sign up at **https://www.twilio.com** and, in the Twilio Console, **buy a

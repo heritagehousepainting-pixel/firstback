@@ -112,7 +112,9 @@ def notify(business, kind, context):
     # customer's conversation thread.
     sms_to = (business.get("alert_sms") or "").strip()
     if sms_to:
-        res = messaging.send_sms(business, sms_to, body)
+        # Owner-facing alert: goes to the contractor's OWN cell, not a consumer, so
+        # it's exempt from the A2P 10DLC customer-traffic gate.
+        res = messaging.send_sms(business, sms_to, body, gate=False)
         status = res.get("status", "?")
         db.add_alert(bid, kind, "sms", sms_to, status, dedupe, body)
         attempted.append(("sms", status))

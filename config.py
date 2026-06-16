@@ -269,6 +269,17 @@ QUIET_END = _num_env("QUIET_END", 21, int)                      # business-local
 # process). Unset => the endpoint is disabled (always 403).
 TASKS_SECRET = os.environ.get("RINGBACK_TASKS_SECRET", "")
 
+# --- Operator (concierge admin) allowlist -------------------------------------
+# A2P brand/campaign SIDs are recorded by the OPERATOR (us), never the contractor,
+# who must not be able to flip their own a2p_status to "approved" on the shared
+# Twilio account. Identified by login email; comma-separated, case-insensitive.
+# Empty => no operator exists and the record action is closed to everyone.
+OPERATOR_EMAILS = frozenset(
+    e.strip().lower()
+    for e in os.environ.get("RINGBACK_OPERATOR_EMAILS", "").split(",")
+    if e.strip()
+)
+
 # --- Default business profile --------------------------------------------
 # This is "client zero" — your own painting company. Edit it in Settings;
 # these are just the seed values the database starts with.

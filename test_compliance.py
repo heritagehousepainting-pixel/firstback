@@ -45,11 +45,27 @@ check("8pm blocked under strict 8-20", compliance.voice_allowed_now(_Clock(20), 
 check("a2p not ready by default", compliance.a2p_ready({}) is False)
 check("a2p ready when approved", compliance.a2p_ready({"a2p_status": "approved"}) is True)
 ready = {"twilio_number": "+15553140000", "a2p_status": "approved",
-         "forward_to": "+15559990000"}
+         "forward_to": "+15559990000", "webhooks_wired": 1}
 check("no blockers when fully set up + configured",
       compliance.launch_blockers(ready, True) == [])
 check("blockers list everything when nothing is set up",
       len(compliance.launch_blockers({}, False)) >= 3)
+
+# ---- webhooks_wired gate: a number with no webhooks can't read as live ----
+unwired = {"twilio_number": "+15553140000", "a2p_status": "approved",
+           "forward_to": "+15559990000"}  # webhooks_wired falsy
+check("a numbered but unwired business is flagged 'not wired'",
+      any("isn't wired to receive calls and texts" in b
+          for b in compliance.launch_blockers(unwired, True)))
+check("the unwired number does not double-flag 'no number provisioned'",
+      not any("No RingBack phone number" in b
+              for b in compliance.launch_blockers(unwired, True)))
+wired = dict(unwired, webhooks_wired=1)
+check("wiring the webhooks clears the 'not wired' blocker",
+      not any("isn't wired to receive calls and texts" in b
+              for b in compliance.launch_blockers(wired, True)))
+check("a fully wired + approved + forwarded business has no blockers",
+      compliance.launch_blockers(wired, True) == [])
 
 print(f"\n{_pass} passed, {_fail} failed")
 raise SystemExit(1 if _fail else 0)

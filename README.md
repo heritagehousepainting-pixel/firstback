@@ -77,6 +77,16 @@ honestly. Setup steps for each are in [USER_TO_DO.md](USER_TO_DO.md).
   inbound call/SMS webhooks (`/webhooks/twilio/*`) are Twilio-signature-verified.
   Provision a number + set creds to go live (see `CALLBACK_SYSTEM_PLAN.md`).
 
+## A2P status sync
+
+A2P status sync can downgrade. `connections.a2p_sync` reflects Twilio's current
+`campaign_status` exactly, including the bad direction: an `approved` business is
+moved back to `failed`/`pending` if Twilio later reports SUSPENDED, DELETED,
+EXPIRED, or FAILED. This is intentional — it re-blocks go-live (`is_live` becomes
+False) so RingBack never claims "live" for a campaign that died at the
+carrier/registry. Terminal-bad upstream states map to `failed`; in-flight (incl.
+REGISTERED) maps to `pending`; only VERIFIED/APPROVED grant `approved`.
+
 ## Reset the data
 
 Deleting `ringback.db` reseeds the default business + owner login -- it wipes all

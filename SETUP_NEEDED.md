@@ -5,6 +5,28 @@ vs. gated. This is the list of things **you** must do to turn the honest-but-gat
 beta / placeholder states into fully live ones. Integration credential steps live in
 `USER_TO_DO.md`; this file tracks the truth-audit follow-ups.
 
+## Go-Live wizard (`/setup`) — contractor self-serve connection
+The **Go Live** page (`connections.py` + `templates/setup.html`) takes a contractor from
+signup to live missed-call text-back without a shell or the Twilio console: business profile
++ A2P intake → buy/attach a number (auto-wires webhooks) → submit A2P registration with live
+status → carrier call-forwarding code. Honest by construction (driven by
+`compliance.launch_blockers` — never "live" until the number is bound, A2P is **approved**,
+and forwarding is confirmed).
+
+**Automated:** number provisioning + webhook wiring, A2P status **sync** from Twilio (on view
++ via the `/tasks/run-due` cron), the carrier star-code guide, and the go-live gate.
+
+**Still operator/concierge (v1 — by design):**
+- **Server Twilio credentials** (`TWILIO_ACCOUNT_SID/AUTH_TOKEN`, `TWILIO_FROM_NUMBER`,
+  `RINGBACK_PUBLIC_URL`) are set once in Render env by the operator (one shared account).
+- **A2P brand + campaign submission** is concierge: "Submit for registration" marks the tenant
+  `pending` and emails the operator (gated `mail` seam) the packet; the operator registers the
+  brand+campaign in Twilio, then pastes the **campaign SIDs** into the wizard's *Installer*
+  disclosure. `connections.a2p_sync` then flips the tenant to `approved` automatically. **Next
+  phase:** submit brand+campaign via the Twilio Trust Hub API so even this is self-serve.
+- **Carrier conditional-forwarding** happens on the contractor's phone (a star code); the
+  wizard gives the exact code + tap-to-dial + a test-call check, but can't be set server-side.
+
 ## To drop the "beta" label on AI voice callback
 - Deploy the voice service and set `VOICE_PUBLIC_URL` (re-add the `ringback-voice` service
   to `render.yaml` once it has a shared DB / write-relay — see `ringback-render-deploy`).

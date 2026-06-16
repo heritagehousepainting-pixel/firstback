@@ -14,11 +14,12 @@ from functools import wraps
 from urllib.parse import quote
 
 from flask import (Flask, render_template, request, redirect, jsonify, session,
-                   url_for)
+                   url_for, abort)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import json
 
+import config
 import db
 import ai
 import assistant
@@ -29,6 +30,7 @@ import mail
 import alerts
 import reminders
 import compliance
+import connections
 import triage
 import reputation
 import contact_import
@@ -66,6 +68,11 @@ if db.count_users() == 0:
 # ---- Auth ----  (kernel: current_user/current_business/login_required/_safe_next/
 # _EMAIL_RE live in auth.py — edit trades_core/auth.py, then run trades_core/sync.py)
 from auth import current_user, current_business, login_required, _safe_next, _EMAIL_RE
+
+
+def _is_operator(user):
+    emails = getattr(config, "OPERATOR_EMAILS", frozenset())
+    return bool(user) and (user.get("email") or "").strip().lower() in emails
 
 
 def require_twilio_signature(view):
@@ -343,6 +350,7 @@ def dashboard():
     hello = f"{part}, {owner.split()[0]}." if owner else f"{part}."
     return render_template("command.html", hello=hello,
                            digest=convos.digest(biz["id"]),
+                           golive=connections.golive_summary(biz),
                            suggestions=assistant.suggestions())
 
 
@@ -616,6 +624,159 @@ def settings_password():
         return redirect("/settings?pwerror=short")
     db.update_user_password(user["id"], generate_password_hash(new))
     return redirect("/settings?pw=1")
+
+
+# ---- Go-Live wizard: a contractor connects their phone without a shell or the
+#      Twilio console. Driven by connections.step_state + compliance.launch_blockers
+#      so the UI can never claim "live" before the number is bound, A2P is approved,
+#      and forwarding is confirmed. See connections.py. ----
+@app.route("/setup")
+@login_required
+def setup():
+    biz = current_business()
+    if biz is None:
+        return redirect("/dashboard")
+    # Refresh A2P status from Twilio on view so the contractor sees current truth
+    # (cheap no-op unless a campaign is on file and not yet approved).
+    if biz.get("a2p_campaign_sid") and compliance.a2p_status(biz) != "approved":
+        connections.a2p_sync(biz)
+        biz = current_business()
+    sms_configured = messaging.configured()
+    steps = connections.step_state(biz, sms_configured)
+    current = connections.current_step(biz, sms_configured)
+    area_code = (request.args.get("area_code") or "").strip() or connections.default_area_code(biz)
+    # Only hit Twilio for a number list when the buyer is actually on that step.
+    available = (connections.available_numbers(area_code)
+                 if sms_configured and (current == "number" or request.args.get("edit") == "number")
+                 else [])
+    # Carrier forwarding code for the forwarding step (defaults to universal GSM).
+    carrier = (request.args.get("carrier") or "other").strip()
+    fwd = connections.forwarding_code(carrier, biz.get("twilio_number") or "")
+    # Most recent inbound call, to verify a real test came through end-to-end.
+    last_call = db.last_inbound_call(biz["id"]) if biz.get("twilio_number") else None
+    is_live = connections.is_live(biz, sms_configured)
+    live_verified = bool(is_live and last_call and last_call.get("engaged"))
+    return render_template(
+        "setup.html", business=biz, steps=steps,
+        done_count=sum(1 for s in steps if s["done"]), last_call=last_call,
+        current=current, area_code=area_code, available=available,
+        carrier=fwd["carrier"], fwd=fwd, carriers=connections.CARRIER_FORWARD_CODES,
+        blockers=connections.blockers(biz, sms_configured),
+        is_live=is_live, live_verified=live_verified,
+        sms_configured=sms_configured,
+        edit=request.args.get("edit"),
+        saved=request.args.get("saved"),
+        err=request.args.get("err"))
+
+
+@app.route("/setup/profile", methods=["POST"])
+@login_required
+def setup_profile():
+    biz = current_business()
+    if biz is None:
+        return redirect("/dashboard")
+    db.update_business(biz["id"], {
+        "name": (request.form.get("name") or "").strip(),
+        "trade": (request.form.get("trade") or "").strip(),
+        "owner_name": (request.form.get("owner_name") or "").strip(),
+        "service_area": (request.form.get("service_area") or "").strip()})
+    db.update_a2p_profile(biz["id"], {
+        "legal_business_name": (request.form.get("legal_business_name") or "").strip(),
+        "ein": (request.form.get("ein") or "").strip(),
+        "business_address": (request.form.get("business_address") or "").strip(),
+        "website": (request.form.get("website") or "").strip()})
+    return redirect("/setup?saved=profile")
+
+
+@app.route("/setup/number", methods=["POST"])
+@login_required
+def setup_number():
+    """Give the business its RingBack number: buy a new local one (auto-wires the
+    Voice+SMS webhooks via provision_number) or attach a number already owned in the
+    Twilio account (the manual path, now one click)."""
+    biz = current_business()
+    if biz is None:
+        return redirect("/dashboard")
+    if not messaging.configured():
+        return redirect("/setup?err=twilio")
+    mode = request.form.get("mode") or "buy"
+    if mode == "attach":
+        num = (request.form.get("number") or "").strip()
+        e164 = messaging.to_e164(num)
+        if not e164:
+            return redirect("/setup?err=number")
+        if not messaging.account_owns_number(e164):
+            return redirect("/setup?err=not_owned")
+        if not messaging.attach_owned_number(e164, biz["id"]):
+            return redirect("/setup?err=attach")
+        return redirect("/setup?saved=number")
+    # Buy: a specific picked number, else the first available in the area code.
+    phone = (request.form.get("number") or "").strip() or None
+    area = (request.form.get("area_code") or "").strip() or connections.default_area_code(biz)
+    got = messaging.provision_number(biz["id"], phone=phone, area_code=area or None)
+    return redirect("/setup?saved=number" if got else "/setup?err=buy")
+
+
+@app.route("/setup/a2p", methods=["POST"])
+@login_required
+def setup_a2p():
+    """A2P 10DLC registration (concierge v1): the contractor submits, we mark them
+    pending and notify the operator to register the brand+campaign. Once the operator
+    records the campaign SIDs, connections.a2p_sync flips the status to approved
+    automatically. `mode=record` is the operator pasting those SIDs."""
+    biz = current_business()
+    if biz is None:
+        return redirect("/dashboard")
+    mode = request.form.get("mode") or "submit"
+    if mode == "record":
+        if not _is_operator(current_user()):
+            abort(403)
+        db.set_a2p_registration(
+            biz["id"],
+            brand_sid=(request.form.get("brand_sid") or "").strip() or None,
+            campaign_sid=(request.form.get("campaign_sid") or "").strip() or None,
+            messaging_service_sid=(request.form.get("messaging_service_sid") or "").strip() or None)
+        connections.a2p_sync(biz["id"])          # try to confirm immediately
+        return redirect("/setup?saved=a2p")
+    if not connections.profile_complete(biz):    # can't register without the intake
+        return redirect("/setup?err=profile")
+    db.set_a2p_registration(biz["id"], status="pending",
+                            submitted_at=datetime.utcnow().isoformat(timespec="seconds"))
+    body = ("A2P 10DLC registration requested for a RingBack tenant.\n\n"
+            f"Business:    {biz.get('name')}\n"
+            f"Legal name:  {biz.get('legal_business_name') or biz.get('name')}\n"
+            f"EIN:         {biz.get('ein')}\n"
+            f"Address:     {biz.get('business_address')}\n"
+            f"Website:     {biz.get('website')}\n"
+            f"Number:      {biz.get('twilio_number')}\n\n"
+            "Register the brand + campaign in Twilio, then paste the campaign SIDs on "
+            "the tenant's Go-Live page to confirm.")
+    mail.send_email(db.owner_email(biz["id"]),
+                    "RingBack: A2P registration requested", body)
+    return redirect("/setup?saved=a2p")
+
+
+@app.route("/setup/forwarding", methods=["POST"])
+@login_required
+def setup_forwarding():
+    """Confirm how missed calls reach RingBack. Default = the catcher model: the owner
+    sets carrier conditional-forwarding on their own phone (forward_to stays BLANK, so
+    any inbound call is treated as already-missed -> instant text-back). Advanced =
+    dial-through: RingBack rings the owner's cell first, then texts if unanswered."""
+    biz = current_business()
+    if biz is None:
+        return redirect("/dashboard")
+    mode = request.form.get("mode") or "catcher"
+    if mode == "dial":
+        cell = (request.form.get("forward_to") or "").strip()
+        canonical = messaging.to_e164(cell)
+        if not canonical:
+            return redirect("/setup?err=forward")
+        db.update_phone_voice(biz["id"], forward_to=canonical)
+    else:
+        db.update_phone_voice(biz["id"], forward_to="")   # catcher: blank = text immediately
+    db.set_forwarding_confirmed(biz["id"], True)
+    return redirect("/setup?saved=forwarding")
 
 
 # ---- Design-system gallery (internal): renders every UI component + state ----
@@ -1484,7 +1645,14 @@ def tasks_run_due():
     sent = request.headers.get("X-Tasks-Secret", "")
     if not TASKS_SECRET or not secrets.compare_digest(sent, TASKS_SECRET):
         return jsonify(error="Forbidden."), 403
-    return jsonify(reminders.tick_once())
+    out = reminders.tick_once()
+    # Also refresh A2P registration status from Twilio so an approved campaign flips
+    # tenants live without anyone clicking. Defensive: never breaks the reminder tick.
+    try:
+        out["a2p_synced"] = connections.a2p_sync_all()
+    except Exception as e:
+        print(f"[ringback] a2p_sync_all failed: {e}", file=sys.stderr, flush=True)
+    return jsonify(out)
 
 
 # ---- Internal seam for the separate voice service (Phase 3 production split) ----

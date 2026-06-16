@@ -56,8 +56,12 @@ def launch_blockers(business, sms_configured):
         out.append("Twilio credentials are not set on the server.")
     if not b.get("twilio_number"):
         out.append("No RingBack phone number is provisioned yet.")
+    elif not b.get("webhooks_wired"):
+        out.append("Your RingBack number isn't wired to receive calls and texts yet.")
     if not a2p_ready(b):
         out.append(f"A2P 10DLC registration is not approved yet (status: {a2p_status(b)}).")
-    if not b.get("forward_to"):
-        out.append("No contractor cell is set to ring on inbound calls.")
+    # Forwarding is set up either way: the catcher model (owner confirmed carrier
+    # conditional-forwarding; forward_to stays blank) OR dial-through (forward_to set).
+    if not (b.get("forward_to") or b.get("forwarding_confirmed")):
+        out.append("Call forwarding to your RingBack number isn't set up yet.")
     return out

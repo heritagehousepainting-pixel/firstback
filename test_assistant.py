@@ -108,6 +108,27 @@ out = assistant.run(biz, "how do I change my AI instructions")
 check("a profile question routes to Settings (no dead-end)",
       out["pending_action"] is None and any(c.get("href") == "/settings" for c in out["cards"]))
 
+
+def _routes_to_setup(ask):
+    out = assistant._route_topic(ask)
+    return bool(out) and any(c.get("href") == "/setup" for c in out.get("cards", []))
+
+
+for _ask in ("how do I go live", "I need to connect my number",
+             "it's not texting customers", "make it live", "turn it on",
+             "start texting customers"):
+    check("go-live intent routes to /setup: %r" % _ask, _routes_to_setup(_ask))
+
+# negatives: these must NOT over-trigger the /setup route
+check("'set up a reminder' is settings, not /setup",
+      (not _routes_to_setup("set up a reminder"))
+      and any(c.get("href") == "/settings"
+              for c in (assistant._route_topic("set up a reminder") or {}).get("cards", [])))
+check("'what's my number of leads' does not route to /setup",
+      not _routes_to_setup("what's my number of leads"))
+check("'how do customers register' does not route to /setup",
+      not _routes_to_setup("how do customers register"))
+
 # --- the HTTP routes return JSON ---
 r = client.post("/assistant", data={"message": "how many leads this week?"})
 check("/assistant route returns JSON", r.status_code == 200 and r.is_json)

@@ -24,8 +24,10 @@ webhooks + missed-call detection are Phase 1, the AI voice callback is Phase 3.
 import base64
 import hashlib
 import hmac
+import re
 import sys
 
+import compliance
 import db
 from config import (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
                     PUBLIC_BASE_URL)
@@ -54,13 +56,19 @@ def _from_number(business):
     return TWILIO_FROM_NUMBER
 
 
-def send_sms(business, to, body, lead_id=None, status_callback=None):
+def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True):
     """Send an SMS for a business, or simulate it when Twilio can't send.
 
     Returns a status dict whose "status" is one of:
       "sent"       -- handed to Twilio (dict also carries the Message "sid")
       "simulated"  -- Twilio not configured / no from-number; recorded on the
                       lead thread if known
+      "blocked"    -- Twilio is configured but this tenant's A2P 10DLC brand +
+                      campaign aren't approved yet, so a customer-facing send is
+                      held back (carriers filter unregistered local traffic); the
+                      message is still recorded on the lead thread if known
+                      ("reason": "a2p_not_approved"). Owner alerts bypass this with
+                      gate=False.
       "suppressed" -- the recipient has opted out for this business (STOP); not sent
       "skipped"    -- no usable destination number or empty body (with a "reason")
       "error"      -- Twilio configured but the API call failed (logged; "error")
@@ -82,6 +90,15 @@ def send_sms(business, to, body, lead_id=None, status_callback=None):
     # Respect opt-outs (STOP / any revocation) before anything leaves the system.
     if biz_id and db.is_suppressed(biz_id, to):
         return {"status": "suppressed"}
+
+    # A2P 10DLC gate: a customer-facing real send must NOT go out until this tenant's
+    # brand+campaign are approved -- carriers filter unregistered local traffic. No-op
+    # while unconfigured (the simulated path below still handles demo mode). Owner
+    # alerts pass gate=False (they go to the contractor's own phone, not a consumer).
+    if gate and configured() and not compliance.a2p_ready(business):
+        if lead_id is not None:
+            db.add_message(lead_id, "out", body)
+        return {"status": "blocked", "reason": "a2p_not_approved"}
 
     sender = _from_number(business)
     if not configured() or not sender:
@@ -163,13 +180,119 @@ def search_numbers(area_code=None, contains=None, limit=10):
         return []
 
 
-def provision_number(business_id, phone=None, area_code=None, base_url=None):
+_E164_RE = re.compile(r"\+\d{10,15}")
+def to_e164(raw):
+    """Canonicalize a user-entered phone to E.164, US-default. Never truncate/guess."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    plus = s.startswith("+")
+    digits = re.sub(r"\D", "", s)
+    if not digits:
+        return None
+    if plus:
+        candidate = "+" + digits
+    elif len(digits) == 10:
+        candidate = "+1" + digits
+    elif len(digits) == 11 and digits.startswith("1"):
+        candidate = "+" + digits
+    else:
+        return None
+    return candidate if _E164_RE.fullmatch(candidate) else None
+
+
+def account_owns_number(e164):
+    """True iff THIS Twilio account owns exactly one IncomingPhoneNumber == e164. Fails closed."""
+    if not configured() or not e164:
+        return False
+    import requests
+    try:
+        r = requests.get(
+            f"{API_BASE}/Accounts/{TWILIO_ACCOUNT_SID}/IncomingPhoneNumbers.json",
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            params={"PhoneNumber": e164}, timeout=20)
+        r.raise_for_status()
+        rows = [n for n in r.json().get("incoming_phone_numbers", []) if n.get("phone_number") == e164]
+        return len(rows) == 1
+    except Exception as e:
+        print(f"[ringback] account_owns_number failed ({e164}): {e}", file=sys.stderr, flush=True)
+        return False
+
+
+def attach_owned_number(e164, business_id, base_url=None):
+    """Wire an already-owned number's Voice+SMS webhooks at this app and store it. Caller must
+    have confirmed ownership first. Returns True on success. Fails closed."""
+    if not configured() or not e164:
+        return False
+    import requests
+    base = (base_url or PUBLIC_BASE_URL or "").rstrip("/")
+    try:
+        r = requests.get(
+            f"{API_BASE}/Accounts/{TWILIO_ACCOUNT_SID}/IncomingPhoneNumbers.json",
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            params={"PhoneNumber": e164}, timeout=20)
+        r.raise_for_status()
+        rows = [n for n in r.json().get("incoming_phone_numbers", []) if n.get("phone_number") == e164]
+        if len(rows) != 1:
+            return False
+        sid = rows[0].get("sid")
+        if not sid:
+            return False
+        data = {}
+        if base:
+            data["VoiceUrl"] = base + VOICE_INBOUND_PATH; data["VoiceMethod"] = "POST"
+            data["SmsUrl"] = base + SMS_INBOUND_PATH; data["SmsMethod"] = "POST"
+        if data:
+            u = requests.post(
+                f"{API_BASE}/Accounts/{TWILIO_ACCOUNT_SID}/IncomingPhoneNumbers/{sid}.json",
+                auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), data=data, timeout=30)
+            u.raise_for_status()
+        db.set_business_twilio(business_id, e164, sid, webhooks_wired=True)
+        return True
+    except Exception as e:
+        print(f"[ringback] attach_owned_number failed (biz {business_id}, {e164}): {e}", file=sys.stderr, flush=True)
+        return False
+
+
+def fetch_a2p_campaign_status(service_sid, campaign_sid):
+    """Twilio's raw US A2P campaign_status (e.g. 'VERIFIED','IN_PROGRESS','FAILED') for a
+    messaging service, or None when unconfigured/unknown/on any error. campaign_sid is only a
+    'registration exists' guard; the resource is addressed by the service SID via the singleton
+    list endpoint .../Compliance/Usa2p. Never raises."""
+    if not (configured() and service_sid and campaign_sid):
+        return None
+    import requests
+    try:
+        r = requests.get(
+            f"https://messaging.twilio.com/v1/Services/{service_sid}/Compliance/Usa2p",
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), timeout=20)
+        r.raise_for_status()
+        items = r.json().get("compliance") or []
+        return items[0].get("campaign_status") if items else None
+    except Exception as e:
+        print(f"[ringback] a2p status fetch failed ({campaign_sid}): {e}", file=sys.stderr, flush=True)
+        return None
+
+
+def provision_number(business_id, phone=None, area_code=None, base_url=None,
+                     allow_no_webhooks=False):
     """Buy a number (specific `phone`, else by `area_code`), point its Voice + SMS
     webhooks at this app, and store it on the business. Returns the E.164 number or
-    None. Needs PUBLIC_BASE_URL (or `base_url`) so Twilio can reach our webhooks."""
+    None. Needs PUBLIC_BASE_URL (or `base_url`) so Twilio can reach our webhooks.
+
+    Returns None WITHOUT buying when no public URL is set (so we never hand a
+    business a number whose inbound calls/texts go nowhere) -- unless
+    `allow_no_webhooks=True` is passed to deliberately override that guard. On a
+    successful buy the business's `webhooks_wired` flag records whether the Voice +
+    SMS webhooks were actually wired (i.e. whether a base URL was present)."""
     if not configured():
         return None
     base = (base_url or PUBLIC_BASE_URL or "").rstrip("/")
+    if not base and not allow_no_webhooks:
+        print(f"[ringback] provision_number refused (biz {business_id}): "
+              f"no PUBLIC_BASE_URL, would buy a number with no webhooks",
+              file=sys.stderr, flush=True)
+        return None
     data = {}
     if phone:
         data["PhoneNumber"] = phone
@@ -189,7 +312,7 @@ def provision_number(business_id, phone=None, area_code=None, base_url=None):
         j = r.json()
         num, sid = j.get("phone_number"), j.get("sid")
         if num:
-            db.set_business_twilio(business_id, num, sid or "")
+            db.set_business_twilio(business_id, num, sid or "", webhooks_wired=bool(base))
         return num
     except Exception as e:
         print(f"[ringback] twilio provision_number failed (biz {business_id}): {e}",

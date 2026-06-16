@@ -51,6 +51,7 @@ def _recover_network_fs_db(db_path):
     DB is already healthy, so a normal boot pays nothing.
     """
     import os, shutil, tempfile
+    db_path = os.fspath(db_path)  # accept a Path or str; below we build "-wal"/"-shm" siblings
     wal, shm = db_path + "-wal", db_path + "-shm"
     if not (os.path.exists(wal) or os.path.exists(shm)):
         return  # healthy: no WAL sidecars -> normal boot
@@ -327,7 +328,11 @@ def init_db():
             ("legal_business_name", "TEXT"), ("ein", "TEXT"),
             ("business_address", "TEXT"), ("website", "TEXT"),
             ("a2p_messaging_service_sid", "TEXT"), ("a2p_submitted_at", "TEXT"),
-            ("forwarding_confirmed", "INTEGER DEFAULT 0")):
+            ("forwarding_confirmed", "INTEGER DEFAULT 0"),
+            # Whether the provisioned number actually has its Twilio Voice + SMS
+            # webhooks wired (set by messaging.provision_number on success). A number
+            # without webhooks can receive nothing, so it must NOT read as "live".
+            ("webhooks_wired", "INTEGER DEFAULT 0")):
         if col not in biz_cols:
             c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
     # messages gain delivery tracking for real (Twilio) SMS.
@@ -574,20 +579,25 @@ def get_business_by_twilio_number(number):
     return None
 
 
-def set_business_twilio(business_id, twilio_number, twilio_number_sid="", forward_to=None):
+def set_business_twilio(business_id, twilio_number, twilio_number_sid="",
+                        forward_to=None, webhooks_wired=None):
     """Store a business's provisioned Twilio number (and optional forward-to cell).
-    Used by messaging.provision_number; not exposed on the Settings form."""
+    Used by messaging.provision_number; not exposed on the Settings form.
+
+    `webhooks_wired` records whether the number's Twilio Voice + SMS webhooks were
+    actually configured -- only written when given, so a caller that just rebinds a
+    number never clears the flag. A number whose webhooks aren't wired must not read
+    as 'live' (see compliance.launch_blockers)."""
     conn = get_conn()
-    if forward_to is None:
-        conn.execute(
-            "UPDATE businesses SET twilio_number=?, twilio_number_sid=? WHERE id=?",
-            (twilio_number, twilio_number_sid, business_id))
-    else:
-        conn.execute(
-            "UPDATE businesses SET twilio_number=?, twilio_number_sid=?, forward_to=? "
-            "WHERE id=?", (twilio_number, twilio_number_sid, forward_to, business_id))
-    conn.commit()
-    conn.close()
+    sets = ["twilio_number=?", "twilio_number_sid=?"]
+    vals = [twilio_number, twilio_number_sid]
+    if forward_to is not None:
+        sets.append("forward_to=?"); vals.append(forward_to)
+    if webhooks_wired is not None:
+        sets.append("webhooks_wired=?"); vals.append(1 if webhooks_wired else 0)
+    vals.append(business_id)
+    conn.execute(f"UPDATE businesses SET {', '.join(sets)} WHERE id=?", tuple(vals))
+    conn.commit(); conn.close()
 
 
 # ---- Leads ----

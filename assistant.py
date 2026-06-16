@@ -23,6 +23,7 @@ import re
 import db
 import ai
 import messaging
+import connections
 
 # Account links the chat can offer, with the words an owner is likely to say.
 _CONNECT = {
@@ -483,10 +484,43 @@ def _demo_route(message):
     return "chat", args
 
 
-def _route_topic(message):
+_GOLIVE_REPLY = {
+    "not_live": "Let's get you live. Here's where you are. The Go Live page walks you through "
+                "your number, carrier registration, and call forwarding, one step at a time.",
+    "setup_complete": "You're set up. Make a test call to your RingBack number to confirm "
+                      "forwarding works, then you're fully live.",
+    "live": "You're live. RingBack is catching your missed calls and texting them back.",
+}
+
+
+def _golive_card(business):
+    """A go-live status card for the command center: a condensed stepper + the top blocker,
+    deep-linking to the wizard. Reuses connections.golive_summary (single source of truth) so
+    it can never claim 'live' before the wizard would."""
+    g = connections.golive_summary(business)
+    card = {"type": "golive", "status": g["status"], "done": g["done"], "total": g["total"],
+            "steps": g["steps"], "blocker": g["blocker"],
+            "href": "/setup", "label": "Open Go Live"}
+    return {"reply": _GOLIVE_REPLY[g["status"]], "cards": [card]}
+
+
+def _route_topic(message, business=None):
     """Capability honesty: for a request with no direct tool, route to the nearest real
-    page instead of dead-ending it as a 'feature request'. Returns {reply, cards} or None."""
+    page instead of dead-ending it as a 'feature request'. Returns {reply, cards} or None.
+    When `business` is given, the go-live route returns a live status card; otherwise it
+    falls back to a plain link card (e.g. direct unit calls without a tenant)."""
     t = message.lower()
+    if any(k in t for k in ("go live", "make it live", "turn it on", "get connected",
+                            "connect my number", "set up my number", "set up ringback",
+                            "get a number", "get a phone number", "a2p", "10dlc", "carrier",
+                            "call forwarding", "forward my calls", "deliverability",
+                            "start texting", "not sending text", "texts aren't",
+                            "isn't texting", "not texting", "won't text", "can't text")):
+        if business is not None:
+            return _golive_card(business)
+        return {"reply": "Let's get you live. The Go Live page walks you through your number, "
+                         "carrier registration, and call forwarding, one step at a time.",
+                "cards": [_link("Open Go Live", "/setup", "Open Go Live")]}
     if any(k in t for k in ("password", "my account", "profile", "ai instruction", "what it says",
                             "my hours", "service area", "business name", "change my", "alert",
                             "reminder")):
@@ -522,10 +556,11 @@ def _chat_reply(message):
             "calendar.\"")
 
 
-def _chat_or_route(message, llm_reply=""):
+def _chat_or_route(business, message, llm_reply=""):
     """Chat answer, but first route known topics to a real page (capability honesty). A
-    routed reply is a capability_gap (no native tool); both are logged so we can learn."""
-    routed = _route_topic(message)
+    routed reply is a capability_gap (no native tool); both are logged so we can learn.
+    `business` lets the go-live route return a live status card for this tenant."""
+    routed = _route_topic(message, business)
     if routed:
         return {"reply": routed["reply"], "cards": routed["cards"], "pending_action": None,
                 "meta": {"tool": "route", "status": "capability_gap"}}
@@ -552,13 +587,13 @@ def run(business, message, history=None):
         args.setdefault("raw", message)
         llm_reply = routed.get("reply") or ""
     elif routed and routed.get("tool") == "chat":
-        return _chat_or_route(message, routed.get("reply") or "")
+        return _chat_or_route(business, message, routed.get("reply") or "")
     else:
         tool, args = _demo_route(message)
         llm_reply = ""
 
     if tool == "chat":
-        return _chat_or_route(message)
+        return _chat_or_route(business, message)
 
     spec = TOOLS[tool]
     if spec["confirm"]:

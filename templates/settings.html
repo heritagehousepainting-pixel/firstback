@@ -84,6 +84,50 @@
     </div>
   {% endcall %}
 
+  {% call card(title='Call screening', subtitle='Like your phone’s screen: RingBack only texts back real prospects — it skips people you already know (they’re yours to handle) and suspected spam/robocallers. No setup, no contact import required.') %}
+    <div class="field">
+      <label class="field-label" for="screen_mode">Screening mode</label>
+      <select id="screen_mode" name="screen_mode" class="field-control">
+        <option value="" {{ 'selected' if not screen_mode_setting }}>Use the default ({{ screen_mode_default }})</option>
+        <option value="off" {{ 'selected' if screen_mode_setting == 'off' }}>Off — text every missed caller</option>
+        <option value="monitor" {{ 'selected' if screen_mode_setting == 'monitor' }}>Monitor — log what it would screen, but still text everyone</option>
+        <option value="enforce" {{ 'selected' if screen_mode_setting == 'enforce' }}>Enforce — actually screen spam &amp; known callers</option>
+      </select>
+    </div>
+    {% if screen_mode == 'enforce' %}
+      <p class="provider-note provider-note-ok"><strong>Enforcing.</strong> Known callers (anyone you’ve booked or saved) are passed straight to you, and suspected spam is screened out. Spam is scored from caller-ID verification, neighbor-spoofing, repeat-call behavior, and other businesses’ spam reports. It’s <strong>precision-first</strong>: anything uncertain is still texted and flagged for review, so a real customer is never silenced by mistake.</p>
+    {% elif screen_mode == 'monitor' %}
+      <p class="provider-note provider-note-soft"><strong>Monitoring (safe rollout).</strong> RingBack is logging what it <em>would</em> screen — see the “Would screen” list on your dashboard — but still texting everyone, so nothing real gets silenced while you build trust. When the numbers look right, switch to <strong>Enforce</strong> above.</p>
+    {% else %}
+      <p class="provider-note provider-note-soft">Screening is <strong>off</strong> — every missed caller gets the text-back. Choose <strong>Monitor</strong> to start observing safely, or <strong>Enforce</strong> to turn it on.</p>
+    {% endif %}
+    <div class="provider-grid">
+      <div class="provider-card{{ ' is-connected' if reputation_configured else ' is-soon' }}" data-provider="reputation">
+        <span class="provider-meta">
+          <span class="provider-name">Robocall reputation lookup</span>
+          <span class="provider-status">{{ reputation_label if reputation_configured else 'Off' }}</span>
+        </span>
+        {% if reputation_configured %}
+          <span class="btn btn-secondary btn-sm provider-btn" aria-disabled="true">Active</span>
+        {% else %}
+          <button type="button" class="btn btn-secondary btn-sm provider-btn" disabled title="Set RINGBACK_REPUTATION_PROVIDER (twilio_nomorobo or hiya) to enable a paid per-number spam lookup">Optional add-on</button>
+        {% endif %}
+      </div>
+      <div class="provider-card{{ ' is-connected' if ai_screen_enabled else ' is-soon' }}" data-provider="ai-screen">
+        <span class="provider-meta">
+          <span class="provider-name">AI message screening</span>
+          <span class="provider-status">{{ 'On' if ai_screen_enabled else 'Off' }}</span>
+        </span>
+        {% if ai_screen_enabled %}
+          <span class="btn btn-secondary btn-sm provider-btn" aria-disabled="true">Active</span>
+        {% else %}
+          <button type="button" class="btn btn-secondary btn-sm provider-btn" disabled title="Set RINGBACK_SCREEN_AI=1 to read a caller’s first reply and stop cold-pitching an obvious sales/robocall message">Optional add-on</button>
+        {% endif %}
+      </div>
+    </div>
+    <p class="provider-note provider-note-soft">The free tiers above are always on. The two add-ons are extra layers you can switch on later — the screen works without them.</p>
+  {% endcall %}
+
   {% call card(title='RingBack calendar', subtitle='Open days fill with booked estimates. Block the days you’re already busy and the AI won’t offer them.', flush=true) %}
     <div class="cal" id="calendar" data-endpoint="/api/calendar">
       <div class="cal-head">
@@ -133,6 +177,26 @@
     {% if not sms_configured %}
     <p class="provider-note provider-note-soft">Texts are <strong>simulated</strong> until Twilio is set up — reminders still post to the lead’s conversation so you can see exactly what would go out.</p>
     {% endif %}
+  {% endcall %}
+
+  {% call card(title='Scheduling', subtitle='Shape your own availability. The AI only offers these windows, on the days you work, and never books two estimates closer than your buffer.') %}
+    <div class="field-grid">
+      {{ field('Estimate windows', name='estimate_times', value=(sched.times|join(', ')), placeholder='9:00 AM, 2:00 PM', help='Comma-separated times the AI may offer each open day. Leave blank for the default.') }}
+      {{ field('Buffer between estimates (minutes)', name='buffer_minutes', value=sched.buffer_minutes, type='number', placeholder='0', help='The smallest gap allowed between two booked estimates. Set 90 and the AI won’t book a 2pm and a 3pm.') }}
+    </div>
+    <div class="field-grid" style="margin-top:var(--space-4)">
+      <div>
+        <span class="field-label">Working days</span>
+        <div class="toggle-list" style="flex-direction:row;flex-wrap:wrap;gap:var(--space-3);margin-top:var(--space-2)">
+          {% for i, day in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+          <label class="toggle" style="gap:var(--space-2)">
+            <input type="checkbox" name="working_days" value="{{ i }}"{{ ' checked' if i in sched.working_days else '' }}>
+            <span>{{ day }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
   {% endcall %}
 
   {% call card(title='AI instructions', subtitle='The heart of it — how your AI talks and what it asks on every call.') %}

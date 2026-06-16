@@ -599,3 +599,64 @@ def summarize_lead(business, messages):
                 print(f"[ringback] summarize_lead ({provider}) attempt {attempt + 1} "
                       f"failed: {e}", file=sys.stderr, flush=True)
     return _notes_rule_based(messages)
+
+
+# --------------------------------------------------------------------------
+# CONTENT SCREEN  (Tier 3 of the phone screen: is this reply a real homeowner,
+# or a sales pitch / survey / wrong number / spam? RingBack's analog to iOS 26
+# "Ask Reason for Calling" -- the SMS exchange IS the reason-for-calling step.)
+# --------------------------------------------------------------------------
+_INTENT_SYSTEM = (
+    "You screen the FIRST reply a caller sent to a home-services contractor's "
+    "automated text after a missed call. Decide whether this is a genuine potential "
+    "CUSTOMER or noise. Output ONLY a JSON object (no code fences, no extra text) "
+    'with these exact keys: '
+    '"label" (one of "prospect", "sales", "survey", "wrong_number", "spam"), '
+    '"is_prospect" (true ONLY for a real homeowner/business asking about or needing '
+    'the contractor\'s services; false otherwise), '
+    '"confidence" (0.0 to 1.0). '
+    "A vendor pitching THE CONTRACTOR (marketing, SEO, leads, insurance, financing) "
+    'is "sales". A political/research call is "survey". Someone who clearly dialed '
+    'the wrong number is "wrong_number". An obvious robocall/scam is "spam". When in '
+    'doubt, prefer "prospect" -- missing a real customer is far worse than engaging a '
+    "time-waster.")
+
+# Labels other than these mean "do not keep cold-pitching" (bail).
+PROSPECT_LABELS = {"prospect"}
+
+
+def classify_intent(business, messages):
+    """Tier-3 content screen. Returns {"label", "is_prospect", "confidence"} for the
+    caller's words so far. FAILS OPEN: the demo brain (no API key) and any error both
+    return a confident 'prospect', so screening never silences a real caller when the
+    classifier is off or down. Only meaningful once the caller has actually replied."""
+    inbound = [m for m in (messages or []) if m.get("direction") == "in" and (m.get("body") or "").strip()]
+    if not inbound:
+        return {"label": "prospect", "is_prospect": True, "confidence": 0.0}
+    provider = _active_provider()
+    if provider not in ("minimax", "claude"):
+        return {"label": "prospect", "is_prospect": True, "confidence": 0.0}
+    transcript = "\n".join(
+        ("Caller: " if m["direction"] == "in" else "Assistant: ") + m["body"]
+        for m in messages)
+    try:
+        data = _parse_json(_llm_complete(provider, _INTENT_SYSTEM, transcript))
+    except Exception as e:
+        import sys
+        print(f"[ringback] classify_intent ({provider}) failed: {e}",
+              file=sys.stderr, flush=True)
+        data = None
+    if not data:
+        return {"label": "prospect", "is_prospect": True, "confidence": 0.0}
+    label = str(data.get("label") or "prospect").strip().lower()
+    if label not in ("prospect", "sales", "survey", "wrong_number", "spam"):
+        label = "prospect"
+    # Trust the explicit label over a possibly-missing is_prospect flag.
+    is_prospect = bool(data.get("is_prospect")) if "is_prospect" in data else (label in PROSPECT_LABELS)
+    if label not in PROSPECT_LABELS:
+        is_prospect = False
+    try:
+        confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {"label": label, "is_prospect": is_prospect, "confidence": confidence}

@@ -5,6 +5,7 @@
 {% set ic_alert %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>{% endset %}
 {% set ic_inbox %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>{% endset %}
 {% set ic_voice %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.57 2.34.7A2 2 0 0 1 22 16.92z"/></svg>{% endset %}
+{% set ic_shield %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>{% endset %}
 
 {% block title %}Product{% endblock %}
 {% block content %}
@@ -35,6 +36,21 @@
 
   <div class="mk-row flip">
     <div class="mk-copy">
+      <span class="mk-kicker">Smart screening</span>
+      <h3>It knows who to text.</h3>
+      <p>Not every missed call is a job. RingBack texts back real prospects in seconds, skips spam and robocalls, and leaves the people you already know to you — automatically, with no contact list to import.</p>
+      <ul>
+        <li><span class="mk-check">{{ check }}</span> Filters spam &amp; robocalls — so they never get an auto-text</li>
+        <li><span class="mk-check">{{ check }}</span> Protects your number from being flagged as spam</li>
+        <li><span class="mk-check">{{ check }}</span> Leaves customers you already know for you to handle</li>
+      </ul>
+      <a class="mk-textlink" href="/simulator">See it screen a call →</a>
+    </div>
+    <div class="mk-visual">{{ ic_shield }}</div>
+  </div>
+
+  <div class="mk-row">
+    <div class="mk-copy">
       <span class="mk-kicker">AI voice callback · beta</span>
       <h3>When they’d rather talk, RingBack calls them.</h3>
       <p>Some customers want a voice, not a thread. They reply “CALL” and RingBack phones them back in your name — a real AI on the line that talks through the job and books the estimate.</p>
@@ -47,7 +63,7 @@
     <div class="mk-visual">{{ ic_voice }}</div>
   </div>
 
-  <div class="mk-row">
+  <div class="mk-row flip">
     <div class="mk-copy">
       <span class="mk-kicker">AI booking</span>
       <h3>Qualifies the job and books the estimate.</h3>
@@ -61,7 +77,7 @@
     <div class="mk-visual">{{ ic_cal }}</div>
   </div>
 
-  <div class="mk-row flip">
+  <div class="mk-row">
     <div class="mk-copy">
       <span class="mk-kicker">Urgent alerts</span>
       <h3>Never miss the job that can’t wait.</h3>
@@ -75,7 +91,7 @@
     <div class="mk-visual">{{ ic_alert }}</div>
   </div>
 
-  <div class="mk-row">
+  <div class="mk-row flip">
     <div class="mk-copy">
       <span class="mk-kicker">One inbox</span>
       <h3>Every lead and conversation, organized.</h3>

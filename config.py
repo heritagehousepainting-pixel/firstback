@@ -41,6 +41,76 @@ MINIMAX_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
 
+# --- Call screening (the "phone screen") ----------------------------------
+# RingBack texts back every missed caller. Two callers should NOT get that bot
+# text: known/saved people (handled by you personally) and spam/robocallers. The
+# screen is TIERED and PRECISION-FIRST: it only hard-suppresses on near-certainty
+# (a real homeowner silenced by mistake is the one failure the product exists to
+# prevent), so anything ambiguous is still engaged, just flagged "for review".
+# Tier 0/0.5/1 (identity, auto-derived known-set, free hot-path signals) and the
+# crowdsourced cross-tenant ledger are ALWAYS on. The paid reputation tier and the
+# AI content screen are gated and OFF until configured.
+# Rollout mode for the screen, so it can be cut over SAFELY:
+#   "off"     -> no screening; every missed caller gets the text-back (the pre-screen
+#                behavior). The instant rollback.
+#   "monitor" -> COMPUTE + log each verdict but still text everyone. Lets the owner
+#                watch the "would-have-screened" numbers before it can silence anyone.
+#                The safe default for a fresh cutover.
+#   "enforce" -> the verdict is acted on (spam/known callers are not texted).
+# RINGBACK_SCREENING is still honored as a legacy off-switch (=0 forces "off").
+_SCREEN_MODE_RAW = os.environ.get("RINGBACK_SCREEN_MODE", "monitor").strip().lower()
+if os.environ.get("RINGBACK_SCREENING", "1").strip().lower() not in ("1", "true", "yes", "on"):
+    _SCREEN_MODE_RAW = "off"
+SCREEN_MODE = _SCREEN_MODE_RAW if _SCREEN_MODE_RAW in ("off", "monitor", "enforce") else "monitor"
+# Back-compat: truthy whenever the screen runs at all (monitor or enforce).
+SCREENING_ENABLED = SCREEN_MODE != "off"
+
+
+def _int_env(key, default):
+    try:
+        return int(os.environ.get(key, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+# Spam score (0-100) thresholds. >= HARD -> screened (no text). MID..HARD -> engage
+# but flag for review. < MID -> a clean prospect, engaged normally.
+SCREEN_SCORE_HARD = _int_env("RINGBACK_SCREEN_HARD", 80)
+SCREEN_SCORE_MID = _int_env("RINGBACK_SCREEN_MID", 45)
+# How many DISTINCT other businesses must have flagged a number as spam before the
+# crowdsourced cross-tenant signal counts (privacy-safe: only a COUNT is ever read).
+SCREEN_CROWD_MIN = _int_env("RINGBACK_SCREEN_CROWD_MIN", 2)
+# AI content screen (Tier 3): classify the caller's FIRST reply (real homeowner vs.
+# sales pitch / survey / wrong number) and bail mid-conversation on spam. Uses the
+# same brain as the conversation engine; OFF unless explicitly enabled AND a real
+# provider key is present (the demo brain always returns "prospect" -> fail open).
+SCREEN_AI_CONTENT = os.environ.get("RINGBACK_SCREEN_AI", "").strip().lower() in ("1", "true", "yes", "on")
+
+# --- Number reputation (optional paid robocall lookup) --------------------
+# Tier 2 of the screen: a per-number spam/line-type lookup, consulted ONLY for
+# unknown callers the free tiers can't clear, cached per number, with a tight
+# timeout and FAIL-OPEN (any error -> treat as clean, never silence a real caller).
+# Off until a provider is chosen:
+#   "off"            -> never call out (default; the free tiers still screen spam)
+#   "twilio_nomorobo"-> Twilio Lookup v2 line-type + the Nomorobo Spam Score add-on
+#                       (reuses TWILIO_ACCOUNT_SID/AUTH_TOKEN; no new account)
+#   "hiya"           -> Hiya number-reputation API (needs HIYA_API_KEY)
+REPUTATION_PROVIDER = os.environ.get("RINGBACK_REPUTATION_PROVIDER", "off").strip().lower()
+HIYA_API_KEY = os.environ.get("HIYA_API_KEY", "")
+HIYA_BASE_URL = os.environ.get("HIYA_BASE_URL", "https://api.hiya.com")
+# How long a cached reputation row stays fresh (hours). Reputation is sticky, so a
+# day keeps cost/latency down without going stale.
+try:
+    REPUTATION_TTL_HOURS = float(os.environ.get("RINGBACK_REPUTATION_TTL_HOURS", "") or 24)
+except (TypeError, ValueError):
+    REPUTATION_TTL_HOURS = 24.0
+# Hard ceiling on the outbound lookup so the Twilio voice webhook always answers fast.
+try:
+    REPUTATION_TIMEOUT_SECONDS = float(os.environ.get("RINGBACK_REPUTATION_TIMEOUT", "") or 2.5)
+except (TypeError, ValueError):
+    REPUTATION_TIMEOUT_SECONDS = 2.5
+
+
 # --- Google Calendar (optional real two-way sync) -------------------------
 # To turn on: in Google Cloud Console create an OAuth 2.0 Client ID of type
 # "Web application", add the redirect URI below to its "Authorized redirect
@@ -164,6 +234,12 @@ DB_PATH = os.environ.get("RINGBACK_DB_PATH", "").strip() or (BASE_DIR / "ringbac
 ESTIMATE_TIMES = ["9:00 AM", "2:00 PM"]
 # How far ahead the AI may offer / the calendar treats as bookable.
 BOOKING_HORIZON_DAYS = 21
+# Defaults a tenant inherits until they customize their scheduling (db.scheduling_prefs).
+# Weekday ints, Mon=0..Sun=6. Default Mon-Sat (matches the default "hours" string).
+DEFAULT_WORKING_DAYS = [0, 1, 2, 3, 4, 5]
+# Minimum minutes between two booked estimates. 0 = no buffer (original behavior); the
+# owner can raise it so the AI never books two estimates too close to make both.
+DEFAULT_BUFFER_MINUTES = 0
 
 # --- Reminders & follow-ups (Feature 1) -----------------------------------
 # A background ticker (started in app.py) texts a reminder before each booked

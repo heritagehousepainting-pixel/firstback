@@ -41,7 +41,9 @@ Pluggable, chosen by `RINGBACK_PROVIDER` in `.env`:
 |------|--------------|
 | `config.py` | Branding, provider/model choice, scheduling + feature knobs, `.env` loader. |
 | `db.py` | SQLite storage, multi-tenant (everything scoped by `business_id`). |
-| `ai.py` | **The conversation brain** + booking resolution + lead-note summaries. |
+| `ai.py` | **The conversation brain** + booking resolution + lead-note summaries + content screen. |
+| `triage.py` | **The call screen** -- the tiered verdict that decides who gets the text-back. |
+| `reputation.py` | Gated robocall-reputation lookup (Tier 2 of the screen; dormant until configured). |
 | `app.py` | Flask routes, the JSON API, the shared conversation engine, the scheduler. |
 | `google_cal.py` | Real, gated Google Calendar sync (freebusy + event-on-book). |
 | `messaging.py` | Outbound SMS seam + Twilio plumbing (gated; simulated until configured). |
@@ -62,6 +64,13 @@ honestly. Setup steps for each are in [USER_TO_DO.md](USER_TO_DO.md).
   `GOOGLE_CLIENT_ID/SECRET` are set. Outlook/Apple/Yahoo are honest "Coming soon."
 - **Owner alerts** -- SMS (Twilio) + email (SMTP) + always-on in-app feed; pick the
   events per business in Settings.
+- **Call screening ("knows who to text")** -- a tiered, precision-first screen
+  (`triage.screen_caller`) texts back real prospects, skips spam/robocalls, and leaves
+  known callers (auto-derived from bookings -- no import) to the owner. Rolls out
+  **safely** via `RINGBACK_SCREEN_MODE` (`off` | `monitor` | `enforce`, default
+  `monitor`: log what it *would* screen without silencing anyone). Optional paid robocall
+  reputation (`RINGBACK_REPUTATION_PROVIDER`) and AI message screening
+  (`RINGBACK_SCREEN_AI`) are gated add-ons; the free tiers screen spam without them.
 - **Reminders & follow-ups** -- a background scheduler texts a reminder before each
   estimate and one nudge to a cold lead; simulated onto the thread until Twilio is set.
 - **Real phone/SMS (Twilio)** -- `messaging.send_sms` is the outbound seam; the

@@ -105,6 +105,16 @@
 .ob-try svg{width:15px;height:15px}
 .ob-try:hover{opacity:.7}
 
+/* "Knows who to text" — the screen, in one mono line under the hero CTA */
+.ob-screen-strip{margin:22px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px 18px;
+  font-family:var(--mono);font-size:12px;letter-spacing:.03em;color:var(--ink-soft)}
+.ob-screen-strip li{display:inline-flex;align-items:center;gap:7px}
+.ob-screen-strip .dot-ok,.ob-screen-strip .dot-no,.ob-screen-strip .dot-you{
+  width:7px;height:7px;border-radius:50%;flex:none}
+.ob-screen-strip .dot-ok{background:var(--accent-strong)}
+.ob-screen-strip .dot-no{background:currentColor;opacity:.35}
+.ob-screen-strip .dot-you{background:transparent;border:1.5px solid currentColor;opacity:.5}
+
 /* ---- Proof: ruled frame w/ registration ticks holding phone + terminal ---- */
 .ob-proof{position:relative;margin-top:clamp(44px,6vw,72px);width:min(960px,96vw);
   border:1px solid var(--border);background:rgba(255,255,255,.4);

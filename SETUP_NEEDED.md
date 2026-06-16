@@ -11,6 +11,22 @@ beta / placeholder states into fully live ones. Integration credential steps liv
 - Until then the copy correctly says **"in beta / rolling out on Pro and Crew"** and the
   product falls back to text. Don't sell it as fully included until it's deployed in prod.
 
+## To roll out & tune call screening (the "phone screen")
+- **Rollout mode** — `RINGBACK_SCREEN_MODE` (`off` | `monitor` | `enforce`, default `monitor`)
+  is the **app-wide default**. It ships in **monitor**: it logs what it *would* screen (see the
+  "Would screen" list + banner on the dashboard) but still texts everyone, so nothing real is
+  silenced. Each business can also pick its own mode in **Settings → Call screening** (which
+  overrides the env default; "Use the default" inherits it). When the monitor numbers look
+  right, switch to **Enforce**. `off` is the instant rollback. Thresholds:
+  `RINGBACK_SCREEN_HARD` (default 80) / `RINGBACK_SCREEN_MID` (45).
+- **Optional paid robocall reputation (Tier 2)** — `RINGBACK_REPUTATION_PROVIDER`
+  (`off` | `twilio_nomorobo` | `hiya`). `twilio_nomorobo` reuses your Twilio creds (Lookup +
+  Nomorobo Spam Score add-on); `hiya` needs `HIYA_API_KEY`. Cached, fail-open. The free tiers
+  screen spam without it.
+- **Optional AI message screening (Tier 3)** — `RINGBACK_SCREEN_AI=1` reads a caller's first
+  reply to bail on an obvious sales/robocall message (needs a real AI provider key; the demo
+  brain always passes — fail-open).
+
 ## To make "works with Google Calendar / texts / email" say LIVE instead of simulated
 - Add the credentials in `USER_TO_DO.md`: Twilio (SMS), Google OAuth (Calendar + Contacts),
   SMTP (email). Each is a gated no-op that simulates in-app until configured — the UI

@@ -65,6 +65,8 @@
 /* AI-compressed lead notes, shown above the conversation */
 .lead-notes{padding:var(--space-4) var(--space-6);background:var(--surface);border-bottom:1px solid var(--border)}
 .lead-notes:empty{display:none}
+.convo-actions{display:flex;justify-content:flex-end;padding:var(--space-3) var(--space-6);
+  border-top:1px solid var(--border);background:var(--surface)}
 .ln-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);
   margin-bottom:var(--space-3);font-size:var(--text-sm);font-weight:700;color:var(--ink)}
 .ln-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
@@ -95,6 +97,16 @@
 .sim-banner strong{font-weight:600}
 .sim-banner-booked{background:var(--success-bg);border-color:var(--success);color:var(--success)}
 .sim-banner-urgent{background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
+
+/* Simulator: the screening demo (spam / known caller) */
+.sim-scenarios{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-2)}
+.sim-screened{margin:var(--space-4) auto;max-width:32ch;padding:var(--space-4);border-radius:var(--radius);
+  border:1px solid var(--border);background:var(--surface);text-align:center}
+.sim-screened-spam{border-color:var(--danger);background:var(--danger-bg)}
+.sim-screened-known{border-color:var(--border);background:var(--bg)}
+.sim-screened-head{font-weight:600;font-size:var(--text-md);margin-bottom:var(--space-2)}
+.sim-screened-sub{margin:0 0 var(--space-3);font-size:var(--text-sm);line-height:1.5;color:var(--ink-soft)}
+.sim-screened-reason{font-size:var(--text-xs);line-height:1.6;color:var(--ink-soft);text-align:left}
 
 .dev-panel{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);
   font-size:var(--text-sm)}

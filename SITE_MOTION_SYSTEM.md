@@ -16,12 +16,36 @@ Companion docs: [UI_MOTION_IDEAS.md](UI_MOTION_IDEAS.md) (Firecrawl teardown / i
 
 ---
 
+## 1a. Reference weighting — Firecrawl leads, QuickBooks supports
+Two references, deliberately **unequal — lean heavier on Firecrawl.**
+- **Firecrawl = primary design DNA.** Sets the *look + feel everywhere*: Safety-Orange discipline, two-tone headlines, pills, action/ambient backgrounds, the full motion vocabulary, the "minimal-but-alive" feel. Governs the marketing tier almost entirely, and supplies the visual + motion language for the product tier too.
+- **QuickBooks = secondary, scoped.** Used ONLY for the **product tier's structure** — page-stacking / information architecture for dense screens (Settings et al.), flow between sections, and pill placement in lists/tables. Its **artwork is not used**; its structural patterns get re-skinned in Firecrawl's language.
+- **Tie-breaker:** if the two ever conflict on look / feel / motion → **Firecrawl wins.** QuickBooks only wins on *how a dense product page is organized*.
+
+---
+
 ## 2. What exists today (the substrate)
 - **Tokens (`ui.css`):** full color/type/spacing(4px)/radius/shadow system. **Gap: no motion tokens.**
 - **Motion today:** hardcoded `.12s ease` hover/focus on buttons, fields, nav, table rows, calendar, toggles (`.15s`). **No `@keyframes`, no scroll reveal applied, no page transitions, no ambient/action backgrounds.**
 - **Components:** 8 Jinja macros (button, field, pill, card, data_table, stat_tile, chat_bubble, empty_state) + a living gallery at **`/ui`** (`ui_kit.html`) — our proving ground.
 - **Shells:** marketing `marketing_base.html` (+`marketing.css`); product `app_shell.html` (+`app.css`); both load `ui.css` + `app.js`. `app.js` = 7 element-gated IIFEs incl. an unused-on-marketing scroll-reveal and the simulator/calendar logic.
 - **Conversion:** front door `/` = `onboarding.html` (static multi-layer orange gradient); `auth.html` split panel. A few `scale()` hovers already exist here.
+
+---
+
+## 2b. Audit addendum — current surfaces (2026-06-14)
+Re-audited before building. Deltas since this plan was first drafted:
+- **Product tier grew by two pages.** **`/callers`** (`callers.html`): a triage inbox — an *Import contacts* card, a *For review* card with **tabs** (To review / Sorted / Dismissed) + search + **bulk-select** + a data table of suggestions with category **pills** and accept/dismiss/undo, and a *Screened numbers* directory. **`/analytics`** (`analytics.html`): the ROI dashboard — a **range toggle** (30d/90d/all), 4 JS-rendered **stat tiles**, and a JS-rendered **SVG bar chart** (leads vs booked). Dashboard now also shows reminder-state + stage pills and a cancel action.
+- **JS/CSS are bigger.** `app.js` ≈ **872 lines / 10 element-gated IIFEs** (added analytics render, callers inbox/directory/import/google-sync, re-engage). `app.css` ≈ **349 lines** with new `.cl-*` (tabs/bulk/inbox/import), `.roi-*` (chart), `.screen-*`, `.review-nudge`. Shared JS helpers: `apiFetch`, `addBubble`, `fmtPhone`, `fmtClock`. **Still zero `@keyframes`/reveal/page-transitions — only `.12s`/`.15s ease` hovers.** The motion layer is still entirely net-new.
+- **Backend (context only, no UI work):** Twilio voice/SMS webhooks + callback system, owner alerts, reminders/follow-ups, Google Contacts import, compliance — all wired, simulated when unconfigured.
+
+**What this forces into the plan:**
+- **Product-tier matrix (§8) gains:**
+  - **Callers** — enhance `.cl-tabs` with the **segmented sliding-indicator** primitive; row-select ease; **bulk-bar slide-in**; **toast** on accept/dismiss; **pill pop** when a suggestion is sorted; tab-switch content cross-fade. *Restrained.*
+  - **Analytics** — **count-up** the stat tiles; **range toggle** = segmented indicator; **chart bars grow-in** on reveal (animate `renderChart` SVG heights; reduced-motion = final). *Restrained.*
+  - **Dashboard** — reminder-state + stage pills use the pill motion; conversation bubbles fade/slide-in.
+- **Concrete JS hooks** for the motion engine (don't rewrite the 10 IIFEs — attach to their render fns): `addBubble` (chat entrances), `renderChart`/`renderTiles` (analytics), `renderInbox`/`renderDirectory` (callers). `motion.js` stays separate + additive.
+- **Component reconciliation:** `.cl-tabs` and `.roi-range` are *real* tab/segmented controls → they're the segmented-indicator primitive's first production consumers, not just the `/ui` demo.
 
 ---
 

@@ -92,3 +92,25 @@ Each entry = one source video. Captured during the 2026-06-14 idea-gathering ses
 7. **Wall-of-love** auto-scroll for reviews, customer words highlighted.
 8. **Pricing**: recommended plan highlighted in orange + animated billing toggle.
 9. **Button system**: solid-orange primary / light-outline secondary, rounded, consistent everywhere.
+
+---
+
+# Reference: QuickBooks — product (signed-in) layout & flow
+*Added 2026-06-14. The **PRODUCT-tier** reference — the complement to Firecrawl (the marketing-tier reference above). Applies to the **signed-in app only** (`app_shell` pages: dashboard, settings, dense data screens), **never** the public marketing site.*
+
+**The instruction (Jonathan's read):** take the **layout, flow, page-stacking, and pills — NOT the artwork/visual style.** Keep our Safety Orange look; borrow how it's *organized*, not how it's *painted*.
+
+- **Signed-in UI is very nice** → strong model for our product surface.
+- **"Stacking pages like settings"** → how QuickBooks organizes dense functionality into stacked, hierarchical sections/sub-pages is the model for our Settings (and other heavy product screens).
+- **Pills are "perfect for what they need"** → reinforces our existing `.pill` system (booked / urgent / warning / new / neutral) for status in lists, tables, headers.
+- **Artistic/visual design → skip.** Layout + flow + information architecture only.
+
+**To pull (confirm against recordings/screens when they arrive):**
+- Page-stacking / IA for settings & dense admin pages (sectioning, sub-nav, progressive disclosure).
+- Flow through a multi-section area without feeling lost.
+- Pill placement & vocabulary in lists/tables/status.
+- Spacing rhythm & density for data-heavy product screens.
+
+**Maps to:** `SITE_MOTION_SYSTEM.md` → **product tier (restrained)** — Dashboard, Settings, Simulator. Layout/flow guidance, distinct from the marketing motion vocabulary above.
+
+**Open question:** what does "stacking pages" mean precisely — stacked **cards/sections** in one page (like Settings today), a settings **sub-sidebar / tabbed sub-nav**, or **breadcrumbed sub-pages** you drill into? (Recordings/screens will answer this.)

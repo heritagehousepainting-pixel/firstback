@@ -13,6 +13,7 @@ import os
 import tempfile
 
 os.environ["RINGBACK_PROVIDER"] = "demo"          # deterministic, no network
+os.environ["RINGBACK_SCREEN_MODE"] = "enforce"    # these checks assert the screen ACTS on its verdict
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()
 config.DB_PATH = _TMP.name
@@ -144,9 +145,9 @@ check("POST /api/contacts rejects a non-owner category (400)",
 client.post("/api/contacts/delete", json={"number": "+1 312 555 7777"})
 check("POST /api/contacts/delete forgets the entry", db.get_contact(1, "+13125557777") is None)
 
-# the screened vendor call (CAv, from VENDOR) surfaces on the dashboard...
-check("dashboard renders the 'Screened calls' strip",
-      "Screened calls" in client.get("/dashboard").get_data(as_text=True))
+# the screened vendor call (CAv, from VENDOR) surfaces on the pipeline cockpit...
+check("pipeline renders the 'Screened calls' strip",
+      "Screened calls" in client.get("/pipeline").get_data(as_text=True))
 vendor_call = [s for s in db.recent_screened_calls(1, 8) if s["category"] == "vendor"][0]
 # ...and the one-tap override engages them: forgets the tag, creates the lead, texts back.
 eng = client.post(f"/api/calls/{vendor_call['id']}/engage").get_json()

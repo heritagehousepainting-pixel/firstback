@@ -19,6 +19,14 @@
       <div id="sim-status" class="sim-status" aria-live="polite"></div>
     {% endcall %}
 
+    {% call card(title='Or see the screen') %}
+      <p class="sim-lead">Not every missed call is a job. {{ app_name }} <strong>knows who to text</strong> — it skips spam and robocalls, and leaves people you already know to you. Try it:</p>
+      <div class="sim-scenarios">
+        {{ button('Simulate a spam call', id='trigger-spam', variant='secondary') }}
+        {{ button('Simulate a known caller', id='trigger-known', variant='secondary') }}
+      </div>
+    {% endcall %}
+
     <details class="dev-panel">
       <summary>Developer</summary>
       <div class="dev-body">

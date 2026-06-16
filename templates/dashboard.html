@@ -19,12 +19,25 @@
 {% set warm_count = leads|selectattr('stage','equalto','warm')|list|length %}
 {% set booked_pct = (stats.appointments / stats.leads * 100)|round|int if stats.leads else 0 %}
 
+{% set monitoring = (screen_mode == 'monitor') %}
+{% set screen_num = (screen_stats.would_screen if monitoring else screen_stats.enforced) if screen_stats else 0 %}
+{% set screen_label = 'Would screen' if monitoring else 'Calls screened' %}
+{% set screen_sub = ((screen_stats.spam ~ ' spam · ' ~ screen_stats.contact ~ ' known') if (screen_stats and screen_stats.screened)
+                     else ('Monitoring — not blocking yet' if monitoring else 'No spam reached you')) %}
 {% call stat_row() %}
   {{ stat_tile(stats.leads, 'Leads captured') }}
   {{ stat_tile(stats.appointments, 'Estimates booked', sub=(booked_pct ~ '% of leads'), sub_tone=('good' if stats.appointments else '')) }}
   {{ stat_tile(warm_count, 'Warm leads', sub=('In conversation' if warm_count else 'None active')) }}
   {{ stat_tile(urgent_count, 'Urgent', sub=('Needs follow-up' if urgent_count else 'All clear'), sub_tone=('bad' if urgent_count else 'good')) }}
+  {{ stat_tile(screen_num, screen_label, sub=screen_sub, sub_tone=('good' if (screen_num and not monitoring) else '')) }}
 {% endcall %}
+
+{% if monitoring %}
+<div class="review-nudge" role="status" style="cursor:default">
+  <span class="review-nudge-badge">{{ screen_stats.would_screen if screen_stats else 0 }}</span>
+  <span class="review-nudge-text"><strong>Call screening is in monitor mode.</strong> It’s logging what it <em>would</em> screen — spam and saved contacts — but still texting everyone, so nothing real gets silenced. Review the “Would screen” list below, then switch to <strong>Enforce</strong> in <a href="/settings">Settings → Call screening</a> when the numbers look right.</span>
+</div>
+{% endif %}
 
 {% if review_count and review_count > 0 %}
 <a class="review-nudge" href="/callers">
@@ -62,6 +75,9 @@
     <div id="convo" class="chat convo-scroll" aria-live="polite" aria-label="Conversation thread">
       {{ empty_state('No conversation selected', 'Pick a lead from the list to read the full text thread.', icon=ic_chat) }}
     </div>
+    <div id="convo-actions" class="convo-actions" hidden>
+      <button type="button" id="convo-flag-spam" class="btn btn-ghost btn-sm">Mark as spam</button>
+    </div>
   {% endcall %}
 </div>
 
@@ -81,18 +97,28 @@
 {% endcall %}
 
 {% if screened %}
-{% call card(title='Screened calls', subtitle='Callers RingBack didn’t text back because you marked them as non-prospects. Was one actually a customer? Text them back.', flush=true) %}
+{% set screened_subtitle = ('In monitor mode RingBack still texts these callers — this is what it WOULD screen: a contact you’d handle yourself, or a suspected spam/robocaller. Wrong about one? Mark it spam to confirm.' if monitoring else 'Callers RingBack didn’t text back — a known contact you handle yourself, or a suspected spam/robocaller. Was one actually a customer? Text them back.') %}
+{% call card(title=('Would screen' if monitoring else 'Screened calls'), subtitle=screened_subtitle, flush=true) %}
   {% call data_table(['Caller','Why','When','']) %}
     {% for c in screened %}
     <tr>
       <td class="dt-strong">{{ c.from_number|phone }}{% if c.times and c.times > 1 %} <span class="dt-muted">· {{ c.times }} calls</span>{% endif %}</td>
       <td>
-        {% if c.category == 'blocked' %}{{ pill('Blocked','urgent') }}
+        {% if c.screen_status == 'screened_spam' %}{{ pill('Spam', 'urgent') }}{% if c.spam_score %} <span class="dt-muted">· score {{ c.spam_score }}</span>{% endif %}
+          {% if c.screen_reasons %}<div class="dt-muted screen-why">{{ c.screen_reasons }}</div>{% endif %}
+        {% elif c.category == 'blocked' %}{{ pill('Blocked','urgent') }}
         {% elif c.category == 'vendor' %}{{ pill('Vendor','warning') }}
         {% else %}{{ pill('Personal','neutral') }}{% endif %}
       </td>
       <td class="dt-muted">{{ c.created_at|nicedate }}</td>
-      <td class="dt-actions"><button type="button" class="btn btn-ghost btn-sm screen-engage" data-id="{{ c.id }}" data-num="{{ c.from_number|phone }}" aria-label="Text back {{ c.from_number|phone }}">Text them back</button></td>
+      <td class="dt-actions">
+        {% if c.engaged %}
+          {# Monitor candidate: we already texted them, so offer 'confirm it's spam' instead of an override. #}
+          <button type="button" class="btn btn-ghost btn-sm screen-spam" data-id="{{ c.id }}" data-num="{{ c.from_number|phone }}" aria-label="Mark {{ c.from_number|phone }} as spam">Mark spam</button>
+        {% else %}
+          <button type="button" class="btn btn-ghost btn-sm screen-engage" data-id="{{ c.id }}" data-num="{{ c.from_number|phone }}" aria-label="Text back {{ c.from_number|phone }}">Text them back</button>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   {% endcall %}

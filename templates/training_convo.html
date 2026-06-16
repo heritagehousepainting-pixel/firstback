@@ -1,0 +1,18 @@
+{% extends "app_shell.html" %}
+{% from "components/ui/card.html" import card %}
+{% from "components/ui/badge.html" import pill %}
+{% block title %}Conversation #{{ convo_id }}{% endblock %}
+{% block page_title %}Conversation #{{ convo_id }}{% endblock %}
+{% block page_sub %}<p class="page-sub">A saved command-center conversation, exactly as it happened.</p>{% endblock %}
+{% block header_actions %}<a class="btn btn-secondary" href="/training">Back to Memory</a>{% endblock %}
+
+{% block content %}
+{% call card() %}
+  {% for t in turns %}
+  <div class="card" style="margin-bottom:var(--space-3);padding:var(--space-3)">
+    {{ pill(('You' if t.role == 'user' else 'RingBack') ~ (' · ' ~ t.tool if t.tool else '') ~ (' · ' ~ t.status if t.status and t.status != 'ok' else ''), ('neutral' if t.role == 'user' else 'new'), dot=true) }}
+    <p style="margin:var(--space-2) 0 0;color:var(--ink)">{{ t.content }}</p>
+  </div>
+  {% endfor %}
+{% endcall %}
+{% endblock %}

@@ -17,8 +17,12 @@ from flask import (Flask, render_template, request, redirect, jsonify, session,
                    url_for)
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import json
+
 import db
 import ai
+import assistant
+import convos
 import google_cal
 import messaging
 import mail
@@ -26,11 +30,13 @@ import alerts
 import reminders
 import compliance
 import triage
+import reputation
 import contact_import
 import google_contacts
 from config import (APP_NAME, TAGLINE, DEBUG, SECRET_KEY, TASKS_SECRET,
                     SESSION_COOKIE_SECURE, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD,
-                    app_tz, VOICE_PUBLIC_URL, INTERNAL_SECRET)
+                    app_tz, VOICE_PUBLIC_URL, INTERNAL_SECRET,
+                    SCREEN_MODE, SCREEN_AI_CONTENT, SCREEN_SCORE_MID)
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -43,6 +49,11 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = SESSION_COOKIE_SECURE
 db.init_db()
+
+# Wire the command-center memory into the assistant (no import cycle): the router consults
+# taught corrections before the brain, and folds them into its routing prompt.
+assistant._learning_lookup = convos.lookup
+assistant._learning_examples_hook = convos.learnings_for_prompt
 
 # Seed an owner login for "client zero" (business 1) on first run so the existing
 # demo data is reachable immediately. Change the password after first login.
@@ -345,6 +356,23 @@ def simulator():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    """The signed-in home is now the conversational command center. The cockpit (leads,
+    booked estimates, alerts) still lives at /pipeline for working by hand."""
+    hour = datetime.now(app_tz()).hour
+    part = "Morning" if hour < 12 else ("Afternoon" if hour < 17 else "Evening")
+    biz = current_business()
+    owner = (biz.get("owner_name") or "").strip() if biz else ""
+    hello = f"{part}, {owner.split()[0]}." if owner else f"{part}."
+    return render_template("command.html", hello=hello,
+                           digest=convos.digest(biz["id"]),
+                           suggestions=assistant.suggestions())
+
+
+@app.route("/pipeline")
+@login_required
+def pipeline():
+    """The manual cockpit: leads, booked estimates, alerts, screened calls. Everything the
+    command center can do by chat, you can still do here by hand."""
     biz = current_business()
     leads = db.leads_with_stage(biz["id"])
     appts = db.list_appointments(biz["id"])
@@ -357,7 +385,125 @@ def dashboard():
                            alert_feed=db.recent_alerts(biz["id"], 8),
                            reminder_state=db.reminders_by_appointment(biz["id"]),
                            screened=db.recent_screened_calls(biz["id"], 8),
+                           screen_stats=db.screening_stats(biz["id"]),
+                           screen_mode=_effective_screen_mode(biz),
                            review_count=db.count_pending_suggestions(biz["id"]))
+
+
+@app.route("/assistant", methods=["POST"])
+@login_required
+def assistant_chat():
+    """One natural-language turn against the command center. Same-origin JSON/form POST
+    (RingBack's API auth is the SameSite session cookie). Returns reply, inline cards, and
+    an optional pending_action that needs an explicit confirm before it runs."""
+    biz = current_business()
+    message = (request.form.get("message") or "").strip()
+    try:
+        history = json.loads(request.form.get("history") or "[]")
+        if not isinstance(history, list):
+            history = []
+    except (ValueError, TypeError):
+        history = []
+    out = assistant.run(biz, message, history[-12:])
+    if message:
+        convo_id, _ = convos.record_exchange(biz["id"], request.form.get("convo_key", ""),
+                                             message, out)
+        out["coach"] = convos.coach_offer(biz["id"], convo_id, message)
+    return jsonify(out)
+
+
+@app.route("/assistant/learn", methods=["POST"])
+@login_required
+def assistant_learn():
+    """Accept the assistant's proactive teaching offer: store the learning + resolve the gap."""
+    biz = current_business()
+    pattern = (request.form.get("pattern") or "").strip()
+    action = (request.form.get("action") or "route").strip()
+    value = (request.form.get("value") or "").strip()
+    if pattern:
+        convos.accept_coach(biz["id"], pattern, action, value)
+    return jsonify({"ok": bool(pattern)})
+
+
+@app.route("/assistant/confirm", methods=["POST"])
+@login_required
+def assistant_confirm():
+    """Run a gated action the owner just approved (e.g. texting a lead). The send still
+    flows through the gated messaging.send_sms seam (opt-outs + simulated-vs-live honored)."""
+    biz = current_business()
+    tool = (request.form.get("tool") or "").strip()
+    try:
+        args = json.loads(request.form.get("args") or "{}")
+        if not isinstance(args, dict):
+            args = {}
+    except (ValueError, TypeError):
+        args = {}
+    out = assistant.execute(biz, tool, args)
+    convos.record_exchange(biz["id"], request.form.get("convo_key", ""),
+                           f"[confirmed: {tool}]", out)
+    return jsonify(out)
+
+
+# ---- Mason's Memory / Training: review conversations, call out issues, teach ----
+_ISSUE_LABEL = {"capability_gap": "RingBack had no tool for this",
+                "empty": "A tool returned nothing", "repeat": "You had to re-ask",
+                "negative": "You pushed back on the answer",
+                "unhelpful": "RingBack's answer missed the mark"}
+
+
+@app.route("/training")
+@login_required
+def training():
+    """What the assistant has heard, where it fell short, and what you've taught it."""
+    biz = current_business()
+    return render_template("training.html",
+                           flags=db.list_flags(biz["id"], resolved=0, limit=40),
+                           counts=db.flag_counts(biz["id"]),
+                           convos=db.list_convos(biz["id"], limit=12),
+                           learnings=db.list_learnings(biz["id"]),
+                           digest=convos.digest(biz["id"]),
+                           top_unmet=convos.top_unmet(biz["id"]),
+                           tools=sorted(assistant.TOOLS.keys()),
+                           issue_label=_ISSUE_LABEL)
+
+
+@app.route("/training/convo/<int:convo_id>")
+@login_required
+def training_convo(convo_id):
+    biz = current_business()
+    turns = db.get_convo_turns(convo_id, biz["id"])
+    if not turns:
+        return redirect("/training")
+    return render_template("training_convo.html", convo_id=convo_id, turns=turns)
+
+
+@app.route("/training/teach", methods=["POST"])
+@login_required
+def training_teach():
+    biz = current_business()
+    pattern = (request.form.get("pattern") or "").strip()
+    action = (request.form.get("action") or "").strip()
+    value = (request.form.get("value") or "").strip()
+    if not pattern or not action:
+        return redirect("/training")
+    if action in assistant.TOOLS:
+        convos.teach(biz["id"], pattern, action)
+    elif action in ("route", "answer"):
+        convos.teach(biz["id"], pattern, action, answer=value)
+    flag_id = request.form.get("flag_id")
+    if flag_id and flag_id.isdigit():
+        db.resolve_flag(biz["id"], int(flag_id))
+    return redirect("/training?taught=1")
+
+
+@app.route("/training/resolve", methods=["POST"])
+@login_required
+def training_resolve():
+    biz = current_business()
+    flag_id = request.form.get("flag_id")
+    if flag_id and flag_id.isdigit():
+        db.resolve_flag(biz["id"], int(flag_id))
+    return redirect("/training")
 
 
 @app.route("/analytics")
@@ -410,6 +556,14 @@ def settings():
             "followups_enabled": 1 if request.form.get("followups_enabled") else 0,
             "reminder_lead_hours": max(0, min(168, lead_hours)),
         })
+        # Scheduling preferences: the owner shapes their own availability (estimate
+        # windows, working days) and a buffer so the AI never books two estimates
+        # too close together. Blank fields fall back to the config defaults.
+        db.set_scheduling_prefs(
+            biz["id"],
+            times=[t for t in (request.form.get("estimate_times") or "").split(",")],
+            working_days=request.form.getlist("working_days"),
+            buffer_minutes=(request.form.get("buffer_minutes") or 0))
         raw_avg = (request.form.get("avg_job_value") or "").strip().lstrip("$").replace(",", "")
         try:
             db.set_avg_job_value(biz["id"], float(raw_avg) if raw_avg else None)
@@ -419,8 +573,11 @@ def settings():
             biz["id"],
             forward_to=(request.form.get("forward_to") or "").strip(),
             voice_callback_enabled=1 if request.form.get("voice_callback_enabled") else 0)
+        # Per-business screening mode: blank/"default" -> NULL (inherit the app default).
+        db.set_screen_mode(biz["id"], (request.form.get("screen_mode") or "").strip())
         return redirect("/settings?saved=1")
     return render_template("settings.html", business=biz,
+                           sched=db.scheduling_prefs(biz["id"]),
                            integrations=db.list_integrations(biz["id"]),
                            saved=request.args.get("saved"),
                            google_configured=google_cal.configured(),
@@ -432,6 +589,13 @@ def settings():
                            sms_configured=messaging.configured(),
                            email_configured=mail.configured(),
                            voice_configured=bool(VOICE_PUBLIC_URL),
+                           screening_enabled=_effective_screen_mode(biz) != "off",
+                           screen_mode=_effective_screen_mode(biz),
+                           screen_mode_setting=(biz.get("screen_mode") or ""),
+                           screen_mode_default=SCREEN_MODE,
+                           reputation_configured=reputation.configured(),
+                           reputation_label=reputation.provider_label(),
+                           ai_screen_enabled=SCREEN_AI_CONTENT,
                            owner_email=db.owner_email(biz["id"]))
 
 
@@ -620,8 +784,22 @@ def handle_inbound(biz, lead, body):
 @app.route("/api/sim/incoming", methods=["POST"])
 @login_required
 def sim_incoming():
-    data = request.get_json(silent=True) or {}  # name/phone optional
+    data = request.get_json(silent=True) or {}  # name/phone/scenario optional
     biz = current_business()
+    scenario = (data.get("scenario") or "prospect").strip().lower()
+    # Spam / known-caller demos show the SCREEN in action: a representative verdict,
+    # no lead created and no text "sent" -- so contractors can watch RingBack skip a
+    # robocaller or hand a saved contact back to them, exactly as it does live.
+    if scenario in ("spam", "known"):
+        if scenario == "spam":
+            score, reasons = triage.spam_score(
+                {"attestation": "TN-Validation-Failed-C", "neighbor_spoof": True,
+                 "line_type": "nonFixedVoip", "behavior": {"missed_calls": 4}})
+            return jsonify(screened=True, status="screened_spam", label="Spam",
+                           score=score, reasons=reasons)
+        return jsonify(screened=True, status="trusted", label="Known caller", score=0,
+                       reasons=["You’ve worked with this caller before — RingBack leaves "
+                                "them to you instead of sending an automated text."])
     lead_id = db.create_lead(biz["id"], data.get("name") or "New Caller",
                              data.get("phone") or "+1 (555) 000-0000")
     reply = open_conversation(biz, db.get_lead(lead_id))
@@ -818,6 +996,46 @@ def api_engage_screened_call(call_id):
         messaging.send_sms(biz, caller, reply)  # transmit (already recorded)
     db.mark_call_engaged(call_id, lead["id"])
     return jsonify(ok=True, lead_id=lead["id"])
+
+
+def _mark_number_spam(biz_id, number):
+    """Owner says a caller is spam: tag the number 'blocked' for THIS business (so it's
+    never cold-pitched again) and add a cross-tenant spam flag that helps pre-screen it
+    for every other business (privacy-safe -- only a count is ever shared). Idempotent.
+    Shared by the call-log and conversation-panel 'Mark spam' actions."""
+    db.set_contact(biz_id, number, "blocked", source="owner-spam")
+    db.add_spam_flag(biz_id, number)
+
+
+@app.route("/api/calls/<int:call_id>/flag-spam", methods=["POST"])
+@login_required
+def api_flag_call_spam(call_id):
+    """'Mark spam' from the dashboard screened-calls strip."""
+    biz = current_business()
+    call = db.get_call(call_id, biz["id"])   # tenant-scoped
+    if not call:
+        return jsonify(error="Call not found."), 404
+    caller = (call.get("from_number") or "").strip()
+    if not caller:
+        return jsonify(error="No caller number on file."), 400
+    _mark_number_spam(biz["id"], caller)
+    return jsonify(ok=True)
+
+
+@app.route("/api/leads/<int:lead_id>/flag-spam", methods=["POST"])
+@login_required
+def api_flag_lead_spam(lead_id):
+    """'Mark spam' from the conversation panel: block the lead's number + feed the
+    cross-tenant ledger, so RingBack stops cold-pitching this caller. Tenant-scoped."""
+    biz = current_business()
+    lead = db.get_lead(lead_id, biz["id"])   # ownership-scoped
+    if not lead:
+        return jsonify(error="Lead not found."), 404
+    number = (lead.get("phone") or "").strip()
+    if not number:
+        return jsonify(error="No phone number on file for this lead."), 400
+    _mark_number_spam(biz["id"], number)
+    return jsonify(ok=True)
 
 
 # ---- Caller triage: the suggestion / "for review" queue ----
@@ -1042,27 +1260,84 @@ def _public_base():
     return f"{proto}://{request.host}"
 
 
+def _caller_behavior(biz_id, caller):
+    """This caller's behavioral aggregates {missed_calls, inbound_msgs, booked} for the
+    spam score, or {} if we've never seen them. Pulled from the same signals that drive
+    the suggestion inbox, filtered to the one number."""
+    key = db._digits10(caller)
+    if not key:
+        return {}
+    for s in db.caller_signals(biz_id):
+        if s.get("number") == key:
+            return s
+    return {}
+
+
+def _screen_missed_caller(biz, caller):
+    """Run the full 'phone screen' for a missed caller: gather the layered signals
+    (STIR/SHAKEN attestation off the request, neighbor-spoof, behavior, crowdsource,
+    and -- only if the free tiers leave it ambiguous -- a paid reputation lookup), then
+    return triage.screen_caller's verdict. Reputation is consulted lazily so the common
+    (clean or obviously-known) case never pays for or waits on a network call."""
+    attestation = request.form.get("StirVerstat") if request else None
+    nspoof = triage.neighbor_spoof(biz.get("twilio_number") or biz.get("phone"), caller)
+    behavior = _caller_behavior(biz["id"], caller)
+    verdict = triage.screen_caller(biz["id"], caller, attestation=attestation,
+                                   neighbor_spoof=nspoof, behavior=behavior)
+    # Only an UNKNOWN caller in the ambiguous band is worth a paid lookup: identity
+    # tiers already settled the rest, and a clean/known caller shouldn't cost anything.
+    if (reputation.configured() and verdict["status"] in ("prospect", "review")
+            and verdict["score"] >= SCREEN_SCORE_MID - 20):
+        rep = reputation.lookup(caller)
+        if rep:
+            verdict = triage.screen_caller(biz["id"], caller, attestation=attestation,
+                                           neighbor_spoof=nspoof, behavior=behavior,
+                                           reputation=rep)
+    return verdict
+
+
+def _effective_screen_mode(biz):
+    """This business's screening mode: its own setting (off|monitor|enforce) when chosen
+    in Settings, otherwise the app-wide config.SCREEN_MODE default. NULL/blank -> inherit."""
+    m = (biz or {}).get("screen_mode")
+    return m if m in ("off", "monitor", "enforce") else SCREEN_MODE
+
+
 def _missed_call_textback(biz, caller, call_sid="", dial_status=""):
-    """Shared missed-call handling: triage the caller, then (if they're worth
-    engaging) find or create their lead, log the call, and -- only when the thread
-    is empty -- generate + send the instant text-back. Returns True if we engaged,
-    False if the caller was screened out (so the voice prompt stays honest about
-    whether a text actually went out)."""
-    # Triage FIRST: a known non-prospect (the owner's mom, the power company, a
-    # blocked number) or an opted-out caller is logged but never cold-pitched. An
-    # unknown caller is treated as a potential customer and engaged.
-    verdict = triage.screen_caller(biz["id"], caller)
-    if not verdict["engage"]:
-        db.log_call(biz["id"], call_sid, from_number=caller,
-                    to_number=biz.get("twilio_number") or "", dial_status=dial_status,
-                    missed=1, category=verdict["category"], engaged=0)
+    """Shared missed-call handling: SCREEN the caller, persist the verdict on the call
+    log, then (only if they're worth engaging) find/create their lead and -- when the
+    thread is empty -- generate + send the instant text-back. Returns True if we
+    engaged, False if screened out (so the voice prompt stays honest about whether a
+    text actually went out).
+
+    Screened-out cases get NO bot text: opted-out (STOP), a known non-prospect, a
+    KNOWN/saved caller the owner handles personally (faithful-Apple), or a near-certain
+    spam/robocaller. Everything else engages; an ambiguous unknown engages but is
+    tagged 'review' for the owner.
+
+    Rollout-safe via the business's effective mode: 'off' engages everyone; 'monitor'
+    computes + LOGS the verdict but still texts everyone (so the owner can review what it
+    WOULD screen before it can ever silence a real caller); 'enforce' acts on it."""
+    mode = _effective_screen_mode(biz)
+    if mode != "off":
+        verdict = _screen_missed_caller(biz, caller)
+    else:   # screening off -> the original behavior: engage everyone we can text
+        verdict = {"engage": True, "status": "prospect", "score": 0,
+                   "category": "prospect", "reasons": []}
+    reasons = "; ".join(verdict.get("reasons") or []) or None
+    common = dict(from_number=caller, to_number=biz.get("twilio_number") or "",
+                  dial_status=dial_status, missed=1, category=verdict["category"],
+                  screen_status=verdict["status"], spam_score=verdict.get("score"),
+                  screen_reasons=reasons, screen_mode=(mode if mode != "off" else None))
+    # Monitor mode observes but never blocks: a screened verdict is still texted, so the
+    # owner can trust the numbers before enforcing. Only 'enforce' actually suppresses.
+    if not verdict["engage"] and mode == "enforce":
+        db.log_call(biz["id"], call_sid, engaged=0, **common)
         return False
     lead = db.get_lead_by_phone(biz["id"], caller)
     if not lead:
         lead = db.get_lead(db.create_lead(biz["id"], "New Caller", caller))
-    db.log_call(biz["id"], call_sid, from_number=caller,
-                to_number=biz.get("twilio_number") or "", dial_status=dial_status,
-                missed=1, lead_id=lead["id"], category=verdict["category"], engaged=1)
+    db.log_call(biz["id"], call_sid, lead_id=lead["id"], engaged=1, **common)
     # Greet only an empty thread, so a repeat missed call mid-conversation does not
     # re-introduce us (the owner is still alerted via the 'lead' alert + call log).
     if not db.get_messages(lead["id"]):
@@ -1165,6 +1440,20 @@ def twilio_sms_inbound():
         res = messaging.place_call(biz, caller, twiml_url)
         if res.get("status") in ("placed", "simulated"):
             return _twiml("<Response><Message>Calling you now.</Message></Response>")
+    # Tier 3 content screen (gated; off by default): on the caller's FIRST reply,
+    # classify whether this is a real homeowner or noise (a sales pitch / survey /
+    # wrong number / robocall). On a CONFIDENT non-prospect we bail mid-conversation
+    # -- record what they said, propose 'blocked' in the review inbox for the owner to
+    # confirm (we never auto-block on a guess), and stay silent rather than keep
+    # cold-pitching. Fails open: the demo brain / any error classifies as prospect.
+    if SCREEN_AI_CONTENT and not any(m["direction"] == "in" for m in db.get_messages(lead["id"])):
+        intent = ai.classify_intent(biz, db.get_messages(lead["id"])
+                                    + [{"direction": "in", "body": body}])
+        if not intent["is_prospect"] and intent["confidence"] >= 0.7:
+            db.add_message(lead["id"], "in", body)   # keep their words on the thread
+            db.upsert_suggestion(biz["id"], caller, lead.get("name"), "blocked",
+                                 f"AI screen: looks like {intent['label']}", "ai-content")
+            return _twiml("<Response/>")             # bail: no cold-pitch reply
     reply, _booked, _urgent = handle_inbound(biz, lead, body)  # records + books + alerts
     messaging.send_sms(biz, caller, reply)  # transmit (already recorded)
     return _twiml("<Response/>")

@@ -8,12 +8,15 @@ import re
 import sqlite3
 from datetime import datetime, timezone, date, timedelta
 from config import (DB_PATH, DEFAULT_BUSINESS, ESTIMATE_TIMES, BOOKING_HORIZON_DAYS,
-                    app_tz)
+                    DEFAULT_WORKING_DAYS, DEFAULT_BUFFER_MINUTES, app_tz)
 
 # `available_slots` is intentionally omitted: availability comes from the
 # in-house calendar now, so we no longer seed or update that legacy column.
 _BUSINESS_COLS = ["name", "trade", "service_area", "hours", "owner_name",
-                  "phone", "ai_instructions"]
+                  "phone", "ai_instructions",
+                  # Scheduling preferences (Phase 1): the owner shapes their own
+                  # availability instead of the global ESTIMATE_TIMES default.
+                  "estimate_times", "working_days", "buffer_minutes"]
 
 
 def get_conn():
@@ -129,6 +132,49 @@ def init_db():
             status TEXT DEFAULT 'pending', created_at TEXT, updated_at TEXT,
             UNIQUE(business_id, number)
         );
+        -- Call screening: a per-number reputation cache (Tier 2 paid lookup) and a
+        -- cross-tenant spam-flag ledger (Tier 2.5 crowdsource). Both keyed by the
+        -- last 10 digits so formatting never matters; reputation is GLOBAL (not
+        -- per-business) since a robocaller's line type / spam score is the same for
+        -- everyone, which also lets one tenant's cached lookup serve all tenants.
+        CREATE TABLE IF NOT EXISTS number_reputation (
+            number TEXT PRIMARY KEY, line_type TEXT, spam_score INTEGER,
+            source TEXT, checked_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS spam_flags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL, number TEXT NOT NULL, created_at TEXT,
+            UNIQUE(business_id, number)
+        );
+        CREATE INDEX IF NOT EXISTS idx_spam_flags_number ON spam_flags(number);
+
+        -- Command-center memory: every conversation the owner has with the assistant, so
+        -- we can replay it, call out the weak spots, and learn from confirmed corrections.
+        CREATE TABLE IF NOT EXISTS assistant_convos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL, session_key TEXT,
+            started_at TEXT, last_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS assistant_turns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            convo_id INTEGER NOT NULL, business_id INTEGER NOT NULL,
+            role TEXT, content TEXT, tool TEXT, status TEXT, created_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS assistant_flags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL, convo_id INTEGER, turn_id INTEGER,
+            kind TEXT, detail TEXT, created_at TEXT, resolved INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS assistant_learnings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL, pattern TEXT, action TEXT, answer TEXT,
+            source_turn_id INTEGER, confirmed INTEGER DEFAULT 0, uses INTEGER DEFAULT 0,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_aturns_convo ON assistant_turns(convo_id);
+        CREATE INDEX IF NOT EXISTS idx_aturns_biz ON assistant_turns(business_id);
+        CREATE INDEX IF NOT EXISTS idx_aflags_biz ON assistant_flags(business_id);
+        CREATE INDEX IF NOT EXISTS idx_alearn_biz ON assistant_learnings(business_id);
         """
     )
     # Migration: add `urgent` to older databases that predate the column.
@@ -240,7 +286,15 @@ def init_db():
     # calls gain the triage outcome (Caller triage v1): which directory category the
     # caller matched and whether we engaged (texted back) or screened them out.
     call_cols = [r[1] for r in c.execute("PRAGMA table_info(calls)").fetchall()]
-    for col, ddl in (("category", "TEXT"), ("engaged", "INTEGER")):
+    # `engaged` whether we texted back; `screen_status` the verdict label
+    # (trusted/prospect/review/screened_spam/screened_contact/opted_out);
+    # `spam_score` the 0-100 score; `screen_reasons` a "; "-joined explanation;
+    # `screen_mode` whether the verdict was ENFORCED (acted on) or only observed in
+    # MONITOR mode (logged but still texted) -- so the stat never claims a text was
+    # saved when it wasn't.
+    for col, ddl in (("category", "TEXT"), ("engaged", "INTEGER"),
+                     ("screen_status", "TEXT"), ("spam_score", "INTEGER"),
+                     ("screen_reasons", "TEXT"), ("screen_mode", "TEXT")):
         if col not in call_cols:
             c.execute(f"ALTER TABLE calls ADD COLUMN {col} {ddl}")
 
@@ -262,7 +316,22 @@ def init_db():
     for col, ddl in (("reminders_enabled", "INTEGER DEFAULT 1"),
                      ("followups_enabled", "INTEGER DEFAULT 1"),
                      ("reminder_lead_hours", "REAL"),
-                     ("avg_job_value", "REAL")):   # owner-set; powers the ROI revenue estimate
+                     ("avg_job_value", "REAL"),   # owner-set; powers the ROI revenue estimate
+                     # Per-business call-screening mode (off|monitor|enforce). NULL ->
+                     # inherit the app-wide config.SCREEN_MODE default, so existing
+                     # tenants behave exactly as before until the owner chooses.
+                     ("screen_mode", "TEXT")):
+        if col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+
+    # businesses gain owner-set scheduling preferences (Phase 1). All NULL/blank ->
+    # fall back to config defaults, so existing tenants behave exactly as before:
+    #   estimate_times  CSV of time labels (e.g. "9:00 AM,2:00 PM"); blank -> ESTIMATE_TIMES
+    #   working_days    CSV of weekday ints, Mon=0..Sun=6; blank -> DEFAULT_WORKING_DAYS
+    #   buffer_minutes  minimum gap between estimates; 0 -> no buffer (old behavior)
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    for col, ddl in (("estimate_times", "TEXT"), ("working_days", "TEXT"),
+                     ("buffer_minutes", "INTEGER DEFAULT 0")):
         if col not in biz_cols:
             c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
 
@@ -286,7 +355,7 @@ def init_db():
         marks = ",".join("?" for _ in _BUSINESS_COLS)
         c.execute(
             f"INSERT INTO businesses (id,{cols}) VALUES (1,{marks})",
-            tuple(b[col] for col in _BUSINESS_COLS),
+            tuple(b.get(col) for col in _BUSINESS_COLS),  # new cols default to NULL -> config fallback
         )
     conn.commit()
     conn.close()
@@ -370,6 +439,17 @@ def update_business(business_id, fields):
     sets = ", ".join(f"{col}=?" for col in cols)
     conn.execute(f"UPDATE businesses SET {sets} WHERE id=?",
                  tuple(fields[col] for col in cols) + (business_id,))
+    conn.commit()
+    conn.close()
+
+
+def set_screen_mode(business_id, mode):
+    """Set (or clear) this business's call-screening mode. A valid mode
+    (off|monitor|enforce) is stored; anything else clears it to NULL so the business
+    inherits the app-wide config.SCREEN_MODE default."""
+    m = mode if mode in ("off", "monitor", "enforce") else None
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET screen_mode=? WHERE id=?", (m, business_id))
     conn.commit()
     conn.close()
 
@@ -710,13 +790,72 @@ def appointments_by_day(business_id):
     return out
 
 
+def _hm_to_min(hhmm):
+    """'HH:MM' -> minutes past midnight, or None."""
+    try:
+        h, m = (int(x) for x in str(hhmm).split(":"))
+        return h * 60 + m
+    except (ValueError, AttributeError):
+        return None
+
+
+def scheduling_prefs(business_id):
+    """The owner's effective scheduling preferences, with config fallbacks so a tenant
+    who never customized behaves exactly as before:
+      times          [labels]            the estimate windows offered each open day
+      working_days   set of weekday ints (Mon=0..Sun=6) the shop takes estimates
+      buffer_minutes int                 minimum gap between two booked estimates"""
+    biz = get_business(business_id) or {}
+    times = [t.strip() for t in (biz.get("estimate_times") or "").split(",") if t.strip()]
+    if not times:
+        times = list(ESTIMATE_TIMES)
+    wd_raw = (biz.get("working_days") or "").strip()
+    if wd_raw:
+        working = {int(x) for x in wd_raw.split(",")
+                   if x.strip().isdigit() and 0 <= int(x) <= 6}
+    else:
+        working = set(DEFAULT_WORKING_DAYS)
+    if not working:                       # never strand a tenant with zero open days
+        working = set(DEFAULT_WORKING_DAYS)
+    try:
+        buf = int(biz.get("buffer_minutes") or 0)
+    except (TypeError, ValueError):
+        buf = DEFAULT_BUFFER_MINUTES
+    return {"times": times, "working_days": working, "buffer_minutes": max(0, buf)}
+
+
+def set_scheduling_prefs(business_id, times=None, working_days=None, buffer_minutes=None):
+    """Update any provided scheduling preference. Blank times/days fall back to defaults
+    (we never store a tenant into zero availability)."""
+    fields = {}
+    if times is not None:
+        clean = [t.strip() for t in times if t and time_key(t)]
+        fields["estimate_times"] = ",".join(clean)
+    if working_days is not None:
+        days = sorted({int(d) for d in working_days
+                       if str(d).strip().isdigit() and 0 <= int(d) <= 6})
+        fields["working_days"] = ",".join(str(d) for d in days)
+    if buffer_minutes is not None:
+        try:
+            fields["buffer_minutes"] = max(0, int(buffer_minutes))
+        except (TypeError, ValueError):
+            pass
+    if fields:
+        update_business(business_id, fields)
+
+
 def upcoming_slots(business_id, limit=8, exclude_ids=None):
-    """The soonest OPEN estimate windows for a business: ESTIMATE_TIMES across the
-    next BOOKING_HORIZON_DAYS days, skipping busy days and times already taken.
+    """The soonest OPEN estimate windows for a business, honoring the owner's scheduling
+    preferences (db.scheduling_prefs): their estimate times, their working days, and a
+    minimum buffer between bookings. Skips busy days, taken times, and -- when a buffer
+    is set -- any window within `buffer_minutes` of an existing booking that day, so the
+    AI never books two estimates too close to make both.
 
     `exclude_ids` is an optional set of slot ids ('YYYY-MM-DD@HH:MM') to also skip
     (used to fold in a connected Google calendar's conflicts at slot granularity).
     Each slot carries a canonical `time_key` and that stable `id`."""
+    prefs = scheduling_prefs(business_id)
+    times, working, buf = prefs["times"], prefs["working_days"], prefs["buffer_minutes"]
     busy = list_busy_days(business_id)
     exclude_ids = exclude_ids or set()
     # Which (day -> set of 24h times) are already booked, matched on time_key so
@@ -729,15 +868,23 @@ def upcoming_slots(business_id, limit=8, exclude_ids=None):
     today = _today()
     for i in range(1, BOOKING_HORIZON_DAYS + 1):
         cur = today + timedelta(days=i)
+        if cur.weekday() not in working:          # the shop is closed this day
+            continue
         iso = cur.isoformat()
         if iso in busy:
             continue
         taken_times = taken.get(iso, set())
-        for t in ESTIMATE_TIMES:
+        taken_mins = [m for m in (_hm_to_min(k) for k in taken_times) if m is not None]
+        for t in times:
             tk = time_key(t)
+            if not tk:
+                continue
             sid = f"{iso}@{tk}"
             if tk in taken_times or sid in exclude_ids:
                 continue
+            cand = _hm_to_min(tk)
+            if buf and cand is not None and any(abs(cand - bm) < buf for bm in taken_mins):
+                continue                          # too close to an existing booking
             out.append({"day": iso, "time": t, "time_key": tk, "id": sid,
                         "label": f"{cur.strftime('%a %b ')}{cur.day} · {t}"})
             if len(out) >= limit:
@@ -856,24 +1003,32 @@ def set_google_tokens(business_id, access_token, refresh_token, token_expiry,
 
 # ---- Callback system: inbound call log + consent/suppression ----
 def log_call(business_id, call_sid, from_number="", to_number="", dial_status="",
-             answered_by="", missed=0, lead_id=None, category=None, engaged=None):
+             answered_by="", missed=0, lead_id=None, category=None, engaged=None,
+             screen_status=None, spam_score=None, screen_reasons=None, screen_mode=None):
     """Record (or update) an inbound call. Idempotent on call_sid because Twilio
     retries webhooks and fires several events per call; later events update the
     outcome fields rather than inserting duplicates. `category`/`engaged` carry the
-    triage verdict (COALESCEd so a later event never nulls them)."""
+    triage verdict, and `screen_status`/`spam_score`/`screen_reasons`/`screen_mode`
+    the richer screening outcome (all COALESCEd so a later event never nulls them)."""
     conn = get_conn()
     conn.execute(
         "INSERT INTO calls (business_id, lead_id, call_sid, from_number, to_number,"
-        " dial_status, answered_by, missed, category, engaged, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+        " dial_status, answered_by, missed, category, engaged, screen_status,"
+        " spam_score, screen_reasons, screen_mode, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(call_sid) DO UPDATE SET "
         "  dial_status=excluded.dial_status, answered_by=excluded.answered_by, "
         "  missed=excluded.missed, lead_id=COALESCE(excluded.lead_id, calls.lead_id), "
         "  category=COALESCE(excluded.category, calls.category), "
-        "  engaged=COALESCE(excluded.engaged, calls.engaged)",
+        "  engaged=COALESCE(excluded.engaged, calls.engaged), "
+        "  screen_status=COALESCE(excluded.screen_status, calls.screen_status), "
+        "  spam_score=COALESCE(excluded.spam_score, calls.spam_score), "
+        "  screen_reasons=COALESCE(excluded.screen_reasons, calls.screen_reasons), "
+        "  screen_mode=COALESCE(excluded.screen_mode, calls.screen_mode)",
         (business_id, lead_id, call_sid, from_number, to_number, dial_status,
          answered_by, 1 if missed else 0, category,
-         None if engaged is None else (1 if engaged else 0), now_iso()))
+         None if engaged is None else (1 if engaged else 0),
+         screen_status, spam_score, screen_reasons, screen_mode, now_iso()))
     conn.commit()
     conn.close()
 
@@ -897,20 +1052,161 @@ def mark_call_engaged(call_id, lead_id=None):
 
 
 def recent_screened_calls(business_id, limit=8):
-    """Recent missed callers we screened OUT for being non-prospects (the owner's
-    directory: personal/vendor/blocked), grouped to the most recent call per number,
-    for the dashboard 'Screened calls' strip + one-tap override. Opt-outs are
-    intentionally excluded -- re-texting a STOP is never offered."""
+    """Recent missed callers the screen flagged -- either a known non-prospect (the
+    owner's directory: personal/vendor/blocked) OR a suspected spam/robocaller --
+    grouped to the most recent call per number, for the dashboard 'Screened calls'
+    strip + one-tap override. Each row carries the spam score + reasons (so the owner
+    sees WHY) plus `engaged`/`screen_mode` (so the UI can tell an enforced screen, which
+    offers a 'text them back' override, from a MONITOR candidate, which was still texted
+    and is shown for review only). Opt-outs are excluded -- re-texting a STOP is never
+    offered."""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, from_number, category, MAX(created_at) AS created_at, "
-        "COUNT(*) AS times FROM calls "
-        "WHERE business_id=? AND engaged=0 AND category IN ('personal','vendor','blocked') "
-        "AND from_number IS NOT NULL AND from_number<>'' "
-        "GROUP BY from_number ORDER BY created_at DESC LIMIT ?",
+        "SELECT id, from_number, category, screen_status, spam_score, screen_reasons, "
+        "  engaged, screen_mode, created_at, times FROM ("
+        "  SELECT id, from_number, category, screen_status, spam_score, screen_reasons, "
+        "    engaged, screen_mode, created_at, COUNT(*) OVER (PARTITION BY from_number) AS times, "
+        "    ROW_NUMBER() OVER (PARTITION BY from_number ORDER BY created_at DESC) AS rn "
+        "  FROM calls "
+        "  WHERE business_id=? AND from_number IS NOT NULL AND from_number<>'' "
+        # An ENFORCED screen (engaged=0) of a directory non-prospect or spam, OR a
+        # MONITOR-mode would-have-screened candidate (still texted, shown for review).
+        "    AND ((engaged=0 AND (category IN ('personal','vendor','blocked') "
+        "                          OR screen_status='screened_spam')) "
+        "         OR (screen_mode='monitor' "
+        "             AND screen_status IN ('screened_spam','screened_contact')))"
+        ") WHERE rn=1 ORDER BY created_at DESC LIMIT ?",
         (business_id, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def screening_stats(business_id, since=None):
+    """Counts for the dashboard 'phone screen' stat: how many missed callers were
+    assessed as spam vs known non-prospect, how many were engaged/flagged, and -- split
+    by screen_mode -- how many were actually SUPPRESSED (enforce) vs how many merely
+    WOULD have been (monitor). `since` is an ISO timestamp lower bound (None = all time).
+    One row per call (not deduped) so the stat reflects texts actually saved."""
+    conn = get_conn()
+    where = "business_id=? AND missed=1"
+    args = [business_id]
+    if since:
+        where += " AND created_at>=?"
+        args.append(since)
+    # A verdict that suppresses a text-back (vs. 'trusted' which is passed to the owner).
+    suppress = "screen_status IN ('screened_spam','screened_contact')"
+    row = conn.execute(
+        f"SELECT "
+        f"  SUM(CASE WHEN screen_status='screened_spam' THEN 1 ELSE 0 END) AS spam, "
+        f"  SUM(CASE WHEN screen_status='screened_contact' THEN 1 ELSE 0 END) AS contact, "
+        f"  SUM(CASE WHEN screen_status='trusted' THEN 1 ELSE 0 END) AS trusted, "
+        f"  SUM(CASE WHEN screen_status='review' THEN 1 ELSE 0 END) AS review, "
+        f"  SUM(CASE WHEN engaged=1 THEN 1 ELSE 0 END) AS engaged, "
+        f"  SUM(CASE WHEN {suppress} AND screen_mode='enforce' THEN 1 ELSE 0 END) AS enforced, "
+        f"  SUM(CASE WHEN {suppress} AND screen_mode='monitor' THEN 1 ELSE 0 END) AS would_screen, "
+        f"  COUNT(*) AS total "
+        f"FROM calls WHERE {where}", args).fetchone()
+    conn.close()
+    d = {k: (row[k] or 0) for k in row.keys()}
+    d["screened"] = d["spam"] + d["contact"]   # assessed as spam/known (across modes)
+    return d
+
+
+def is_known_caller(business_id, number):
+    """True if this business already KNOWS the caller, so the bot should NOT cold-pitch
+    them (the owner handles them personally) -- the auto-derived 'allowlist', the way
+    Apple builds one from Contacts + recent calls with ZERO setup. Known means either a
+    directory entry (manual, synced, or auto-learned on a booking) OR a booked estimate
+    on a lead with this number. No manual import required."""
+    key = _digits10(number)
+    if not key:
+        return False
+    conn = get_conn()
+    hit = conn.execute(
+        "SELECT 1 FROM contacts WHERE business_id=? AND number=? "
+        "UNION ALL "
+        "SELECT 1 FROM appointments a JOIN leads l ON l.id=a.lead_id "
+        "  WHERE a.business_id=? AND a.status='booked' "
+        "  AND substr(replace(replace(replace(replace(l.phone,' ',''),'-',''),'(',''),')',''), -10)=? "
+        "LIMIT 1",
+        (business_id, key, business_id, key)).fetchone()
+    conn.close()
+    return hit is not None
+
+
+# ---- Number reputation cache (Tier 2 paid lookup) + crowdsource ledger ----
+def get_reputation(number, max_age_hours=None):
+    """A cached reputation row {line_type, spam_score, source, checked_at} for a
+    number, or None if absent or staler than max_age_hours. Global (not per-business):
+    a robocaller's reputation is the same for everyone, so one lookup serves all."""
+    key = _digits10(number)
+    if not key:
+        return None
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM number_reputation WHERE number=?", (key,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    if max_age_hours is not None and d.get("checked_at"):
+        try:
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(d["checked_at"])).total_seconds() / 3600.0
+            if age > max_age_hours:
+                return None
+        except (ValueError, TypeError):
+            return None
+    return d
+
+
+def set_reputation(number, line_type=None, spam_score=None, source=""):
+    """Upsert a number's reputation into the global cache."""
+    key = _digits10(number)
+    if not key:
+        return
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO number_reputation (number, line_type, spam_score, source, checked_at) "
+        "VALUES (?,?,?,?,?) ON CONFLICT(number) DO UPDATE SET "
+        "  line_type=excluded.line_type, spam_score=excluded.spam_score, "
+        "  source=excluded.source, checked_at=excluded.checked_at",
+        (key, line_type, spam_score, source, now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def add_spam_flag(business_id, number):
+    """Record that this business flagged a number as spam (the owner's 'Mark spam'
+    tap). Idempotent per business+number. Feeds the cross-tenant crowdsource signal."""
+    key = _digits10(number)
+    if not key:
+        return
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO spam_flags (business_id, number, created_at) VALUES (?,?,?) "
+        "ON CONFLICT(business_id, number) DO NOTHING",
+        (business_id, key, now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def global_spam_count(number, exclude_business_id=None):
+    """How many DISTINCT businesses have flagged this number as spam -- the privacy-safe
+    crowdsource signal (a COUNT only; never who). Optionally exclude the asking business
+    so a tenant's own flag doesn't double-count as 'the community'."""
+    key = _digits10(number)
+    if not key:
+        return 0
+    conn = get_conn()
+    if exclude_business_id is not None:
+        n = conn.execute(
+            "SELECT COUNT(DISTINCT business_id) FROM spam_flags WHERE number=? AND business_id<>?",
+            (key, exclude_business_id)).fetchone()[0]
+    else:
+        n = conn.execute(
+            "SELECT COUNT(DISTINCT business_id) FROM spam_flags WHERE number=?", (key,)).fetchone()[0]
+    conn.close()
+    return n or 0
 
 
 def set_voice_consent(business_id, number, ok=True):
@@ -1471,3 +1767,221 @@ def analytics(business_id, days=30):
                    "conversion": conversion, "revenue": revenue},
         "series": series, "avg_job_value": avg, "days": days,
     }
+
+
+# ---- Command-center conversation memory (record / flag / learn) ----
+def start_or_get_convo(business_id, session_key):
+    """Reuse this browser session's current conversation (if recent) or open a new one."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, last_at FROM assistant_convos WHERE business_id=? AND session_key=? "
+        "ORDER BY id DESC LIMIT 1", (business_id, session_key or "")).fetchone()
+    cid = None
+    if row:
+        try:
+            gap = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(row["last_at"])).total_seconds()
+            if gap < 7200:
+                cid = row["id"]
+        except (ValueError, TypeError):
+            cid = row["id"]
+    now = now_iso()
+    if cid is None:
+        cid = conn.execute(
+            "INSERT INTO assistant_convos (business_id, session_key, started_at, last_at) "
+            "VALUES (?,?,?,?)", (business_id, session_key or "", now, now)).lastrowid
+    else:
+        conn.execute("UPDATE assistant_convos SET last_at=? WHERE id=?", (now, cid))
+    conn.commit()
+    conn.close()
+    return cid
+
+
+def log_turn(convo_id, business_id, role, content, tool=None, status=None):
+    conn = get_conn()
+    tid = conn.execute(
+        "INSERT INTO assistant_turns (convo_id, business_id, role, content, tool, status, "
+        "created_at) VALUES (?,?,?,?,?,?,?)",
+        (convo_id, business_id, role, content, tool, status, now_iso())).lastrowid
+    conn.commit()
+    conn.close()
+    return tid
+
+
+def recent_user_turns(convo_id, business_id, limit=6):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT content FROM assistant_turns WHERE convo_id=? AND business_id=? AND role='user' "
+        "ORDER BY id DESC LIMIT ?", (convo_id, business_id, limit)).fetchall()
+    conn.close()
+    return [r["content"] for r in rows]
+
+
+def add_flag(business_id, convo_id, turn_id, kind, detail=""):
+    conn = get_conn()
+    fid = conn.execute(
+        "INSERT INTO assistant_flags (business_id, convo_id, turn_id, kind, detail, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (business_id, convo_id, turn_id, kind, detail, now_iso())).lastrowid
+    conn.commit()
+    conn.close()
+    return fid
+
+
+def list_convos(business_id, limit=30):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT c.id, c.started_at, c.last_at, "
+        " (SELECT COUNT(*) FROM assistant_turns t WHERE t.convo_id=c.id) AS turns, "
+        " (SELECT COUNT(*) FROM assistant_flags f WHERE f.convo_id=c.id AND f.resolved=0) AS flags "
+        "FROM assistant_convos c WHERE c.business_id=? ORDER BY c.id DESC LIMIT ?",
+        (business_id, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_convo_turns(convo_id, business_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM assistant_turns WHERE convo_id=? AND business_id=? ORDER BY id",
+        (convo_id, business_id)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def list_flags(business_id, resolved=0, limit=50):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT f.*, t.content AS turn_content FROM assistant_flags f "
+        "LEFT JOIN assistant_turns t ON t.id=f.turn_id "
+        "WHERE f.business_id=? AND f.resolved=? ORDER BY f.id DESC LIMIT ?",
+        (business_id, resolved, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def flag_counts(business_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT kind, COUNT(*) AS n FROM assistant_flags WHERE business_id=? AND resolved=0 "
+        "GROUP BY kind", (business_id,)).fetchall()
+    conn.close()
+    return {r["kind"]: r["n"] for r in rows}
+
+
+def get_flag(business_id, flag_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM assistant_flags WHERE id=? AND business_id=?",
+                       (flag_id, business_id)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def resolve_flag(business_id, flag_id):
+    conn = get_conn()
+    conn.execute("UPDATE assistant_flags SET resolved=1 WHERE id=? AND business_id=?",
+                 (flag_id, business_id))
+    conn.commit()
+    conn.close()
+
+
+def add_learning(business_id, pattern, action, answer="", source_turn_id=None, confirmed=1):
+    conn = get_conn()
+    lid = conn.execute(
+        "INSERT INTO assistant_learnings (business_id, pattern, action, answer, source_turn_id, "
+        "confirmed, created_at) VALUES (?,?,?,?,?,?,?)",
+        (business_id, (pattern or "").strip().lower(), action, answer, source_turn_id,
+         1 if confirmed else 0, now_iso())).lastrowid
+    conn.commit()
+    conn.close()
+    return lid
+
+
+def list_learnings(business_id, confirmed_only=True):
+    conn = get_conn()
+    q = "SELECT * FROM assistant_learnings WHERE business_id=?"
+    if confirmed_only:
+        q += " AND confirmed=1"
+    rows = conn.execute(q + " ORDER BY id DESC", (business_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def bump_learning(business_id, learning_id):
+    conn = get_conn()
+    conn.execute("UPDATE assistant_learnings SET uses=uses+1 WHERE id=? AND business_id=?",
+                 (learning_id, business_id))
+    conn.commit()
+    conn.close()
+
+
+def memory_digest(business_id, since_iso):
+    """Counts since `since_iso` for the command-center digest: flags by kind, learnings
+    added, and conversations touched."""
+    conn = get_conn()
+    flags = conn.execute(
+        "SELECT kind, COUNT(*) AS n FROM assistant_flags WHERE business_id=? AND created_at>=? "
+        "GROUP BY kind", (business_id, since_iso)).fetchall()
+    learns = conn.execute(
+        "SELECT COUNT(*) FROM assistant_learnings WHERE business_id=? AND created_at>=?",
+        (business_id, since_iso)).fetchone()[0]
+    convs = conn.execute(
+        "SELECT COUNT(*) FROM assistant_convos WHERE business_id=? "
+        "AND COALESCE(last_at, started_at)>=?", (business_id, since_iso)).fetchone()[0]
+    conn.close()
+    d = {r["kind"]: r["n"] for r in flags}
+    return {"gaps": d.get("capability_gap", 0) + d.get("unhelpful", 0),
+            "repeats": d.get("repeat", 0), "negatives": d.get("negative", 0),
+            "learnings": learns, "convos": convs}
+
+
+def unmet_flag_contents(business_id):
+    """The owner messages behind every still-open capability-gap / unhelpful flag, so we
+    can rank which missing capability recurs the most (what to build next)."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT t.content AS c FROM assistant_flags f JOIN assistant_turns t ON t.id=f.turn_id "
+        "WHERE f.business_id=? AND f.resolved=0 AND f.kind IN ('capability_gap','unhelpful') "
+        "AND t.content IS NOT NULL AND t.content != ''", (business_id,)).fetchall()
+    conn.close()
+    return [r["c"] for r in rows]
+
+
+def coach_candidates(business_id):
+    """(message, route) for every open capability-gap whose flag recorded the page the
+    assistant pointed to -- the raw material for a proactive 'remember this' offer."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT t.content AS c, f.detail AS d FROM assistant_flags f "
+        "JOIN assistant_turns t ON t.id=f.turn_id "
+        "WHERE f.business_id=? AND f.resolved=0 AND f.kind='capability_gap' "
+        "AND f.detail LIKE 'route:%' AND t.content IS NOT NULL AND t.content != ''",
+        (business_id,)).fetchall()
+    conn.close()
+    return [(r["c"], r["d"][6:]) for r in rows]
+
+
+def convo_user_turn_count(business_id, convo_id):
+    conn = get_conn()
+    n = conn.execute("SELECT COUNT(*) FROM assistant_turns WHERE business_id=? AND convo_id=? "
+                     "AND role='user'", (business_id, convo_id)).fetchone()[0]
+    conn.close()
+    return n
+
+
+def has_coach_offer(business_id, convo_id):
+    conn = get_conn()
+    n = conn.execute("SELECT COUNT(*) FROM assistant_flags WHERE business_id=? AND convo_id=? "
+                     "AND kind='coach_offered'", (business_id, convo_id)).fetchone()[0]
+    conn.close()
+    return n > 0
+
+
+def mark_coach_offered(business_id, convo_id):
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO assistant_flags (business_id, convo_id, turn_id, kind, detail, "
+        "created_at, resolved) VALUES (?,?,?,?,?,?,1)",
+        (business_id, convo_id, None, "coach_offered", "", now_iso()))
+    conn.commit()
+    conn.close()

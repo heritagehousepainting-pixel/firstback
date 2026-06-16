@@ -1,0 +1,87 @@
+{% extends "app_shell.html" %}
+{% from "components/ui/card.html" import card %}
+{% from "components/ui/input.html" import field %}
+{% from "components/ui/badge.html" import pill %}
+{% block title %}Memory{% endblock %}
+{% block page_title %}RingBack's Memory{% endblock %}
+{% block page_sub %}<p class="page-sub">Every conversation you have with the command center is saved here. RingBack calls out where it fell short, and you teach it so it gets it right next time.</p>{% endblock %}
+
+{% block content %}
+{% if request.args.get('taught') %}<p class="provider-note provider-note-ok">Got it. RingBack learned that and will use it from now on.</p>{% endif %}
+
+<div class="settings-col">
+  {% if digest and digest.has_content %}<p class="provider-note provider-note-soft">{{ digest.line }} Over the last {{ digest.days }} days across {{ digest.convos }} conversation(s).</p>{% endif %}
+
+  {% if top_unmet %}
+  {% call card(title='Build these next', subtitle="The requests RingBack couldn't handle, most frequent first. Teach it below, or build the tool.") %}
+    {% for u in top_unmet %}
+    <div class="card" style="margin-bottom:var(--space-2);padding:var(--space-3);display:flex;justify-content:space-between;align-items:center;gap:var(--space-3)">
+      <span style="color:var(--ink)">"{{ u.sample }}"</span>
+      {{ pill(u.count ~ 'x', 'warning') }}
+    </div>
+    {% endfor %}
+  {% endcall %}
+  {% endif %}
+
+  {% call card(title='Worth a look', subtitle='Where RingBack could not act, you had to ask twice, or you corrected it.') %}
+    {% if flags %}
+      {% for f in flags %}
+      <div class="card" style="margin-bottom:var(--space-3);padding:var(--space-4)">
+        {{ pill(issue_label.get(f.kind, f.kind), 'warning', dot=true) }}
+        {% if f.detail and f.kind == 'unhelpful' %}<p style="margin:var(--space-2) 0 0;color:var(--ink-soft)">RingBack's review: {{ f.detail }}</p>{% endif %}
+        {% if f.turn_content %}<p style="margin:var(--space-2) 0;color:var(--ink)">You said: <strong>{{ f.turn_content }}</strong></p>{% endif %}
+        <details style="margin-top:var(--space-2)">
+          <summary>Teach RingBack what to do when you say this</summary>
+          <form method="post" action="/training/teach" style="margin-top:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)">
+            <input type="hidden" name="flag_id" value="{{ f.id }}">
+            {{ field('When I say something like', name='pattern', value=f.turn_content) }}
+            <label class="field-label">RingBack should</label>
+            <select class="field-control" name="action">
+              <optgroup label="Run a tool">
+                {% for t in tools %}<option value="{{ t }}">Run: {{ t }}</option>{% endfor %}
+              </optgroup>
+              <option value="route">Point me to a page</option>
+              <option value="answer">Say this</option>
+            </select>
+            {{ field('Page path or exact reply (leave blank when running a tool)', name='value', placeholder='/settings  or  the exact reply') }}
+            <button class="btn btn-primary btn-sm" type="submit" style="align-self:flex-start">Teach RingBack</button>
+          </form>
+        </details>
+        <form method="post" action="/training/resolve" style="margin-top:var(--space-2)">
+          <input type="hidden" name="flag_id" value="{{ f.id }}">
+          <button class="btn btn-secondary btn-sm" type="submit">Dismiss</button>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p>Nothing to review yet. When RingBack can't do something, has to ask twice, or you correct it, it shows up here to teach.</p>
+    {% endif %}
+  {% endcall %}
+
+  {% call card(title='What you have taught RingBack') %}
+    {% if learnings %}
+      {% for l in learnings %}
+      <div class="card" style="margin-bottom:var(--space-2);padding:var(--space-3);display:flex;justify-content:space-between;align-items:center;gap:var(--space-3)">
+        <span>When you say <strong>"{{ l.pattern }}"</strong>, {{ ('run ' ~ l.action) if l.action not in ('route','answer') else ('go to ' ~ l.answer if l.action == 'route' else 'reply: "' ~ l.answer ~ '"') }}.</span>
+        {{ pill('used ' ~ l.uses ~ 'x', 'neutral') }}
+      </div>
+      {% endfor %}
+    {% else %}
+      <p>Nothing taught yet. Teach RingBack from a flagged exchange above and it lands here.</p>
+    {% endif %}
+  {% endcall %}
+
+  {% call card(title='Recent conversations') %}
+    {% if convos %}
+      {% for cv in convos %}
+      <a class="card" href="/training/convo/{{ cv.id }}" style="margin-bottom:var(--space-2);padding:var(--space-3);display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);text-decoration:none">
+        <span>Conversation #{{ cv.id }} · {{ cv.turns }} turns</span>
+        {% if cv.flags %}{{ pill(cv.flags ~ ' flagged', 'warning') }}{% else %}{{ pill('clean', 'neutral') }}{% endif %}
+      </a>
+      {% endfor %}
+    {% else %}
+      <p>No conversations yet. Talk to RingBack on the <a href="/dashboard">Command Center</a> and they'll be saved here.</p>
+    {% endif %}
+  {% endcall %}
+</div>
+{% endblock %}

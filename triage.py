@@ -1,29 +1,43 @@
-"""Caller triage (v1): decide whether a missed caller is worth engaging.
+"""Caller triage: the "phone screen" -- decide whether a missed caller gets the
+automated text-back, modeled on how Apple screens calls.
 
 RingBack's promise is "never lose a job to a missed call," which makes the costs
 ASYMMETRIC: texting a non-prospect by mistake is cheap (a cent and a dead thread),
 but NOT texting a real customer is the one failure the product exists to prevent.
-So this layer suppresses with HIGH PRECISION -- it only stays silent for callers we
-positively know are not prospects, never on a guess. Unknown callers are always
-engaged.
+So this layer is PRECISION-FIRST -- it only stays silent for callers we're nearly
+certain about, and treats every ambiguous unknown as a prospect (engaged, just
+flagged for review). It also fails OPEN: a missing or slow signal never silences a
+caller.
 
-v1 is deterministic + free: the per-business contact directory (db.contacts) plus
-the existing opt-out ledger (db.contacts_consent). It cleanly answers the
-"don't ask the power company if they need work done" case:
+Two callers should NOT get the cold bot text:
+  * KNOWN / saved people -- the owner handles them personally (Apple passes anyone
+    in your Contacts straight through). RingBack's "known" set is AUTO-DERIVED with
+    zero setup (db.is_known_caller: a booked estimate or any directory entry), so
+    the owner never has to import or hand-categorize an address book.
+  * SPAM / robocallers -- scored from layered signals (below).
 
-    prospect / unknown  -> engage (the default)
-    customer (returning) -> engage
-    personal (the owner's mom)     -> screen out
-    vendor   (the power company)   -> screen out
-    blocked  (a known nuisance)    -> screen out
-    opted out (replied STOP)       -> screen out
+The verdict is a single dict:
+    {"engage": bool, "status": str, "score": int(0-100), "category": str,
+     "reasons": [str], "reason": str}   # "reason" kept for back-compat
+where status is one of:
+    opted_out         -> replied STOP (engage False)
+    screened_contact  -> a known non-prospect: personal/vendor/blocked (engage False)
+    trusted           -> a known/saved caller; owner handles them, no bot (engage False)
+    screened_spam     -> score >= HARD: a near-certain robocaller (engage False)
+    review            -> MID <= score < HARD: engaged, but FLAGGED for the owner
+    prospect          -> a clean unknown (engage True)
 
-Fuzzy telemarketer detection for UNKNOWN callers (AI content classification,
-number-reputation lookup, mid-conversation bail) is a deferred later layer; this
-module is its home. Pure decision helper (should_engage) + a thin DB-backed
-screen_caller(); no network.
+Tiers feeding the spam score (cheapest first; computed by the pure spam_score()):
+    Tier 1 (free, hot path): STIR/SHAKEN attestation, neighbor-spoof, repeat-call
+                             behavior.
+    Tier 2 (paid, gated):    number reputation (reputation.lookup -> line type +
+                             robocall score).
+    Tier 2.5 (free):         crowdsourced cross-tenant spam flags (db.global_spam_count).
+The AI CONTENT screen (Tier 3) lives on the conversation path (ai.classify_intent),
+not here -- it can only run once the caller actually replies.
 """
 import db
+from config import SCREEN_SCORE_HARD, SCREEN_SCORE_MID, SCREEN_CROWD_MIN
 
 # Directory categories that are positively NOT a prospect -> never proactively
 # texted. Everything else (prospect, customer, or an unknown number) engages.
@@ -38,21 +52,145 @@ def should_engage(contact):
     return (contact.get("category") or "prospect") not in NON_PROSPECT
 
 
-def screen_caller(business_id, number):
-    """Verdict for a missed caller, BEFORE we text back:
-    {"engage": bool, "category": str, "reason": str}.
+def _attestation_level(raw):
+    """Normalize a Twilio StirVerstat value to an attestation letter A/B/C, or None
+    when the call carried no SHAKEN identity (unverified). Values look like
+    'TN-Validation-Passed-A', 'TN-Validation-Failed-C', or 'No-TN-Validation'."""
+    s = str(raw or "").strip().upper()
+    if not s or "NO-TN-VALIDATION" in s:
+        return None
+    if "FAILED" in s:
+        return "C"
+    for letter in ("A", "B", "C"):
+        if s.endswith("-" + letter) or s == letter:
+            return letter
+    return None
 
-    Screens out opted-out numbers and known non-prospects (the owner's directory);
-    engages prospects, returning customers, and anyone we have not seen."""
+
+def spam_score(signals):
+    """PURE (no I/O): fold screening signals into a 0-100 spam score + the list of
+    human-readable reasons that drove it. Higher = more spam-like. Tuned precision-
+    first: NO single weak signal reaches the HARD threshold, so a real homeowner is
+    never hard-screened on one fuzzy hint -- it takes corroboration (or one
+    authoritative provider verdict).
+
+    `signals` keys (all optional):
+        attestation     str  -- STIR/SHAKEN letter A/B/C (A lowers the score)
+        neighbor_spoof  bool -- caller shares the business's area code + prefix
+        line_type       str  -- e.g. 'nonFixedVoip' (a robocaller signal)
+        reputation_score int -- 0-100 from a paid provider (authoritative)
+        crowd_count     int  -- distinct OTHER businesses that flagged this number
+        behavior        dict -- {missed_calls, inbound_msgs, booked}
+    """
+    score, reasons = 0, []
+
+    att = _attestation_level(signals.get("attestation"))
+    if att == "A":
+        score -= 15  # carrier vouches the caller owns the number -> trust signal
+    elif att == "C":
+        score += 30
+        reasons.append("failed caller-ID verification (attestation C)")
+    elif att is None and "attestation" in signals:
+        score += 10
+        reasons.append("caller ID not verified")
+
+    if signals.get("neighbor_spoof"):
+        score += 25
+        reasons.append("number mimics your local area code + prefix (neighbor spoofing)")
+
+    lt = str(signals.get("line_type") or "")
+    if lt and lt.lower() == "nonfixedvoip":
+        score += 25
+        reasons.append("non-fixed VoIP line (common for robocallers)")
+
+    rep = signals.get("reputation_score")
+    if rep is not None:
+        try:
+            rep = int(rep)
+            score += round(rep * 0.8)   # 100 alone reaches HARD; an authoritative verdict
+            if rep >= 70:
+                reasons.append("flagged as spam by number-reputation lookup")
+            elif rep >= 40:
+                reasons.append("mixed reputation from number-reputation lookup")
+        except (TypeError, ValueError):
+            pass
+
+    crowd = int(signals.get("crowd_count") or 0)
+    if crowd >= SCREEN_CROWD_MIN:
+        contribution = min(40 + (crowd - SCREEN_CROWD_MIN) * 15, 75)
+        score += contribution
+        reasons.append(f"flagged as spam by {crowd} other businesses")
+
+    beh = signals.get("behavior") or {}
+    missed = int(beh.get("missed_calls") or 0)
+    inbound = int(beh.get("inbound_msgs") or 0)
+    booked = int(beh.get("booked") or 0)
+    if booked == 0 and inbound == 0 and missed >= 3:
+        score += 30
+        reasons.append(f"called {missed} times and never replied to a text")
+
+    return max(0, min(100, score)), reasons
+
+
+def screen_caller(business_id, number, *, attestation=None, neighbor_spoof=False,
+                  reputation=None, behavior=None):
+    """Verdict for a missed caller, BEFORE we text back (see module docstring for the
+    shape). Identity tiers first (free, decisive), then the spam score for unknowns.
+
+    The signal kwargs are optional, so a bare screen_caller(biz, number) still works
+    (identity-only, as the original v1 did) -- the hot path passes the richer signals."""
     if db.is_suppressed(business_id, number):
-        return {"engage": False, "category": "opted_out",
+        return {"engage": False, "status": "opted_out", "score": 0,
+                "category": "opted_out", "reasons": ["recipient opted out"],
                 "reason": "recipient opted out"}
+
     contact = db.get_contact(business_id, number)
     category = (contact or {}).get("category") or "prospect"
-    if not should_engage(contact):
-        return {"engage": False, "category": category,
+    if not should_engage(contact):   # known personal / vendor / blocked
+        return {"engage": False, "status": "screened_contact", "score": 0,
+                "category": category, "reasons": [f"known {category}, not a prospect"],
                 "reason": f"known {category}, not a prospect"}
-    return {"engage": True, "category": category, "reason": "prospect"}
+
+    # Faithful-Apple: a caller we already KNOW (booked estimate or any directory
+    # entry, e.g. a returning customer) is the owner's to handle -- never cold-pitched.
+    if db.is_known_caller(business_id, number):
+        return {"engage": False, "status": "trusted", "score": 0,
+                "category": category if contact else "customer",
+                "reasons": ["known caller -- handled by you, not the bot"],
+                "reason": "known caller"}
+
+    # Unknown caller: score the spam signals (crowd count read here; the rest passed in).
+    signals = {"neighbor_spoof": neighbor_spoof, "behavior": behavior or {},
+               "crowd_count": db.global_spam_count(number, exclude_business_id=business_id)}
+    if attestation is not None:
+        signals["attestation"] = attestation
+    if reputation:
+        signals["line_type"] = reputation.get("line_type")
+        signals["reputation_score"] = reputation.get("spam_score")
+
+    score, reasons = spam_score(signals)
+    if score >= SCREEN_SCORE_HARD:
+        return {"engage": False, "status": "screened_spam", "score": score,
+                "category": "spam", "reasons": reasons,
+                "reason": "looks like spam/robocall"}
+    if score >= SCREEN_SCORE_MID:
+        return {"engage": True, "status": "review", "score": score,
+                "category": category, "reasons": reasons,
+                "reason": "engaged but flagged for review"}
+    return {"engage": True, "status": "prospect", "score": score,
+            "category": category, "reasons": reasons or ["clean unknown caller"],
+            "reason": "prospect"}
+
+
+def neighbor_spoof(business_number, caller_number):
+    """Pure: True if the caller shares the business's area code AND next-3 prefix --
+    the classic 'neighbor spoofing' pattern (a robocaller faking a local number to
+    look like someone nearby). Needs both numbers to be 10-digit-resolvable."""
+    b = db._digits10(business_number)
+    c = db._digits10(caller_number)
+    if len(b) < 6 or len(c) < 6 or b == c:
+        return False
+    return b[:6] == c[:6]
 
 
 # --------------------------------------------------------------------------

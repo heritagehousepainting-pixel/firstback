@@ -1,0 +1,50 @@
+{% extends "app_shell.html" %}
+{% block title %}Command Center{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/assistant.css?v=6">
+<section class="command-shell" id="command"
+         data-suggestions='{{ suggestions|tojson }}'
+         data-hello="{{ hello }}">
+
+  {# ---- The Jarvis core: a living orb that is the assistant's presence ---- #}
+  <div class="orb-stage" aria-hidden="true">
+    <div class="orb-halo"></div>
+    <canvas class="orb-canvas" id="orb"></canvas>
+    <div class="orb-fallback"></div>
+  </div>
+
+  {# ---- Conversation: empty hero state, then the transcript ---- #}
+  <div class="convo" id="convo">
+    <div class="convo-hero" id="hero">
+      <p class="convo-kicker">{{ app_name }} · your command center</p>
+      <h1 class="convo-hello">{{ hello }}</h1>
+      <p class="convo-sub">Tell me what you want done. I can pull your numbers, show your
+        leads and booked estimates, save a contact, connect your calendar, and text a lead
+        back. You can still work by hand in the <a href="/pipeline">Pipeline</a>.</p>
+      {% if digest and digest.has_content %}<p class="convo-digest">{{ digest.line }} <a href="/training">Review in Memory</a>.</p>{% endif %}
+    </div>
+    <div class="transcript" id="transcript" aria-live="polite"></div>
+  </div>
+
+  {# ---- The translucent command bar ---- #}
+  <div class="command-dock">
+    <div class="chips" id="chips"></div>
+    <form class="command-bar" id="commandBar" autocomplete="off">
+      <span class="command-spark" aria-hidden="true"></span>
+      <input class="command-input" id="commandInput" name="message" type="text"
+             placeholder="Ask RingBack to do something..." aria-label="Command RingBack"
+             autofocus>
+      <button class="command-send" id="commandSend" type="submit" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+      </button>
+    </form>
+    <p class="command-foot">RingBack confirms before it texts anyone. Nothing is sent without your okay.</p>
+  </div>
+
+  <input type="hidden" id="csrfToken" value="">
+</section>
+<script defer src="/static/assistant.js?v=7"></script>
+{% endblock %}

@@ -237,6 +237,13 @@ sign off. Distinilled to what we must build:
   regardless.**
 
 ### Deliverability (so it's not flagged spam)
+- **IMPLEMENTED — inbound call screen** (`triage.screen_caller`): a tiered, precision-first
+  verdict decides who gets the text-back, so we never blast auto-texts at spam/robocalls (a
+  top cause of a number getting carrier-flagged) or at known/saved contacts. Auto-derives the
+  "known" set from bookings (no import). Tiers: identity → STIR/SHAKEN + neighbor-spoof +
+  behavior → optional paid reputation (`reputation.py`) → crowdsourced cross-tenant flags →
+  optional AI content screen. Rolls out via `RINGBACK_SCREEN_MODE` (monitor → enforce). The
+  same `StirVerstat` attestation read below feeds the screen.
 - **STIR/SHAKEN A-attestation** needs **Twilio-owned numbers** in a vetted Trust
   Hub product → another reason to **provision a Twilio number per business**
   rather than dialing from their cell (which caps at B).

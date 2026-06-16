@@ -98,18 +98,50 @@ function addMeta(container, text) {
     status.appendChild(el);
   }
 
-  trigger.addEventListener("click", async () => {
+  // A screened outcome (spam / known caller): no thread, just a status card showing
+  // what RingBack did and why — the "knows who to text" story, made visible.
+  function screenedCard(data) {
+    const spam = data.status === "screened_spam";
+    const el = document.createElement("div");
+    el.className = "sim-screened " + (spam ? "sim-screened-spam" : "sim-screened-known");
+    const head = document.createElement("div");
+    head.className = "sim-screened-head";
+    head.textContent = (spam ? "🚫 Screened — looks like spam" : "👤 Known caller — left for you");
+    el.appendChild(head);
+    const sub = document.createElement("p");
+    sub.className = "sim-screened-sub";
+    sub.textContent = spam
+      ? "No text sent. RingBack won’t cold-pitch a robocaller — that protects your number."
+      : "No automated text. You’ve dealt with this caller before, so RingBack leaves them to you.";
+    el.appendChild(sub);
+    (data.reasons || []).forEach((r) => {
+      const li = document.createElement("div");
+      li.className = "sim-screened-reason";
+      li.textContent = "• " + r;
+      el.appendChild(li);
+    });
+    thread.appendChild(el);
+  }
+
+  async function runScenario(scenario, btn, callerLabel) {
     thread.innerHTML = "";
     status.innerHTML = "";
-    addMeta(thread, "Missed call · just now");
-    trigger.disabled = true;
+    leadId = null;
+    input.disabled = true;
+    sendBtn.disabled = true;
+    addMeta(thread, "Missed call · " + callerLabel + " · just now");
+    btn.disabled = true;
     try {
       const data = await apiFetch("/api/sim/incoming", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: CUSTOMER, phone: DEMO_CALLER }),
+        body: JSON.stringify({ name: CUSTOMER, phone: DEMO_CALLER, scenario }),
       });
-      leadId = data.lead_id;
+      if (data.screened) {
+        screenedCard(data);                 // spam / known: show the screen, no conversation
+        return;
+      }
+      leadId = data.lead_id;                 // prospect: the normal text-back conversation
       addBubble(thread, { text: data.reply, who: "agent", time: fmtClock() });
       input.disabled = false;
       sendBtn.disabled = false;
@@ -118,9 +150,15 @@ function addMeta(container, text) {
     } catch (err) {
       addMeta(thread, "Could not start the demo. " + err.message);
     } finally {
-      trigger.disabled = false;
+      btn.disabled = false;
     }
-  });
+  }
+
+  trigger.addEventListener("click", () => runScenario("prospect", trigger, "real homeowner"));
+  const spamBtn = document.getElementById("trigger-spam");
+  const knownBtn = document.getElementById("trigger-known");
+  if (spamBtn) spamBtn.addEventListener("click", () => runScenario("spam", spamBtn, "unknown number"));
+  if (knownBtn) knownBtn.addEventListener("click", () => runScenario("known", knownBtn, "a contact you know"));
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -179,6 +217,26 @@ function addMeta(container, text) {
       (lead.summary ? `<p class="ln-summary">${esc(lead.summary)}</p>` : "");
   }
 
+  const convoActions = document.getElementById("convo-actions");
+  const flagSpamBtn = document.getElementById("convo-flag-spam");
+  let openLeadId = null;
+
+  if (flagSpamBtn) {
+    flagSpamBtn.addEventListener("click", async () => {
+      if (!openLeadId) return;
+      if (!window.confirm("Mark this caller as spam? They won’t be texted again, and it helps screen this number for other businesses.")) return;
+      flagSpamBtn.disabled = true;
+      flagSpamBtn.textContent = "Marking…";
+      try {
+        await apiFetch("/api/leads/" + openLeadId + "/flag-spam", { method: "POST" });
+        window.location.reload();
+      } catch (err) {
+        flagSpamBtn.disabled = false;
+        flagSpamBtn.textContent = "Try again";
+      }
+    });
+  }
+
   async function openLead(row) {
     rows.forEach((r) => {
       r.classList.remove("is-selected");
@@ -186,6 +244,9 @@ function addMeta(container, text) {
     });
     row.classList.add("is-selected");
     row.setAttribute("aria-pressed", "true");
+    openLeadId = row.dataset.id;
+    if (convoActions) convoActions.hidden = false;
+    if (flagSpamBtn) { flagSpamBtn.disabled = false; flagSpamBtn.textContent = "Mark as spam"; }
     if (notesEl) notesEl.innerHTML = '<p class="ln-loading">Loading notes…</p>';
     convo.innerHTML = "";
     try {
@@ -862,6 +923,27 @@ function addMeta(container, text) {
       btn.textContent = "Texting…";
       try {
         await apiFetch("/api/calls/" + btn.dataset.id + "/engage", { method: "POST" });
+        window.location.reload();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Try again";
+      }
+    });
+  });
+})();
+
+// ---------- Dashboard: confirm a caller is spam (blocks + feeds the cross-tenant ledger) ----------
+(function () {
+  const buttons = document.querySelectorAll(".screen-spam[data-id]");
+  if (!buttons.length) return;
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const num = btn.dataset.num || "this caller";
+      if (!window.confirm("Mark " + num + " as spam? They won’t be texted again, and it helps screen this number for other businesses.")) return;
+      btn.disabled = true;
+      btn.textContent = "Marking…";
+      try {
+        await apiFetch("/api/calls/" + btn.dataset.id + "/flag-spam", { method: "POST" });
         window.location.reload();
       } catch (err) {
         btn.disabled = false;

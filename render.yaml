@@ -19,13 +19,19 @@ services:
     startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT
     disk:
       name: ringback-data
-      mountPath: /var/data        # the SQLite DB + WAL live here -> survives deploys
+      mountPath: /var/data        # durable disk: holds the DB BACKUP (plain file copies only)
       sizeGB: 1
     healthCheckPath: /login
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.7"
+      # SQLite runs on the container's LOCAL disk (/tmp) where it never hangs; the durable
+      # single-file snapshot lives on the network disk and is restored on boot + backed up
+      # on a timer + at shutdown. This is the fix for the network-FS boot hang
+      # (see db.py + reference-ringback-wal-boot-hazard). Only plain file copies touch /var/data.
       - key: RINGBACK_DB_PATH
+        value: /tmp/ringback.db
+      - key: RINGBACK_DB_BACKUP_PATH
         value: /var/data/ringback.db
       - key: RINGBACK_SECRET        # signs login cookies
         generateValue: true

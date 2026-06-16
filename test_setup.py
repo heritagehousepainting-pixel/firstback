@@ -608,6 +608,35 @@ check("landing: complete -> login lands on the command center",
       login().headers.get("Location", "").endswith("/dashboard"))
 
 
+# ============ Durable local-disk backup/restore (the network-FS boot-hang fix) ============
+import tempfile as _tf, sqlite3 as _sq
+def _seed_biz(path, names):
+    if os.path.dirname(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    cc = _sq.connect(path)
+    cc.execute("CREATE TABLE IF NOT EXISTS businesses(id INTEGER PRIMARY KEY, name TEXT)")
+    for n in names:
+        cc.execute("INSERT INTO businesses(name) VALUES(?)", (n,))
+    cc.commit(); cc.close()
+
+_bd = _tf.mkdtemp()
+_live, _bak = os.path.join(_bd, "live.db"), os.path.join(_bd, "var", "backup.db")
+_seed_biz(_live, ["Heritage"])
+db.backup_to_durable(live=_live, backup=_bak)
+check("backup: durable snapshot is written with the data", db._business_count(_bak) == 1)
+os.remove(_live)
+db.restore_from_backup_if_needed(live=_live, backup=_bak)
+check("restore: seeds the live DB from backup when the local file is missing", db._business_count(_live) == 1)
+_seed_biz(_live, ["Newer"])   # live now fresher (2 rows) than backup (1)
+db.restore_from_backup_if_needed(live=_live, backup=_bak)
+check("restore: never clobbers an existing (fresher) live DB", db._business_count(_live) == 2)
+db.backup_to_durable(live=_live, backup=_bak)   # backup now has 2
+_empty = os.path.join(_bd, "empty.db"); _seed_biz(_empty, [])
+db.backup_to_durable(live=_empty, backup=_bak)
+check("backup: anti-clobber refuses to overwrite a populated backup with an empty live DB",
+      db._business_count(_bak) == 2)
+
+
 print(f"\n{_pass} passed, {_fail} failed")
 try:
     os.unlink(_TMP.name)

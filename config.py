@@ -234,6 +234,13 @@ BASE_DIR = Path(__file__).resolve().parent
 # at a PERSISTENT disk (e.g. /var/data/ringback.db) so leads/bookings survive a
 # redeploy; without it the database resets on every deploy.
 DB_PATH = os.environ.get("RINGBACK_DB_PATH", "").strip() or (BASE_DIR / "ringback.db")
+# Optional DURABLE backup location (e.g. Render's network-attached /var/data). When set AND
+# different from DB_PATH, the app runs SQLite on DB_PATH (a fast LOCAL disk where it never
+# hangs), snapshots it here on a timer + at shutdown, and restores from here on boot if the
+# local file is missing. Unset = simple single-file mode (dev/tests). This is the durable
+# fix for the network-FS boot hang -- see db.py restore_from_backup_if_needed/backup_to_durable
+# and [[reference-ringback-wal-boot-hazard]].
+DB_BACKUP_PATH = os.environ.get("RINGBACK_DB_BACKUP_PATH", "").strip()
 
 # --- Scheduling -----------------------------------------------------------
 # The estimate windows RingBack offers on each OPEN day. The in-house calendar

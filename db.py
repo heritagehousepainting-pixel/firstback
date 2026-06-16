@@ -5,11 +5,12 @@ days, and integrations, all scoped by `business_id`. `users` log in and map to
 one business. "Client zero" (Heritage House Painting) is business id 1.
 """
 import re
+import sys
 import sqlite3
 from datetime import datetime, timezone, date, timedelta
 import token_crypto
-from config import (DB_PATH, DEFAULT_BUSINESS, ESTIMATE_TIMES, BOOKING_HORIZON_DAYS,
-                    DEFAULT_WORKING_DAYS, DEFAULT_BUFFER_MINUTES, app_tz)
+from config import (DB_PATH, DB_BACKUP_PATH, DEFAULT_BUSINESS, ESTIMATE_TIMES,
+                    BOOKING_HORIZON_DAYS, DEFAULT_WORKING_DAYS, DEFAULT_BUFFER_MINUTES, app_tz)
 
 # `available_slots` is intentionally omitted: availability comes from the
 # in-house calendar now, so we no longer seed or update that legacy column.
@@ -36,6 +37,110 @@ import db_core as _core
 _core.get_conn = get_conn
 from db_core import (now_iso, get_user, get_user_by_email, create_user,  # noqa: E402,F401
                      log_turn, get_convo_turns, flag_counts)
+
+
+# ---- Durable local-disk mode (the fix for the network-FS boot hang) ----
+# When DB_BACKUP_PATH is set, SQLite runs on DB_PATH (a fast LOCAL disk where it never
+# hangs) and we keep a durable single-file snapshot at DB_BACKUP_PATH (e.g. Render's
+# /var/data). Only PLAIN file copies ever touch the network disk -- never a SQLite open --
+# so the lock/mmap hang can't happen. See [[reference-ringback-wal-boot-hazard]].
+def _backup_enabled():
+    import os
+    return bool(DB_BACKUP_PATH) and os.fspath(DB_BACKUP_PATH) != os.fspath(DB_PATH)
+
+
+def restore_from_backup_if_needed(live=None, backup=None):
+    """Seed the live (local) DB from the durable backup when the local file is missing
+    (a fresh container). A plain file copy of the at-rest single-file backup -- no SQLite
+    open of the network file, so it can't hang. No-op when backup mode is off or the live
+    DB already exists (a warm restart keeps its fresher local copy)."""
+    import os, shutil
+    live = os.fspath(live or DB_PATH)
+    backup = os.fspath(backup if backup is not None else (DB_BACKUP_PATH or ""))
+    if not backup or backup == live or os.path.exists(live) or not os.path.exists(backup):
+        return
+    try:
+        d = os.path.dirname(live)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        shutil.copy2(backup, live)
+        print(f"[ringback] restored DB from durable backup: {backup} -> {live}",
+              file=sys.stderr, flush=True)
+    except OSError as e:
+        print(f"[ringback] DB restore failed ({e}); starting from a fresh local DB",
+              file=sys.stderr, flush=True)
+
+
+def _business_count(path):
+    """Best-effort COUNT(*) of `businesses` in a SQLite file; -1 if unreadable/absent.
+    Used purely as an anti-clobber guard for backups."""
+    import os
+    if not os.path.exists(path):
+        return -1
+    try:
+        c = sqlite3.connect(path, timeout=10)
+        try:
+            return c.execute("SELECT COUNT(*) FROM businesses").fetchone()[0]
+        finally:
+            c.close()
+    except sqlite3.Error:
+        return -1
+
+
+def backup_to_durable(live=None, backup=None):
+    """Snapshot the live DB to the durable backup path. Consistent snapshot via
+    VACUUM INTO (to a LOCAL temp), then plain copy + atomic os.replace onto the backup
+    disk -- no SQLite open of the network file. Anti-clobber: refuses to overwrite a
+    populated backup with an empty live DB (so a failed restore can never wipe data).
+    Best-effort; never raises."""
+    import os, shutil, tempfile
+    live = os.fspath(live or DB_PATH)
+    backup = os.fspath(backup if backup is not None else (DB_BACKUP_PATH or ""))
+    if not backup or backup == live or not os.path.exists(live):
+        return
+    if _business_count(live) <= 0 and _business_count(backup) > 0:
+        print("[ringback] backup skipped: live DB empty but durable backup is populated",
+              file=sys.stderr, flush=True)
+        return
+    tmpdir = tempfile.mkdtemp()
+    try:
+        snap = os.path.join(tmpdir, "snapshot.db")
+        src = sqlite3.connect(live, timeout=30)
+        try:
+            src.execute("VACUUM INTO ?", (snap,))   # consistent single-file snapshot, local
+        finally:
+            src.close()
+        d = os.path.dirname(backup)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        staged = backup + ".staging"
+        shutil.copy2(snap, staged)                   # plain write to the network disk
+        os.replace(staged, backup)                   # atomic within the backup filesystem
+    except (OSError, sqlite3.Error) as e:
+        print(f"[ringback] durable backup failed ({e})", file=sys.stderr, flush=True)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+_backup_thread_started = False
+
+
+def start_backup_daemon(interval=60):
+    """Start the periodic durable-backup loop once, plus an atexit final snapshot so a
+    graceful deploy/shutdown loses nothing. No-op when backup mode is off."""
+    global _backup_thread_started
+    if not _backup_enabled() or _backup_thread_started:
+        return
+    _backup_thread_started = True
+    import threading, atexit, time
+    atexit.register(backup_to_durable)
+    def _loop():
+        while True:
+            time.sleep(interval)
+            backup_to_durable()
+    threading.Thread(target=_loop, daemon=True).start()
+    print(f"[ringback] durable DB backup started (every {interval}s -> {DB_BACKUP_PATH})",
+          file=sys.stderr, flush=True)
 
 
 def _recover_network_fs_db(db_path):
@@ -85,8 +190,10 @@ def _recover_network_fs_db(db_path):
 
 
 def init_db():
-    # FIRST, before anything opens the DB: heal a WAL-stuck file on the network disk,
-    # else the very first open hangs and the gunicorn worker never binds its port.
+    # FIRST, before anything opens the DB: in durable local-disk mode, seed the local DB
+    # from the network-disk backup if it's missing (plain copy, no hang). Then heal any
+    # WAL-stuck file (a near-no-op on the local disk) before the first open.
+    restore_from_backup_if_needed()
     _recover_network_fs_db(DB_PATH)
     conn = get_conn()
     c = conn.cursor()

@@ -51,6 +51,7 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = SESSION_COOKIE_SECURE
 db.init_db()
+db.start_backup_daemon()   # durable local-disk mode: snapshot to the network disk on a timer + at exit
 
 # Wire the command-center memory into the assistant (no import cycle): the router consults
 # taught corrections before the brain, and folds them into its routing prompt.

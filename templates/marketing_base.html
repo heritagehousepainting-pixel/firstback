@@ -11,12 +11,15 @@
   <link rel="stylesheet" href="/static/onboarding.css">
   <link rel="stylesheet" href="/static/marketing.css">
   <link rel="stylesheet" href="/static/motion.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/favicon-180.png">
+  <meta name="theme-color" content="#0B0E14">
 </head>
 <body class="mk">
 {% set p = request.path %}
 <header class="ob-nav mk-nav">
   <a class="ob-logo" href="/">
-    <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/></svg></span>
+    <span class="mark"><img src="/static/ringback-mark-light.svg" width="30" height="30" alt=""></span>
     {{ app_name }}
   </a>
   <button class="ob-burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="ob-menu">
@@ -80,7 +83,7 @@
   <div class="mk-footer-top">
     <div class="mk-footer-brand">
       <a class="brand" href="/">
-        <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/></svg></span>
+        <span class="mark"><img src="/static/ringback-mark-transparent.svg" width="30" height="30" alt=""></span>
         {{ app_name }}
       </a>
       <p>Instant missed-call text-back and AI booking for home-services contractors.</p>

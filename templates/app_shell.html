@@ -10,13 +10,16 @@
   <link rel="stylesheet" href="/static/ui.css">
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/motion.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/favicon-180.png">
+  <meta name="theme-color" content="#0B0E14">
 </head>
 <body class="ui-body">
 {% set path = request.path %}
 <div class="app">
   <aside class="sidebar">
     <a class="sidebar-brand" href="/">
-      <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/></svg></span>
+      <span class="mark"><img src="/static/ringback-mark-light.svg" width="28" height="28" alt=""></span>
       {{ app_name }}
     </a>
     <nav class="sidebar-nav">

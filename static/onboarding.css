@@ -31,11 +31,10 @@
    clicks; 40 lets the nav + its dropdown render above the scrim. */
 .ob-nav{position:relative;z-index:40;display:flex;align-items:center;gap:40px;
   padding:22px clamp(20px,4vw,56px)}
-.ob-logo{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;
+.ob-logo{display:flex;align-items:center;gap:6px;color:var(--ink);text-decoration:none;
   font-size:22px;font-weight:800;letter-spacing:-.02em}
-.ob-logo .mark{display:flex;align-items:center;justify-content:center;width:30px;height:30px;
-  border-radius:8px;background:var(--accent);color:#fff}
-.ob-logo .mark svg{width:18px;height:18px}
+.ob-logo .mark{display:flex;align-items:center;justify-content:center;width:30px;height:30px}
+.ob-logo .mark img,.ob-logo .mark svg{width:100%;height:100%;display:block}
 .ob-links{display:flex;align-items:center;gap:28px}
 .ob-links a{display:inline-flex;align-items:center;gap:5px;color:var(--ink);text-decoration:none;
   font-size:15px;font-weight:500;opacity:.92;transition:opacity .12s}

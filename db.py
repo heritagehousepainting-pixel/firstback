@@ -348,7 +348,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_audit_biz ON audit_log(business_id, id);
         CREATE INDEX IF NOT EXISTS idx_aturns_convo ON assistant_turns(convo_id);
         CREATE INDEX IF NOT EXISTS idx_aturns_biz ON assistant_turns(business_id);
-        CREATE INDEX IF NOT EXISTS idx_aconvos_browser ON assistant_convos(business_id, browser_key);
         CREATE INDEX IF NOT EXISTS idx_aents_convo ON assistant_turn_entities(convo_id);
         CREATE INDEX IF NOT EXISTS idx_aflags_biz ON assistant_flags(business_id);
         CREATE INDEX IF NOT EXISTS idx_alearn_biz ON assistant_learnings(business_id);
@@ -362,6 +361,11 @@ def init_db():
     acols = [r[1] for r in c.execute("PRAGMA table_info(assistant_convos)").fetchall()]
     if "browser_key" not in acols:
         c.execute("ALTER TABLE assistant_convos ADD COLUMN browser_key TEXT")
+    # The browser_key index is built HERE, after the column is guaranteed -- never inside the
+    # CREATE-TABLE executescript above, where an older assistant_convos (table exists but predates
+    # the column) makes the index reference a missing column and crashes init_db on boot.
+    c.execute("CREATE INDEX IF NOT EXISTS idx_aconvos_browser "
+              "ON assistant_convos(business_id, browser_key)")
     # Migration: appointments gain a real `day` (YYYY-MM-DD) for the calendar.
     appt_cols = [r[1] for r in c.execute("PRAGMA table_info(appointments)").fetchall()]
     if "day" not in appt_cols:

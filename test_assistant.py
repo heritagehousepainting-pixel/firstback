@@ -67,8 +67,9 @@ out = assistant.run(biz, "show my booked estimates")
 check("appointments command answers (list or honest empty)",
       out["pending_action"] is None)
 out = assistant.run(biz, "connect my google calendar")
-check("connect returns a link to settings",
-      any(c.get("type") == "link" and c.get("href") == "/settings" for c in out["cards"]))
+check("connect surfaces an inline connect_action card to the real OAuth route",
+      any(c.get("type") == "connect_action"
+          and c.get("href") == "/api/calendar/google/connect" for c in out["cards"]))
 
 # --- saving a contact writes the directory ---
 out = assistant.run(biz, "save 555 867 5309 as a customer")
@@ -257,10 +258,13 @@ for _ask in ("how do I go live", "I need to connect my number",
     check("go-live intent routes to /setup: %r" % _ask, _routes_to_setup(_ask))
 
 # negatives: these must NOT over-trigger the /setup route
-check("'set up a reminder' is settings, not /setup",
+# Vic now OWNS reminders as a gated tool, so "set up a reminder" no longer dead-ends at a
+# Settings link via _route_topic -- but it must still NOT false-trigger the go-live /setup route,
+# and Vic handles it directly (the reminders config card still offers a Settings deep-link).
+check("'set up a reminder' is not /setup, and Vic handles it as reminders config",
       (not _routes_to_setup("set up a reminder"))
       and any(c.get("href") == "/settings"
-              for c in (assistant._route_topic("set up a reminder") or {}).get("cards", [])))
+              for c in assistant.run(biz, "set up a reminder").get("cards", [])))
 check("'what's my number of leads' does not route to /setup",
       not _routes_to_setup("what's my number of leads"))
 check("'how do customers register' does not route to /setup",
@@ -437,6 +441,9 @@ _a2 = db.create_lead(_fb, "Ben Appt", "+15550000005")
 db.book_appointment(_fb, _a1, "Thu 10:00 AM", day="2099-01-01", slot_time="10:00")
 db.book_appointment(_fb, _a2, "Fri 2:00 PM", day="2099-01-02", slot_time="14:00")
 _fbz = db.get_business(_fb)
+# This fixture tests pure lead-ranking on an established business -- pause the first-run
+# chaperone so its (correct) "Finish setup" item doesn't lead the list here.
+db.set_chaperone_dismissed(_fb, db.now_iso())
 _fbf = assistant.briefing(_fbz)
 _tones = [it["tone"] for it in _fbf["items"]]
 check("briefing is a well-formed card with a non-empty item list here",
@@ -499,6 +506,7 @@ check("briefing never produces broken English for a nameless, numberless lead",
       assistant._first_name({"name": "", "phone": ""}) == "them")
 # Cold start is honest: a brand-new tenant with no leads/estimates says so, no fake list.
 _empty_id = db.create_business({"name": "Empty Co", "owner_email": "empty@x.io"})
+db.set_chaperone_dismissed(_empty_id, db.now_iso())  # past onboarding: isolate the cold-start
 _cold = assistant.briefing(db.get_business(_empty_id))
 check("briefing cold-start is honest (no leads -> quiet, empty item list)",
       _cold["tone"] == "quiet" and _cold["items"] == [])

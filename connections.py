@@ -162,6 +162,47 @@ def recommended_setup(business, *, calendar_connected=False, contacts_connected=
     return {"items": items, "done": sum(1 for it in items if it["done"]), "total": len(items)}
 
 
+# ---- First-run chaperone: the ordered setup walk Vic guides a brand-new owner through ----
+# Money first (instant win, no prerequisite), then the go-live dependency chain (profile is the
+# A2P prereq), then the high-value add-ons. Voice (undeployed) and screening (its enforce mode
+# silences callers -- exactly wrong to wave at a new owner) are deliberately NOT here.
+_CHAPERONE_STEPS = ("avg_job_value", "profile", "number", "a2p", "forwarding",
+                    "calendar", "alerts")
+
+
+def _chaperone_step_done(key, biz, golive, calendar_connected):
+    if key == "avg_job_value":
+        return bool(biz.get("avg_job_value"))
+    if key == "profile":
+        return profile_complete(biz)
+    if key in ("number", "a2p", "forwarding"):
+        st = next((s for s in golive.get("steps", []) if s["key"] == key), None)
+        return bool(st and st.get("state") == "done")
+    if key == "calendar":
+        return bool(calendar_connected)
+    if key == "alerts":
+        return bool((biz.get("alert_sms") or "").strip() or (biz.get("alert_email") or "").strip())
+    return False
+
+
+def chaperone_next_step(business, golive, calendar_connected=False):
+    """The single next unfinished setup step for the chaperone, read from REAL state (golive
+    summary + the business row + whether the calendar is connected). None when nothing's left."""
+    biz = (business if isinstance(business, dict) else db.get_business(business)) or {}
+    for key in _CHAPERONE_STEPS:
+        if not _chaperone_step_done(key, biz, golive, calendar_connected):
+            return key
+    return None
+
+
+def chaperone_progress(business, golive, calendar_connected=False):
+    """(done, total) across the chaperone's steps -- for the briefing's 'N of M done' line."""
+    biz = (business if isinstance(business, dict) else db.get_business(business)) or {}
+    done = sum(1 for k in _CHAPERONE_STEPS
+               if _chaperone_step_done(k, biz, golive, calendar_connected))
+    return done, len(_CHAPERONE_STEPS)
+
+
 def default_area_code(biz):
     """A sensible area-code guess to pre-fill number search: the digits of the
     business's existing phone, else ''."""

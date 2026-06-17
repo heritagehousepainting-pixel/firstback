@@ -515,6 +515,8 @@ def init_db():
                      ("followups_enabled", "INTEGER DEFAULT 1"),
                      ("reminder_lead_hours", "REAL"),
                      ("avg_job_value", "REAL"),   # owner-set; powers the ROI revenue estimate
+                     # When the owner paused the first-run setup chaperone (ISO ts, or NULL).
+                     ("chaperone_dismissed_at", "TEXT"),
                      # Per-business call-screening mode (off|monitor|enforce). NULL ->
                      # inherit the app-wide config.SCREEN_MODE default, so existing
                      # tenants behave exactly as before until the owner chooses.
@@ -616,6 +618,17 @@ def get_business(business_id=1):
     row = conn.execute("SELECT * FROM businesses WHERE id=?", (business_id,)).fetchone()
     conn.close()
     return dict(row) if row else dict(DEFAULT_BUSINESS, id=business_id)
+
+
+def set_chaperone_dismissed(business_id, when):
+    """Pause (or clear) the first-run setup chaperone. `when` is an ISO timestamp string to
+    pause it, or None to clear (so it can lead again). Kept out of _BUSINESS_COLS so a profile
+    save never flips it by omission."""
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET chaperone_dismissed_at=? WHERE id=?",
+                 (when, business_id))
+    conn.commit()
+    conn.close()
 
 
 def set_growth_on(business_id, on):

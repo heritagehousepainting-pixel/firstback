@@ -28,18 +28,28 @@ import llm
 import messaging
 import connections
 import growth
+import google_cal
+import google_contacts
 
-# Account links the chat can offer, with the words an owner is likely to say.
+# Account connections Vic can drive from the chat. Each `href` is the REAL, already-audited
+# route (not a /settings signpost): Vic surfaces it inline, pre-explained, and the owner's tap
+# IS the irreducible step (Google's "Allow" screen). `is_connected` lets Vic read live status
+# and confirm afterward; `done_note` is the foreman line once it's wired. Texting/number is the
+# multi-step go-live flow, so it delegates to the go-live card (one source of truth).
 _CONNECT = {
-    "calendar": {"label": "Google Calendar", "href": "/settings",
+    "calendar": {"label": "Google Calendar", "href": "/api/calendar/google/connect",
                  "note": "Sync your real availability so RingBack only offers open times "
                          "and drops booked estimates onto your calendar.",
+                 "done_note": "I'll keep estimates off your busy times.",
+                 "is_connected": lambda bid: google_cal.is_connected(bid),
                  "aliases": ["calendar", "google calendar", "gcal", "schedule", "availability"]},
-    "contacts": {"label": "your contacts", "href": "/callers",
+    "contacts": {"label": "your contacts", "href": "/api/contacts/google/connect",
                  "note": "Import your address book so RingBack knows a customer from a stranger.",
+                 "done_note": "RingBack tells your people from strangers now.",
+                 "is_connected": lambda bid: google_contacts.is_connected(bid),
                  "aliases": ["contacts", "address book", "import contacts", "google contacts"]},
-    "texting": {"label": "texting (Twilio)", "href": "/settings",
-                "note": "Provision a number so RingBack texts missed callers for real.",
+    "texting": {"label": "your texting number", "href": "/setup",
+                "note": "Get your RingBack number live so it texts missed callers for real.",
                 "aliases": ["twilio", "texting", "text", "phone number", "sms", "number"]},
 }
 
@@ -54,6 +64,17 @@ def _note(body, tone="info"):
 
 def _link(title, href, label, note=""):
     return {"type": "link", "title": title, "href": href, "label": label, "note": note}
+
+
+def _connect_action(title, href, note, label, status, prefill=None):
+    """An inline 'do it now' card: a real audited route the owner taps (the irreducible step),
+    pre-explained, with a live status badge (todo|current|waiting|done). `prefill` carries any
+    pre-filled context (area code, a carrier star-code) the surface can show."""
+    card = {"type": "connect_action", "title": title, "href": href, "label": label,
+            "note": note, "status": status}
+    if prefill:
+        card["prefill"] = prefill
+    return card
 
 
 # --------------------------------------------------------------------------
@@ -178,13 +199,31 @@ def _h_connect(business, args):
     if prov not in _CONNECT:
         prov = _match_provider(prov) or _match_provider(args.get("raw", ""))
     if not prov:
-        return {"reply": "I can connect your Google Calendar, your contacts, or texting "
-                         "(Twilio). Which one?",
-                "cards": [_link("Open settings", "/settings", "Open settings")]}
+        return {"reply": "I can connect your Google Calendar, your contacts, or get your "
+                         "texting number live. Which one?",
+                "cards": [_connect_action("Connect Google Calendar",
+                                          _CONNECT["calendar"]["href"],
+                                          _CONNECT["calendar"]["note"], "Connect calendar",
+                                          "current"),
+                          _connect_action("Import your contacts", _CONNECT["contacts"]["href"],
+                                          _CONNECT["contacts"]["note"], "Connect contacts",
+                                          "current"),
+                          _connect_action("Get your number live", _CONNECT["texting"]["href"],
+                                          _CONNECT["texting"]["note"], "Open Go Live", "current")]}
+    # Texting/number is the multi-step go-live flow: hand it to the go-live card so the chat and
+    # the /setup wizard read from one source of truth and can never disagree.
+    if prov == "texting":
+        return _golive_card(business)
     c = _CONNECT[prov]
-    return {"reply": f"Let's connect {c['label']}. Open it and I will walk you through it.",
-            "cards": [_link(f"Connect {c['label']}", c["href"], f"Connect {c['label']}",
-                            note=c["note"])]}
+    connected = bool(c["is_connected"](business["id"]))
+    if connected:
+        return {"reply": f"{c['label'].capitalize()} is already connected. {c['done_note']}",
+                "cards": [_connect_action(f"{c['label'].capitalize()} connected", c["href"],
+                                          c["done_note"], "Reconnect", "done")]}
+    return {"reply": f"Let's connect {c['label']}. {c['note']} One tap. You approve it on "
+                     f"Google's screen, then I'll confirm it here.",
+            "cards": [_connect_action(f"Connect {c['label']}", c["href"], c["note"],
+                                      f"Connect {c['label']}", "current")]}
 
 
 def _h_import_contacts(business, args):
@@ -425,12 +464,16 @@ def _compose_briefing(business):
     new = [l for l in leads if l["stage"] == "new" and not l.get("urgent")]
     open_leads = [l for l in leads if l["stage"] != "scheduled"]
 
+    # First-run chaperone: a new owner who isn't set up gets the setup walk led at the top,
+    # until they're live or they pause it. Reads real state; recedes on its own.
+    setup = [_chaperone_briefing_item(business)] if _needs_chaperone(business) else []
+
     # Cold start: don't fake a busy day. Say what's true and what would change it.
     if not leads and not appts:
         return {"type": "briefing", "tone": "quiet",
                 "headline": "Nothing waiting yet.",
                 "sub": "The moment a call gets missed, the lead lands here and I line it up.",
-                "items": []}
+                "items": setup}
 
     # Headline: lead with money, then capacity. Only show dollars when a job value is set.
     money = f"${val * len(open_leads):,}" if (val and open_leads) else ""
@@ -495,7 +538,7 @@ def _compose_briefing(business):
                           "tone": "new", "label": "New leads",
                           "action": "show my leads"})
     return {"type": "briefing", "tone": "active", "headline": headline,
-            "sub": sub, "items": items}
+            "sub": sub, "items": setup + items}
 
 
 def briefing(business):
@@ -676,6 +719,396 @@ def _h_set_scheduling(business, args):
                                if p["buffer_minutes"] else "") + ".", "ok")]}
 
 
+# The business-profile fields Vic can set conversationally. name/trade/owner_name live on the
+# business row; ein/business_address are the A2P 10DLC intake -- written through the SAME two
+# functions the /setup/profile route uses, never a parallel write path.
+_PROFILE_FIELDS = ("name", "ein", "business_address", "trade", "owner_name")
+
+
+def _h_profile(business, args):
+    """Read/ask: show the current business profile and ask for what's missing. Never guesses a
+    value -- the owner says it, Vic confirms it, then writes it (the gated set_profile)."""
+    b = db.get_business(business["id"]) or {}
+    rows = [("Business name", b.get("name")), ("Owner", b.get("owner_name")),
+            ("Trade", b.get("trade")), ("EIN", b.get("ein")),
+            ("Business address", b.get("business_address"))]
+    items = [{"title": t, "sub": (v or "— not set —")} for t, v in rows]
+    missing = [t.lower() for t, v in rows if not (v or "").strip()]
+    if missing:
+        ask = "Tell me your " + _join_or(missing) + " and I'll save it."
+    else:
+        ask = "It's all filled in. Tell me what to change."
+    done = connections.profile_complete(b)
+    return {"reply": "Here's your business profile. This is what goes on your carrier (A2P) "
+                     "registration. " + ask,
+            "cards": [{"type": "list", "title": "Your business profile", "items": items},
+                      _connect_action("Or fill it on the wizard", "/setup",
+                                      "Same fields, on the setup page.", "Open setup",
+                                      "done" if done else "current")]}
+
+
+def _h_set_profile(business, args):
+    """CONFIRM tool: save the business profile (name/trade/owner_name) + the A2P intake
+    (EIN/business address) through the same db functions the /setup/profile route uses. With no
+    concrete field it falls back to the read/ask, so it never writes a blank."""
+    bid = business["id"]
+    biz_fields = {k: (args.get(k) or "").strip()[:200]
+                  for k in ("name", "trade", "owner_name") if (args.get(k) or "").strip()}
+    a2p_fields = {k: (args.get(k) or "").strip()[:200]
+                  for k in ("ein", "business_address", "legal_business_name")
+                  if (args.get(k) or "").strip()}
+    # A contractor's stated business name IS their legal entity name unless they say otherwise --
+    # mirror it into the A2P legal name so the carrier registration never files blank. This is the
+    # same two-write shape /setup/profile uses (db.update_business + db.update_a2p_profile).
+    if biz_fields.get("name") and not a2p_fields.get("legal_business_name"):
+        a2p_fields["legal_business_name"] = biz_fields["name"]
+    if not biz_fields and not a2p_fields:
+        return _h_profile(business, args)
+    if biz_fields:
+        db.update_business(bid, biz_fields)
+    if a2p_fields:
+        db.update_a2p_profile(bid, a2p_fields)
+    label = {"name": "business name", "trade": "trade", "owner_name": "owner",
+             "ein": "EIN", "business_address": "address"}
+    # legal_business_name mirrors name (no separate display); show the fields the owner gave.
+    saved = {k: v for k, v in {**biz_fields, **a2p_fields}.items() if k in label}
+    parts = [f"{label[k]} {v}" for k, v in saved.items()]
+    who = biz_fields.get("name") or (db.get_business(bid) or {}).get("name") or "your business"
+    return {"reply": f"Done. Saved {who}'s " + _join_and([label[k] for k in saved]) + ".",
+            "cards": [_note("Updated: " + "; ".join(parts) + ". This is what goes on your A2P "
+                            "registration when you set up texting.", "ok")]}
+
+
+def _money(val):
+    return f"{int(round(float(val))):,}"
+
+
+def _parse_money(text):
+    """First dollar-ish number in a phrase: '$2,400' -> 2400, '3k' -> 3000, '2.4k' -> 2400."""
+    m = re.search(r"\$?\s?([\d,]+(?:\.\d+)?)\s*(k)?\b", text or "", flags=re.I)
+    if not m:
+        return None
+    n = float(m.group(1).replace(",", ""))
+    if m.group(2):
+        n *= 1000
+    return n
+
+
+def _coerce_money(v):
+    """A value from either the demo route (already a number) or the LLM (a string like '$2,400')."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    return _parse_money(str(v))
+
+
+_URL_RE = re.compile(r"https?://\S+$")
+
+
+def _h_set_avg_job_value(business, args):
+    """CONFIRM tool: set the owner's average job value (powers the dollar framing everywhere)."""
+    val = _coerce_money(args.get("value"))
+    if val is None or val <= 0:
+        return {"reply": "What's your average job worth? Ballpark's fine, say something like "
+                         "\"about $2,400\" and I'll put real dollars on every lead and your "
+                         "briefing.", "cards": []}
+    db.set_avg_job_value(business["id"], val)
+    return {"reply": f"Done. I'll use ${_money(val)} as your average job, so every lead and your "
+                     "briefing show real dollars now.",
+            "cards": [_note(f"Average job value set to ${_money(val)}.", "ok")]}
+
+
+def _h_set_review_link(business, args):
+    """CONFIRM tool: save the Google review URL the review-request plays link to."""
+    url = (args.get("url") or "").strip()
+    if not _URL_RE.match(url):
+        return {"reply": "Send me your Google review link, the page where customers leave you a "
+                         "review. It starts with https:// and I'll drop it into every review "
+                         "request.", "cards": []}
+    db.update_business(business["id"], {"review_link": url})
+    return {"reply": "Done. That link goes into every review request now.",
+            "cards": [_note(f"Review link saved: {url}", "ok")]}
+
+
+def _truthy(v):
+    return str(v).strip().lower() in ("1", "true", "on", "yes")
+
+
+def _on(v):
+    """A stored on/off column read where the schema default is 1 (None reads as on)."""
+    return v is None or str(v).strip().lower() in ("1", "true", "on", "yes")
+
+
+def _cap(s):
+    return (s[:1].upper() + s[1:]) if s else s
+
+
+# ---- Reminders + follow-ups -------------------------------------------------
+def _h_set_reminders(business, args):
+    bid = business["id"]
+    fields = {}
+    if args.get("reminders_enabled") is not None:
+        fields["reminders_enabled"] = 1 if _truthy(args.get("reminders_enabled")) else 0
+    if args.get("followups_enabled") is not None:
+        fields["followups_enabled"] = 1 if _truthy(args.get("followups_enabled")) else 0
+    hrs = args.get("reminder_lead_hours")
+    if hrs is not None:
+        try:
+            fields["reminder_lead_hours"] = max(0.0, min(168.0, float(hrs)))
+        except (TypeError, ValueError):
+            pass
+    if not fields:
+        b = db.get_business(bid)
+        items = [{"title": "Appointment reminders", "sub": "On" if _on(b.get("reminders_enabled")) else "Off"},
+                 {"title": "Lead follow-ups", "sub": "On" if _on(b.get("followups_enabled")) else "Off"}]
+        return {"reply": "Here's how your reminders are set. Tell me to turn appointment "
+                         "reminders or lead follow-ups on or off.",
+                "cards": [{"type": "list", "title": "Reminders & follow-ups", "items": items},
+                          _link("Open settings", "/settings", "Edit in Settings")]}
+    db.update_reminder_prefs(bid, fields)
+    parts = _reminder_parts(fields)
+    return {"reply": "Done. " + _join_and(parts) + ".",
+            "cards": [_note(_cap(_join_and(parts)) + ". Anything already scheduled still goes out; "
+                            "this changes what gets queued new from here on.", "ok")]}
+
+
+def _reminder_parts(d):
+    parts = []
+    if "reminders_enabled" in d:
+        parts.append("appointment reminders " + ("on" if d["reminders_enabled"] else "off"))
+    if "followups_enabled" in d:
+        parts.append("lead follow-ups " + ("on" if d["followups_enabled"] else "off"))
+    if "reminder_lead_hours" in d:
+        parts.append(f"reminder lead time {int(d['reminder_lead_hours'])} hours before")
+    return parts
+
+
+# ---- Owner alerts -----------------------------------------------------------
+_ALERT_BOOLS = ("alert_on_lead", "alert_on_booking", "alert_on_urgent")
+_ALERT_LABEL = {"alert_on_lead": "new-lead", "alert_on_booking": "booking",
+                "alert_on_urgent": "urgent"}
+
+
+def _alert_destination(business, args):
+    """Where alerts would actually land: a pending sms/email arg wins, else the stored sms,
+    else the stored alert email, else the owner's login email (alerts.py's own fallback)."""
+    b = db.get_business(business["id"])
+    sms = (args.get("alert_sms") or b.get("alert_sms") or "").strip()
+    email = (args.get("alert_email") or b.get("alert_email") or "").strip() \
+        or (db.owner_email(business["id"]) or "")
+    return sms, email
+
+
+def _alert_summary(business, args):
+    sms, email = _alert_destination(business, args)
+    ons = [_ALERT_LABEL[k] for k in _ALERT_BOOLS if args.get(k) is not None and _truthy(args.get(k))]
+    offs = [_ALERT_LABEL[k] for k in _ALERT_BOOLS if args.get(k) is not None and not _truthy(args.get(k))]
+    new_sms = (args.get("alert_sms") or "").strip()
+    new_email = (args.get("alert_email") or "").strip()
+    parts = []
+    if ons:
+        parts.append("turn on " + _join_and(ons) + " alerts")
+    if offs:
+        parts.append("turn off " + _join_and(offs) + " alerts")
+    if new_sms:
+        parts.append(f"send them to {new_sms}")
+    elif new_email:
+        parts.append(f"send them to {new_email}")
+    base = _cap(_join_and(parts)) if parts else "Update your alerts"
+    if ons and not sms and not email:
+        return (base + ". Heads up: I don't see a phone or email to send these to -- add one in "
+                "Settings and they'll start reaching you.")
+    if ons and not new_sms and not new_email:
+        return base + f". I'll ping {sms or email}."
+    return base + "."
+
+
+def _h_set_alerts(business, args):
+    bid = business["id"]
+    fields = {}
+    for f in _ALERT_BOOLS:
+        if args.get(f) is not None:
+            fields[f] = 1 if _truthy(args.get(f)) else 0
+    if (args.get("alert_sms") or "").strip():
+        fields["alert_sms"] = args["alert_sms"].strip()
+    if (args.get("alert_email") or "").strip():
+        fields["alert_email"] = args["alert_email"].strip()
+    if not fields:
+        b = db.get_business(bid)
+        dest = (b.get("alert_sms") or "").strip() or (b.get("alert_email") or "").strip() \
+            or db.owner_email(bid) or "— none set —"
+        items = [{"title": "New-lead alert", "sub": "On" if _on(b.get("alert_on_lead")) else "Off"},
+                 {"title": "Booking alert", "sub": "On" if _on(b.get("alert_on_booking")) else "Off"},
+                 {"title": "Urgent alert", "sub": "On" if _on(b.get("alert_on_urgent")) else "Off"},
+                 {"title": "Pings go to", "sub": dest}]
+        return {"reply": "Here's how your owner alerts are set. Tell me to turn the lead, booking, "
+                         "or urgent alerts on or off.",
+                "cards": [{"type": "list", "title": "Owner alerts", "items": items},
+                          _link("Open settings", "/settings", "Edit in Settings")]}
+    db.update_alert_prefs(bid, fields)
+    return {"reply": "Done. Your owner alerts are updated.",
+            "cards": [_note("Owner alerts updated. You'll see new leads and bookings in the app "
+                            "either way.", "ok")]}
+
+
+# ---- Call screening mode (off | monitor | enforce) -------------------------
+_SCREEN_MODES = ("off", "monitor", "enforce")
+_SCREEN_DESC = {
+    "off": "Every missed caller gets a text back.",
+    "monitor": "It screens silently and still texts everyone, so nothing's silenced.",
+    "enforce": "Callers it scores as spam are silenced -- they get no text back.",
+}
+
+
+def _h_set_screen_mode(business, args):
+    bid = business["id"]
+    mode = (args.get("mode") or "").strip().lower()
+    if mode not in _SCREEN_MODES:
+        b = db.get_business(bid)
+        cur = b.get("screen_mode") or "default (monitor)"
+        items = [{"title": m.capitalize(), "sub": _SCREEN_DESC[m]} for m in _SCREEN_MODES]
+        return {"reply": f"Your call screening is set to {cur}. Tell me to set it to off, "
+                         "monitor, or enforce. Start with monitor so you can see what it would "
+                         "catch before anyone's silenced.",
+                "cards": [{"type": "list", "title": "Screening modes", "items": items},
+                          _link("Open settings", "/settings", "Edit in Settings")]}
+    db.set_screen_mode(bid, mode)
+    return {"reply": f"Done. Call screening is set to {mode}. {_SCREEN_DESC[mode]}",
+            "cards": [_note(f"Screening: {mode}. {_SCREEN_DESC[mode]}", "ok")]}
+
+
+# ---- First-run chaperone (Pillar C): walk a brand-new owner through setup, then recede ----
+def _within_hours(iso, hours):
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds() < hours * 3600
+    except Exception:
+        return False
+
+
+def _needs_chaperone(business):
+    """True when the owner should be proactively offered the setup walk: there's an unfinished
+    step, they're not already live, and they haven't paused it in the last 48h. Honest + quiet
+    by construction -- it reads real state, never a synthetic flag."""
+    try:
+        biz = db.get_business(business["id"]) or business
+        golive = connections.golive_summary(biz)
+        if golive.get("status") == "live":
+            return False
+        cal = google_cal.is_connected(biz["id"])
+        if connections.chaperone_next_step(biz, golive, cal) is None:
+            return False
+        dismissed = biz.get("chaperone_dismissed_at")
+        if dismissed and _within_hours(dismissed, 48):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _chaperone_briefing_item(business):
+    golive = connections.golive_summary(business)
+    cal = google_cal.is_connected(business["id"])
+    done, total = connections.chaperone_progress(business, golive, cal)
+    return {"title": "Finish setup to start catching calls",
+            "sub": f"{done} of {total} done · I'll walk you through it",
+            "tone": "new", "label": "Setup", "action": "help me get set up"}
+
+
+def _chaperone_step_view(business, key, golive):
+    """(reply, cards) for one setup step -- foreman voice, money-first, one action, honest about
+    the seam. Reuses the existing tools/cards; surfaces NOTHING it can't honestly do."""
+    if key == "avg_job_value":
+        return ("First, the money. What's a typical job worth? Ballpark's fine -- say \"about "
+                "$2,400\" or \"jobs run 3k\" and I'll put real dollars on every lead.", [])
+    if key == "profile":
+        cards = _h_profile(business, {}).get("cards", [])
+        return ("Next, your business info -- name, EIN, and address. That's what goes on your "
+                "carrier registration; nothing's submitted yet. Tell me what's missing and I'll "
+                "save it.", cards)
+    if key in ("number", "a2p", "forwarding"):
+        gl = _golive_card(business)
+        notes = {
+            "number": "Now get your RingBack number -- the line missed callers get texted from. "
+                      "One tap on the Go Live page and I wire it up.",
+            "a2p": "Carrier registration is next, on the Go Live page. It takes a few hours for "
+                   "the carrier to approve, and texts are simulated until it clears -- nothing "
+                   "goes to a real customer before then.",
+            "forwarding": "Forward your missed calls. You dial a short code on your own phone -- I "
+                          "can't do that one, it's on your carrier. Leave the app, dial it, come "
+                          "back, and I'll send a test call to confirm it.",
+        }
+        return (notes[key] + " " + gl["reply"], gl["cards"])
+    if key == "calendar":
+        cards = _h_connect(business, {"provider": "calendar"}).get("cards", [])
+        return ("Connect your Google Calendar so I only offer times you're actually free. One "
+                "tap -- you approve it on Google's screen, then I'll confirm it here.", cards)
+    if key == "alerts":
+        cards = _h_set_alerts(business, {}).get("cards", [])
+        return ("Last thing: where do you want a ping when a lead or booking lands? Give me a "
+                "number, or say email.", cards)
+    return ("", [])
+
+
+def _h_chaperone(business, args):
+    bid = business["id"]
+    biz = db.get_business(bid) or business
+    golive = connections.golive_summary(biz)
+    if golive.get("status") == "live":
+        return {"reply": "You're live and set up -- RingBack's catching your calls. I'll keep the "
+                         "morning briefing on your leads from here.", "cards": []}
+    cal = google_cal.is_connected(bid)
+    key = connections.chaperone_next_step(biz, golive, cal)
+    if key is None:
+        return {"reply": "That's the setup. As calls come in, I'll line them up in your morning "
+                         "briefing.",
+                "cards": [_note("Setup's done. The briefing leads with your leads now.", "ok")]}
+    reply, cards = _chaperone_step_view(biz, key, golive)
+    cards = list(cards) + [_note("Say \"not now\" any time to pause this -- I'll stop leading "
+                                 "with setup.", "info")]
+    return {"reply": reply, "cards": cards}
+
+
+def _h_dismiss_chaperone(business, args):
+    db.set_chaperone_dismissed(business["id"], db.now_iso())
+    return {"reply": "Done -- I'll stop leading with setup. Say \"help me get set up\" whenever "
+                     "you want to pick it back up.",
+            "cards": [_note("Setup guidance paused.", "info")]}
+
+
+def _trim_profile_value(val):
+    """A free-text profile value captured to end-of-line: cut a trailing clause that starts
+    another field ("... and my EIN is ...", "..., my business name is ..."), strip punctuation,
+    and cap length so one crafted sentence can't write a giant/garbage field."""
+    val = re.split(r"[,;]?\s+(?:and\s+)?(?:my\s+|the\s+)?"
+                   r"(?:ein|tax id|business name|legal business name|legal name|business address|"
+                   r"address|trade|owner)\b",
+                   val, maxsplit=1, flags=re.I)[0]
+    return val.strip().strip(",").rstrip(".")[:200]
+
+
+def _join_or(items):
+    return _join_seq(items, "or")
+
+
+def _join_and(items):
+    return _join_seq(items, "and")
+
+
+def _join_seq(items, conj):
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} {conj} {items[1]}"
+    return ", ".join(items[:-1]) + f", {conj} " + items[-1]
+
+
 TOOLS = {
     "briefing":          {"fn": _h_briefing, "confirm": False,
                           "desc": "The morning briefing: what needs the owner's attention right "
@@ -732,6 +1165,54 @@ TOOLS = {
     "set_scheduling":    {"fn": _h_set_scheduling, "confirm": True,
                           "desc": "Change scheduling: buffer_minutes (min gap between estimates), times (estimate windows), working_days (weekday ints 0=Mon..6=Sun).",
                           "params": ["buffer_minutes", "times", "working_days"]},
+    "set_profile":       {"fn": _h_set_profile, "confirm": True,
+                          "desc": "Save the owner's business profile for carrier registration: "
+                                  "name (business name), ein, business_address, trade, "
+                                  "owner_name. CALL THIS when the owner wants to set up, fill "
+                                  "in, or change their business info / profile / EIN / address. "
+                                  "Only pass fields the owner actually gave, never invent one.",
+                          "params": ["name", "ein", "business_address", "trade", "owner_name",
+                                     "legal_business_name"]},
+    "set_avg_job_value": {"fn": _h_set_avg_job_value, "confirm": True,
+                          "desc": "Set the owner's average job value (dollars). CALL THIS when "
+                                  "they tell you what a typical job is worth (\"my average job is "
+                                  "$2,400\", \"jobs run about 3k\"). Powers the money framing on "
+                                  "leads + the briefing. Pass `value` as the number only.",
+                          "params": ["value"]},
+    "set_review_link":   {"fn": _h_set_review_link, "confirm": True,
+                          "desc": "Save the owner's Google review link (a URL). CALL THIS when "
+                                  "they give you their review page / review link. The review "
+                                  "plays link customers straight to it. Pass `url`.",
+                          "params": ["url"]},
+    "set_reminders":     {"fn": _h_set_reminders, "confirm": True,
+                          "desc": "Turn appointment reminders and/or lead follow-ups on or off "
+                                  "(reminders_enabled / followups_enabled as 0|1), or set how "
+                                  "many hours before an estimate the reminder fires "
+                                  "(reminder_lead_hours). Only pass what the owner specified.",
+                          "params": ["reminders_enabled", "followups_enabled",
+                                     "reminder_lead_hours"]},
+    "set_alerts":        {"fn": _h_set_alerts, "confirm": True,
+                          "desc": "Turn owner alerts on/off: get pinged on a new lead "
+                                  "(alert_on_lead), a booking (alert_on_booking), or an urgent "
+                                  "flag (alert_on_urgent), each 0|1; optionally set where to send "
+                                  "them (alert_sms phone / alert_email). Only what was specified.",
+                          "params": ["alert_on_lead", "alert_on_booking", "alert_on_urgent",
+                                     "alert_sms", "alert_email"]},
+    "set_screen_mode":   {"fn": _h_set_screen_mode, "confirm": True,
+                          "desc": "Set call screening: off (text everyone), monitor (screen "
+                                  "silently, still text everyone), or enforce (screened spam "
+                                  "callers get NO text). If the owner just says 'turn on "
+                                  "screening' without a level, use monitor. Pass `mode`.",
+                          "params": ["mode"]},
+    "chaperone":         {"fn": _h_chaperone, "confirm": False,
+                          "desc": "Walk the owner through first-time setup, one step at a time. "
+                                  "CALL THIS when they ask to get set up, get started, be walked "
+                                  "through setup, or what to do first to go live.",
+                          "params": []},
+    "dismiss_chaperone": {"fn": _h_dismiss_chaperone, "confirm": False,
+                          "desc": "Pause the proactive setup guidance when the owner says not "
+                                  "now / later / skip setup. They can always resume by asking.",
+                          "params": []},
 }
 
 
@@ -747,6 +1228,49 @@ def _confirm_summary(tool, args):
             parts.append("only book on " + _days_label({int(d) for d in args["working_days"]}))
         return ("Update your scheduling to " + "; ".join(parts) + ".") if parts \
             else "Update your scheduling."
+    if tool == "set_profile":
+        label = {"name": "business name", "owner_name": "owner", "trade": "trade",
+                 "ein": "EIN", "business_address": "address"}
+        parts = [f"{label[k]} {args[k]}" for k in ("name", "owner_name", "trade", "ein",
+                                                    "business_address")
+                 if (args.get(k) or "").strip()]
+        if not parts:
+            return "Save your business profile."
+        return ("Save your business profile: " + "; ".join(parts) + ". This is what goes on "
+                "your carrier (A2P) registration; nothing's submitted until you set up texting.")
+    if tool == "set_avg_job_value":
+        val = _coerce_money(args.get("value"))
+        return (f"Set your average job value to ${_money(val)}. I'll use it to put real dollars "
+                "on every lead and your briefing.") if val else "Set your average job value."
+    if tool == "set_review_link":
+        url = (args.get("url") or "").strip()
+        return (f"Save your Google review link: {url}. I'll drop it into every review request.") \
+            if url else "Save your Google review link."
+    if tool == "set_reminders":
+        parts = _reminder_parts({k: (1 if _truthy(args.get(k)) else 0)
+                                 for k in ("reminders_enabled", "followups_enabled")
+                                 if args.get(k) is not None})
+        if args.get("reminder_lead_hours") is not None:
+            try:
+                parts.append(f"reminder lead time {int(float(args['reminder_lead_hours']))} hours before")
+            except (TypeError, ValueError):
+                pass
+        if not parts:
+            return "Update your reminder settings."
+        return ("Update reminders: " + _join_and(parts) + ". Anything already scheduled still "
+                "goes out; this only changes what gets queued new from here on.")
+    if tool == "set_screen_mode":
+        mode = (args.get("mode") or "").strip().lower()
+        if mode == "enforce":
+            return ("Switch call screening to enforce. Callers it scores as spam will be SILENCED "
+                    "-- they get no text back. If you haven't run monitor first, do that a few "
+                    "days so you can see who'd be caught before anyone's silenced.")
+        if mode == "monitor":
+            return ("Switch call screening to monitor. It runs silently and still texts everyone "
+                    "-- nothing changes for your callers, you just get to watch the numbers first.")
+        if mode == "off":
+            return "Turn call screening off. Every missed caller gets a text back."
+        return "Update your call-screening mode."
     return {
         "text_lead": "Send this text to the lead, through the gated messaging seam.",
     }.get(tool, "Run this action.")
@@ -1016,15 +1540,32 @@ def _demo_route(message):
                             "rundown", "run down", "the plan", "focus on", "what do i focus",
                             "good morning", "whats going on", "what's going on")):
         return "briefing", args
+    # First-run chaperone (Pillar C): pause it, or start/continue the setup walk.
+    if any(k in t for k in ("not now", "skip setup", "skip the setup", "pause setup",
+                            "setup later", "stop the setup", "dismiss setup", "maybe later",
+                            "not right now")):
+        return "dismiss_chaperone", args
+    if any(k in t for k in ("help me get set up", "help me get started", "get me set up",
+                            "get me started", "walk me through", "walk through setup", "set me up",
+                            "onboard me", "first time setup", "finish setup", "finish my setup",
+                            "finish setting me up", "get started", "guide me through")):
+        return "chaperone", args
     # Growth engine (Phase 3): money left behind + the plays feed.
     if any(k in t for k in ("money left", "left on the table", "left behind",
                             "leaving on the table", "leaving money")):
         return "money_left_behind", args
-    if any(k in t for k in ("plays", "grow my business", "grow the business", "how do i grow",
-                            "what can i send", "win back", "winback",
-                            "win-back", "reactivate", "follow ups", "follow-ups",
-                            "review request", "get reviews", "ask for reviews",
-                            "chase reviews", "drum up", "more business")):
+    # A follow-up TOGGLE ("turn off follow-ups") is a settings change, not the plays feed --
+    # let it fall through to the set_reminders branch below.
+    _followup_toggle = (any(v in t for v in ("turn off", "turn on", "stop", "disable", "enable",
+                                             "pause", "switch off", "switch on", "no more"))
+                        and any(f in t for f in ("follow up", "follow-up", "followup",
+                                                 "follow ups", "reminder")))
+    if not _followup_toggle and any(k in t for k in (
+            "plays", "grow my business", "grow the business", "how do i grow",
+            "what can i send", "win back", "winback",
+            "win-back", "reactivate", "follow ups", "follow-ups",
+            "review request", "get reviews", "ask for reviews",
+            "chase reviews", "drum up", "more business")):
         return "growth_plays", args
     if any(k in t for k in ("how many", "stats", "numbers", "how are we", "conversion",
                             "revenue", "this week", "booked how", "leads this")):
@@ -1068,6 +1609,82 @@ def _demo_route(message):
         args["query"] = _search_query_from(message)
         return "find_lead", args
 
+    # --- Talk-to-configure money settings (Pillar A): both gated pure-data writes. Must run
+    # before the connect branch -- "review LINK" would otherwise be caught by its "link" alias. ---
+    if any(k in t for k in ("average job", "avg job", "job value", "average ticket",
+                            "typical job", "job is worth", "jobs are worth", "jobs run",
+                            "ticket value", "average sale", "per job")):
+        val = _parse_money(message)
+        if val is not None:
+            args["value"] = val
+        return "set_avg_job_value", args
+    if any(k in t for k in ("review link", "google review", "review url", "reviews link",
+                            "link to my review", "review page", "my review link")):
+        u = re.search(r"(https?://\S+)", message)
+        if u:
+            args["url"] = u.group(1)
+        return "set_review_link", args
+    # Reminders + follow-ups (must beat text_lead, which catches "follow-up" + "lead").
+    if any(k in t for k in ("reminder", "follow-up", "follow up", "followup", "follow ups",
+                            "nudge")):
+        _on_ = any(k in t for k in ("turn on", "enable", "start", "switch on", "back on"))
+        _off_ = any(k in t for k in ("turn off", "disable", "stop", "pause", "switch off",
+                                     "no more", "quiet"))
+        if "reminder" in t or "remind" in t:
+            if _on_:
+                args["reminders_enabled"] = "1"
+            elif _off_:
+                args["reminders_enabled"] = "0"
+        if any(k in t for k in ("follow-up", "follow up", "followup", "follow ups", "nudge")):
+            if _on_:
+                args["followups_enabled"] = "1"
+            elif _off_:
+                args["followups_enabled"] = "0"
+        hm = re.search(r"(\d+(?:\.\d+)?)\s*(?:hour|hr)", t)
+        if hm and any(k in t for k in ("before", "lead time", "ahead", "prior")):
+            args["reminder_lead_hours"] = hm.group(1)
+        return "set_reminders", args
+    # Owner alerts (must beat text_lead: "text me when a lead..." has text + lead).
+    if (any(k in t for k in ("alert", "notification", "notify me", "ping me", "get notified"))
+            or (any(k in t for k in ("text me", "email me")) and "when" in t)):
+        _on_ = (any(k in t for k in ("turn on", "enable", "start", "switch on", "back on"))
+                or "alert me" in t or "text me" in t or "email me" in t or "notify" in t
+                or "ping me" in t or "get notified" in t)
+        _off_ = any(k in t for k in ("turn off", "disable", "stop", "pause", "switch off",
+                                     "no more", "don't alert", "dont alert"))
+        _hit = False
+        for key, kw in (("alert_on_lead", "lead"), ("alert_on_booking", "book"),
+                        ("alert_on_urgent", "urgent")):
+            if kw in t:
+                args[key] = "0" if _off_ else "1"
+                _hit = True
+        if not _hit:
+            for key in _ALERT_BOOLS:
+                args[key] = "0" if _off_ else "1"
+        ph = _PHONE_RE.search(message)
+        if ph and any(k in t for k in ("text me", "to my", " at ", "forward", "my cell",
+                                       "my phone", "my number")):
+            args["alert_sms"] = ph.group(1).strip()
+        em = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", message)
+        if em and "email" in t:
+            args["alert_email"] = em.group(0)
+        return "set_alerts", args
+    # Call screening mode (off | monitor | enforce). Bare "turn on" defaults to monitor.
+    if any(k in t for k in ("screening", "screen mode", "screen calls", "screen my calls",
+                            "call screen", "spam screen", "screen the calls")):
+        mode = None
+        if "enforce" in t or "block the spam" in t or "block spam" in t or "strict" in t:
+            mode = "enforce"
+        elif "monitor" in t or "log only" in t or "just log" in t or "watch" in t:
+            mode = "monitor"
+        elif "off" in t or "stop screening" in t or "disable" in t:
+            mode = "off"
+        elif any(k in t for k in ("turn on", "enable", "start", "switch on")):
+            mode = "monitor"  # safe default: never silence callers unprompted
+        if mode:
+            args["mode"] = mode
+        return "set_screen_mode", args
+
     # --- Scheduling (must run before the appointments branch: "estimate"/"buffer" overlap) ---
     buffer_intent = (any(k in t for k in (
         "buffer", "back to back", "back-to-back", "too close", "that close",
@@ -1096,6 +1713,24 @@ def _demo_route(message):
     if any(k in t for k in ("connect", "link", "hook up", "sync", "integrat")):
         args["provider"] = _match_provider(t) or ""
         return "connect", args
+    # --- Business profile / A2P intake (Vic does this one for real, behind the confirm). Sits
+    # AFTER connect so a mixed "connect ... and update my business name" routes to connect. ---
+    if (any(k in t for k in ("business profile", "my profile", "company profile",
+                             "business info", "company info", "legal business name", "my ein",
+                             "ein is", "tax id", "business address", "set up my business",
+                             "fill in my profile", "fill out my profile", "update my profile",
+                             "my business name"))
+            or re.search(r"\bein\b", t)):
+        ein = re.search(r"\b(\d{2}-?\d{7})\b", message)
+        if ein:
+            args["ein"] = ein.group(1)
+        addr = re.search(r"address\s+(?:is|to|:)?\s*(.+)$", message, flags=re.I)
+        if addr:
+            args["business_address"] = _trim_profile_value(addr.group(1))
+        bname = re.search(r"business name\s+(?:is|to|:)?\s*(.+)$", message, flags=re.I)
+        if bname:
+            args["name"] = _trim_profile_value(bname.group(1))
+        return "set_profile", args
     if "import" in t and "contact" in t:
         return "import_contacts", args
     if any(k in t for k in ("text", "message", "reply to", "follow up", "follow-up")) and (
@@ -1160,11 +1795,10 @@ def _route_topic(message, business=None):
         return {"reply": "Let's get you live. The Go Live page walks you through your number, "
                          "carrier registration, and call forwarding, one step at a time.",
                 "cards": [_link("Open Go Live", "/setup", "Open Go Live")]}
-    if any(k in t for k in ("password", "my account", "profile", "ai instruction", "what it says",
-                            "my hours", "service area", "business name", "change my", "alert",
-                            "reminder")):
-        return {"reply": "You can change that in Settings, including your AI instructions, hours, "
-                         "alerts, and reminders.",
+    if any(k in t for k in ("password", "my account", "ai instruction", "what it says",
+                            "my hours", "service area", "change my")):
+        return {"reply": "You can change that in Settings, including your AI instructions and "
+                         "hours.",
                 "cards": [_link("Open settings", "/settings", "Open settings")]}
     if any(k in t for k in ("demo", "simulator", "try it", "test it", "see it work", "show me how")):
         return {"reply": "Run a live demo: fire a missed call and watch RingBack text the caller "
@@ -1233,6 +1867,22 @@ def _gated(business, tool, args, message, fallback_text=_CONFIRM_PROMPT):
     if tool == "set_scheduling" and not (args.get("buffer_minutes") is not None
                                          or args.get("times") or args.get("working_days")):
         return _result(_h_scheduling(business, args), "scheduling", "ok")
+    if tool == "set_profile" and not any((args.get(f) or "").strip() for f in _PROFILE_FIELDS):
+        return _result(_h_profile(business, args), "profile", "ok")
+    if tool == "set_avg_job_value" and _coerce_money(args.get("value")) in (None, 0):
+        return _result(_h_set_avg_job_value(business, args), "set_avg_job_value", "ok")
+    if tool == "set_review_link" and not _URL_RE.match((args.get("url") or "").strip()):
+        return _result(_h_set_review_link(business, args), "set_review_link", "ok")
+    if tool == "set_reminders" and not any(
+            args.get(f) is not None for f in ("reminders_enabled", "followups_enabled",
+                                              "reminder_lead_hours")):
+        return _result(_h_set_reminders(business, args), "set_reminders", "ok")
+    if tool == "set_alerts" and not any(
+            args.get(f) is not None for f in _ALERT_BOOLS) \
+            and not (args.get("alert_sms") or args.get("alert_email")):
+        return _result(_h_set_alerts(business, args), "set_alerts", "ok")
+    if tool == "set_screen_mode" and (args.get("mode") or "").strip().lower() not in _SCREEN_MODES:
+        return _result(_h_set_screen_mode(business, args), "set_screen_mode", "ok")
     if tool == "book_estimate":
         lead = _resolve_lead_target(business, args)
         if lead is None:
@@ -1258,6 +1908,8 @@ def _gated(business, tool, args, message, fallback_text=_CONFIRM_PROMPT):
             return _say(f"{_who(lead)} has no booked estimate to cancel.")
         args["_lead_id"], args["_appt_id"] = lead["id"], appts[0]["id"]
         summary = f"Cancel {_who(lead)}'s estimate ({appts[0].get('scheduled_for') or 'booked'})."
+    elif tool == "set_alerts":
+        summary = _alert_summary(business, args)  # business-aware: names the destination / warns
     else:
         summary = _confirm_summary(tool, args)
     pending = {"tool": tool, "args": args, "summary": summary}

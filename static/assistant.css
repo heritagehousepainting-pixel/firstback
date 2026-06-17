@@ -208,6 +208,16 @@
 .a-link{padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
 .a-link .al-note{font-size:var(--text-sm);color:var(--ink-soft);margin:0}
 
+/* inline connect_action card: a real route the owner taps, with an honest status pill */
+.a-connect{padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
+.a-connect .ac-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)}
+.a-connect .a-card-title{padding:0}
+.a-connect .al-note{font-size:var(--text-sm);color:var(--ink-soft);margin:0}
+.a-connect .ac-prefill{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.a-connect .ac-chip{font-family:ui-monospace,monospace;font-size:var(--text-sm);
+  color:var(--ink);border:1px solid var(--ink-faint);border-radius:var(--radius-sm);
+  padding:2px var(--space-2)}
+
 .confirm-card{border-color:var(--accent-ring);box-shadow:0 0 0 1px var(--accent-ring),var(--shadow-pop)}
 .confirm-card .cc-q{padding:var(--space-4);font-size:var(--text-base);color:var(--ink);line-height:1.5}
 .confirm-card .cc-actions{display:flex;gap:var(--space-2);padding:0 var(--space-4) var(--space-4)}
@@ -369,6 +379,8 @@
   .transcript{scroll-behavior:auto}
   .orb-stage .orb-canvas,
   .orb-stage .orb-fallback{transition:none}
+  .a-btn{transition:none}
+  .a-btn:hover{transform:none}
 }
 
 /* ---- Morning briefing: the day, sorted, on load. Money first, one action each.

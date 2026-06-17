@@ -287,6 +287,32 @@
       if (card.note) c.appendChild(el("p", "al-note", card.note));
       var a = el("a", "a-btn primary", card.label || "Open"); a.href = card.href || "#";
       c.appendChild(a);
+    } else if (card.type === "connect_action") {
+      /* An inline "do it now" connection card: the button is the real audited route the owner
+         taps (the irreducible step). The status pill carries a real word, never color alone. */
+      c.classList.add("a-connect");
+      var ch = el("div", "ac-head");
+      if (card.title) ch.appendChild(el("div", "a-card-title", card.title));
+      var CPILL = { done: ["pill-booked", "Connected"], current: ["pill-neutral", "Your next step"],
+                    waiting: ["pill-warning", "Waiting"], todo: ["pill-neutral", "To do"] };
+      var cm = CPILL[card.status] || CPILL.current;
+      var cpill = el("span", "pill " + cm[0]);
+      cpill.appendChild(el("span", "pill-dot"));
+      cpill.appendChild(document.createTextNode(cm[1]));
+      ch.appendChild(cpill);
+      c.appendChild(ch);
+      if (card.note) c.appendChild(el("p", "al-note", card.note));
+      /* pre-filled context Vic already knows (e.g. a carrier star-code) — shown, not hidden. */
+      if (card.prefill) {
+        var pf = el("div", "ac-prefill");
+        Object.keys(card.prefill).forEach(function (k) {
+          pf.appendChild(el("span", "ac-chip", card.prefill[k]));
+        });
+        c.appendChild(pf);
+      }
+      var cact = el("a", "a-btn primary", card.label || "Connect");
+      cact.href = card.href || "#";
+      c.appendChild(cact);
     } else if (card.type === "note") {
       c.classList.add("a-note"); if (card.tone) c.classList.add(card.tone);
       c.textContent = card.body || "";

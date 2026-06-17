@@ -1,5 +1,5 @@
 /* =========================================================================
-   Command Center -- Mason's "Jarvis" control surface.
+   Command Center -- Vic's "Jarvis" control surface (the AI marketing employee).
    Built on the shared tokens in ui.css / app.css. Motion uses one clock
    (the --dur/--ease tokens); every animated element has a reduced-motion
    rest state, and the orb degrades to a static glow with no WebGL / no JS.
@@ -113,6 +113,18 @@
   margin:0 0 var(--space-4);color:var(--ink)}
 .convo-sub{
   font-size:var(--text-md);color:var(--ink-soft);max-width:46ch;margin:0 auto;line-height:1.55}
+/* The trust headline (BRAIN §6): three promises, stated plainly. Hairline dot separators,
+   no shadow -- the scalpel look. Stacks on narrow screens. */
+.trust-line{list-style:none;margin:var(--space-4) auto 0;padding:0;max-width:52ch;
+  display:flex;flex-wrap:wrap;justify-content:center;gap:6px var(--space-3);
+  font-size:var(--text-sm);font-weight:600;color:var(--ink-soft)}
+.trust-line li{position:relative;white-space:nowrap}
+.trust-line li+li::before{content:"";position:absolute;left:calc(-1 * var(--space-3) / 2 - 1px);
+  top:50%;width:3px;height:3px;border-radius:50%;background:var(--ink-faint);transform:translateY(-50%)}
+@media (max-width:560px){
+  .trust-line{flex-direction:column;align-items:center;gap:4px}
+  .trust-line li+li::before{display:none}
+}
 .convo-digest{
   margin:var(--space-4) auto 0;font-size:var(--text-sm);color:var(--ink-soft);
   background:var(--dock-glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
@@ -160,14 +172,14 @@
   animation:rise var(--dur-base) var(--ease-out) both;
 }
 .a-card-title{font-size:var(--text-xs);letter-spacing:.08em;text-transform:uppercase;
-  color:var(--ink-faint);font-weight:700;padding:var(--space-3) var(--space-4) 0}
+  color:var(--ink-soft);font-weight:700;padding:var(--space-3) var(--space-4) 0}
 
 /* stat grid */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;
   background:var(--border);margin-top:var(--space-3)}
 .stat-cell{background:var(--surface);padding:var(--space-4)}
 .stat-v{font-size:var(--text-2xl);font-weight:800;letter-spacing:-.02em;color:var(--ink);line-height:1}
-.stat-k{font-size:var(--text-xs);color:var(--ink-faint);text-transform:uppercase;letter-spacing:.06em;
+.stat-k{font-size:var(--text-xs);color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;
   font-weight:700;margin-top:var(--space-2)}
 .stat-s{font-size:var(--text-xs);color:var(--ink-soft);margin-top:2px}
 
@@ -200,10 +212,24 @@
 .confirm-card .cc-q{padding:var(--space-4);font-size:var(--text-base);color:var(--ink);line-height:1.5}
 .confirm-card .cc-actions{display:flex;gap:var(--space-2);padding:0 var(--space-4) var(--space-4)}
 
+/* confirm preview: exactly who + what + live/test, before a customer text goes out */
+.confirm-card .cc-preview{display:flex;flex-direction:column;gap:var(--space-3);
+  padding:0 var(--space-4) var(--space-4)}
+.cc-to{display:flex;align-items:baseline;gap:var(--space-2);font-size:var(--text-sm)}
+.cc-to-k{color:var(--ink-faint);text-transform:uppercase;letter-spacing:.08em;font-size:var(--text-xs)}
+.cc-to-v{color:var(--ink);font-weight:600}
+.cc-body{font:inherit;font-size:var(--text-base);color:var(--ink);line-height:1.5;width:100%;
+  resize:vertical;padding:var(--space-3);border:1px solid var(--border-strong);
+  border-radius:var(--radius-sm);background:var(--surface)}
+.cc-body:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+.cc-mode{align-self:flex-start}
+
 .a-actions{display:flex;gap:var(--space-2);padding:var(--space-3) var(--space-4) var(--space-4);flex-wrap:wrap}
 .a-btn{font:inherit;font-size:var(--text-sm);font-weight:600;border-radius:var(--radius-sm);
   padding:8px 14px;cursor:pointer;border:1px solid var(--border-strong);
-  background:var(--surface);color:var(--ink);transition:transform var(--dur-fast) var(--ease-out),
+  background:var(--surface);color:var(--ink);min-height:44px;
+  display:inline-flex;align-items:center;justify-content:center;
+  transition:transform var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out)}
 .a-btn:hover{transform:translateY(-1px)}
 .a-btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
@@ -221,6 +247,7 @@
   font:inherit;font-size:var(--text-sm);color:var(--ink-soft);cursor:pointer;
   background:var(--dock-glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
   border:1px solid var(--hairline);border-radius:var(--radius-pill);padding:7px 14px;
+  min-height:44px;display:inline-flex;align-items:center;
   transition:transform var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out)}
 .chip:hover{transform:translateY(-1px);color:var(--ink);border-color:var(--accent-ring)}
@@ -244,14 +271,27 @@
   font:inherit;font-size:var(--text-md);line-height:1.4;color:var(--ink);padding:12px 0}
 .command-input::placeholder{color:var(--ink-faint)}
 .command-send{
-  flex:0 0 auto;width:42px;height:42px;border-radius:50%;border:none;cursor:pointer;
+  flex:0 0 auto;width:48px;height:48px;border-radius:50%;border:none;cursor:pointer;
   display:grid;place-items:center;background:var(--accent);color:var(--accent-ink);
   transition:transform var(--dur-fast) var(--ease-out),background var(--dur-fast) var(--ease-out)}
 .command-send svg{width:20px;height:20px}
 .command-send:hover{transform:scale(1.06);background:var(--accent-hover)}
 .command-send:disabled{opacity:.5;cursor:default;transform:none}
 .command-send:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px}
-.command-foot{text-align:center;font-size:var(--text-xs);color:var(--ink-faint);margin:var(--space-3) 0 0}
+/* Push-to-talk mic: ghost by default, accent + pulse while listening. >=48px field target. */
+.command-mic{flex:0 0 auto;width:48px;height:48px;border-radius:50%;border:none;cursor:pointer;
+  display:grid;place-items:center;background:transparent;color:var(--ink-faint);
+  transition:transform var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out)}
+.command-mic svg{width:20px;height:20px}
+.command-mic:hover{color:var(--ink-soft);transform:scale(1.06)}
+.command-mic:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px}
+.command-mic[hidden]{display:none}
+.command-mic.is-listening{color:var(--accent-ink);background:var(--accent);
+  animation:mic-pulse 1.4s var(--ease-out) infinite}
+@keyframes mic-pulse{0%,100%{box-shadow:0 0 0 0 var(--orb-glow)}50%{box-shadow:0 0 0 7px transparent}}
+@media (prefers-reduced-motion:reduce){.command-mic.is-listening{animation:none}}
+.command-foot{text-align:center;font-size:var(--text-xs);color:var(--ink-soft);margin:var(--space-3) 0 0}
 
 /* When a conversation has started, retire the hero. */
 .command-shell.chatting .convo-hero{display:none}
@@ -316,9 +356,10 @@
 .ag-step-title{font-size:var(--text-xs);color:var(--ink-soft);line-height:1.25}
 .ag-step.is-current .ag-step-title{color:var(--ink);font-weight:600}
 .ag-count{margin:var(--space-3) 0 0;font-size:var(--text-xs);font-weight:700;
-  letter-spacing:.04em;text-transform:uppercase;color:var(--ink-faint)}
+  letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft)}
 .ag-blocker{margin:var(--space-3) 0 0;font-size:var(--text-sm);color:var(--ink-soft);line-height:1.5}
 .ag-blocker-k{font-weight:700;color:var(--ink)}
+.ag-blocker-v{color:var(--ink)}
 .a-golive .a-actions{padding:var(--space-4) 0 0}
 
 /* ---- Reduced motion: everything rests, nothing loops -------------------- */
@@ -328,4 +369,59 @@
   .transcript{scroll-behavior:auto}
   .orb-stage .orb-canvas,
   .orb-stage .orb-fallback{transition:none}
+}
+
+/* ---- Morning briefing: the day, sorted, on load. Money first, one action each.
+   Hairline + glass, no shadow, brand-token tones (the RingBack scalpel look). ---- */
+.briefing{
+  max-width:34rem;margin:var(--space-6) auto 0;text-align:left;
+  background:var(--dock-glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  border:1px solid var(--hairline);border-radius:var(--radius);
+  padding:var(--space-4) var(--space-6)}
+.briefing-headline{margin:0;font-size:var(--text-md);font-weight:700;color:var(--ink);line-height:1.3}
+.briefing-sub{margin:var(--space-1) 0 0;font-size:var(--text-sm);color:var(--ink-soft)}
+.briefing-list{list-style:none;margin:var(--space-3) 0 0;padding:0;
+  display:flex;flex-direction:column;gap:var(--space-2)}
+.briefing-item{margin:0;padding:0}
+/* the whole row is the tap target -- one thumb, >=48px tall for gloved/field taps */
+.briefing-row{display:flex;gap:var(--space-3);align-items:center;width:100%;
+  min-height:48px;padding:var(--space-3);text-align:left;cursor:pointer;
+  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+  color:inherit;font:inherit;transition:background var(--dur-fast) var(--ease-out),
+  border-color var(--dur-fast) var(--ease-out)}
+.briefing-row:hover{background:var(--surface-2);border-color:var(--border-strong,var(--ink-faint))}
+.briefing-row:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.briefing-row:disabled{cursor:default}
+.briefing-dot{flex:none;width:8px;height:8px;border-radius:var(--radius-pill);
+  background:var(--ink-soft)}
+.briefing-item.is-warn .briefing-dot{background:var(--danger)}
+.briefing-item.is-hot  .briefing-dot{background:var(--accent)}
+.briefing-item.is-ok   .briefing-dot{background:var(--success)}
+.briefing-item.is-new  .briefing-dot{background:var(--warning)}
+.briefing-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.briefing-t{font-size:var(--text-sm);font-weight:600;color:var(--ink);line-height:1.35}
+.briefing-s{font-size:var(--text-xs);color:var(--ink-soft)}
+.briefing-go{flex:none;display:grid;place-items:center;color:var(--ink-faint)}
+.briefing-go svg{width:16px;height:16px}
+
+/* ---- Offline banner: field reality is spotty signal (crawlspace, truck). An honest strip
+   so a failed send isn't a mystery; it clears itself the moment the connection returns. ---- */
+.offline-banner{
+  margin:0 auto var(--space-3);max-width:46ch;text-align:center;
+  font-size:var(--text-sm);font-weight:600;color:var(--ink);
+  background:color-mix(in srgb,var(--warning) 14%,var(--surface));
+  border:1px solid color-mix(in srgb,var(--warning) 42%,var(--surface));
+  border-radius:var(--radius-pill);padding:8px 16px}
+.offline-banner[hidden]{display:none}
+
+/* ---- Sunlight / high-contrast: glass dies outdoors. When the user (or OS) asks for more
+   contrast, drop the translucency for solid surfaces + stronger hairlines so the dock,
+   chips, and briefing stay legible in direct sun. ---- */
+@media (prefers-contrast:more){
+  .command-shell{--dock-glass:var(--surface)}
+  .command-bar,.chip,.convo-digest,.briefing,.offline-banner{
+    -webkit-backdrop-filter:none;backdrop-filter:none;background:var(--surface);
+    border-color:var(--border-strong,var(--ink-faint))}
+  .bubble,.a-card,.briefing-row{border-color:var(--border-strong,var(--ink-faint))}
+  .command-foot{color:var(--ink-soft)}
 }

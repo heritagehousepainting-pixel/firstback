@@ -1,8 +1,9 @@
 Flask
 gunicorn        # production WSGI server (Render/host); the dev server is local-only
 requests        # MiniMax brain (HTTPS + certifi) + Twilio REST (SMS/voice)
-# Optional -- only needed to switch on the real Claude brain:
-# anthropic
+# The Claude brain (RINGBACK_PROVIDER=claude + ANTHROPIC_API_KEY). Safe to ship even on
+# MiniMax/demo: it's only imported when the Claude path actually runs.
+anthropic>=0.40
 
 # AI voice agent (Phase 3): the separate ConversationRelay service in
 # voice_service.py. Only needed to run the voice leg; the Flask app + simulator

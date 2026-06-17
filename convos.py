@@ -1,4 +1,4 @@
-"""Command-center conversation memory: record what the owner says to Mason, call out the
+"""Command-center conversation memory: record what the owner says to Vic, call out the
 weak spots automatically, and learn from confirmed corrections.
 
 This is the logic layer over db's assistant_* tables. It is deliberately separate from
@@ -39,18 +39,20 @@ def _similar(a, b):
 
 
 # ---- Record + flag ----
-def record_exchange(business_id, session_key, message, result):
-    """Log the owner's message and Mason's reply (with tool/status), then flag the weak
+def record_exchange(business_id, session_key, message, result, browser_key=None, convo_id=None):
+    """Log the owner's message and Vic's reply (with tool/status), then flag the weak
     spots. Also kick off an LLM grade in the background (it catches subtler misses than the
-    heuristics). Returns (convo_id, user_turn_id)."""
-    convo_id = db.start_or_get_convo(business_id, session_key)
+    heuristics). When the result showed records (leads/appointments), remember them on the
+    assistant turn so a later "text her back" resolves. Returns (convo_id, user_turn_id)."""
+    convo_id = convo_id or db.start_or_get_convo(business_id, session_key, browser_key)
     meta = (result or {}).get("meta") or {}
     reply = (result or {}).get("reply", "")
     prior = db.recent_user_turns(convo_id, business_id, limit=6)  # before this turn
     user_tid = db.log_turn(convo_id, business_id, "user", message)
-    db.log_turn(convo_id, business_id, "assistant", reply,
-                tool=meta.get("tool"), status=meta.get("status"))
-    # When Mason pointed the owner to a page (a capability gap), remember WHICH page, so a
+    asst_tid = db.log_turn(convo_id, business_id, "assistant", reply,
+                           tool=meta.get("tool"), status=meta.get("status"))
+    db.record_turn_entities(business_id, convo_id, asst_tid, (result or {}).get("entities"))
+    # When Vic pointed the owner to a page (a capability gap), remember WHICH page, so a
     # later proactive offer can crystallize that exact route into a learning.
     gap_route = ""
     if meta.get("status") == "capability_gap":
@@ -71,7 +73,7 @@ def _flag(business_id, convo_id, user_tid, message, meta, prior, gap_route=""):
     if status == "capability_gap":
         db.add_flag(business_id, convo_id, user_tid, "capability_gap",
                     ("route:" + gap_route) if gap_route
-                    else "Mason had no tool for this and pointed elsewhere.")
+                    else "Vic had no tool for this and pointed elsewhere.")
     elif status == "empty":
         db.add_flag(business_id, convo_id, user_tid, "empty",
                     "A tool ran but came back with nothing.")
@@ -173,7 +175,7 @@ def _is_closing(message):
 
 def coach_offer(business_id, convo_id, message):
     """At a natural end-of-conversation moment, if a capability gap has RECURRED, return a
-    one-tap offer for Mason to remember the route he already takes for it (or None). He
+    one-tap offer for Vic to remember the route he already takes for it (or None). He
     offers at most once per conversation, and never for something already taught."""
     if not convo_id or db.has_coach_offer(business_id, convo_id):
         return None
@@ -193,7 +195,7 @@ def coach_offer(business_id, convo_id, message):
     top = sorted(cands, key=lambda x: -x["count"])[0]
     db.mark_coach_offered(business_id, convo_id)
     # If the brain is confident an existing TOOL would actually satisfy this, offer to run
-    # it (a real upgrade); otherwise offer to remember the route Mason already takes.
+    # it (a real upgrade); otherwise offer to remember the route Vic already takes.
     tool = None
     suggest = globals().get("_tool_suggest_hook")
     if suggest:
@@ -262,7 +264,7 @@ def lookup(business, message):
 
 
 def digest(business_id, days=7):
-    """A short weekly digest for the command center: how often Mason fell short, how much
+    """A short weekly digest for the command center: how often Vic fell short, how much
     you taught him, plus a one-line summary. `has_content` gates whether to show it."""
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -300,14 +302,14 @@ def digest_email(business, days=7):
     d = digest(bid, days)
     unmet = top_unmet(bid)
     name = business.get("name") or "your business"
-    lines = [f"Here is your weekly Mason digest for {name}.", ""]
+    lines = [f"Here is your weekly Vic digest for {name}.", ""]
     lines.append(d["line"] or "A quiet week. No gaps and nothing new to teach.")
     lines.append(f"Conversations this week: {d['convos']}. Things I learned: {d['learnings']}.")
     if unmet:
         lines += ["", "Top requests to teach me or build next:"]
         lines += [f'  {i + 1}. "{u["sample"]}" ({u["count"]}x)' for i, u in enumerate(unmet)]
-    lines += ["", "Open Mason's Memory to teach or review what I missed."]
-    return {"subject": f"Your weekly Mason digest: {d['gaps']} gap(s), {d['learnings']} learned",
+    lines += ["", "Open Vic's Memory to teach or review what I missed."]
+    return {"subject": f"Your weekly Vic digest: {d['gaps']} gap(s), {d['learnings']} learned",
             "body": "\n".join(lines)}
 
 

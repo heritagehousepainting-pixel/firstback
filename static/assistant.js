@@ -10,6 +10,10 @@
 
   var REDUCED = false;
   try { REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+  // Touch/field devices: never auto-grab focus (it pops the keyboard over the briefing the
+  // owner is trying to read between jobs). Focus is restored after a turn on desktop only.
+  var TOUCH = false;
+  try { TOUCH = matchMedia("(pointer: coarse)").matches; } catch (e) {}
 
   /* The orb's hue is the app's own --accent token, so one file matches every brand. */
   function brandColor() {
@@ -32,7 +36,10 @@
 
   /* ----------------------------------------------------------------------
      1. THE ORB  -- a fragment-shader energy sphere that reacts to state.
-        state: 0 idle (slow breath), 1 thinking (fast churn), 2 speaking.
+        state: 0 idle (slow breath), 1 thinking (fast churn), 2 responding
+        (a brief settle as a reply lands). "Responding" is honest: there is
+        no audio -- the orb never pretends to speak. It is gated off (static
+        glow) for reduced-motion, Save-Data, and a low/unplugged battery.
      ---------------------------------------------------------------------- */
   var Orb = (function () {
     var canvas = document.getElementById("orb");
@@ -133,14 +140,36 @@
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       raf = requestAnimationFrame(frame);
     }
+    function teardown() {
+      running = false; cancelAnimationFrame(raf); shell.classList.add("no-webgl");
+    }
+    /* Save-Data is an explicit "don't burn my data/battery" signal -> static glow. */
+    function saveData() {
+      try { return !!(navigator.connection && navigator.connection.saveData); }
+      catch (e) { return false; }
+    }
+    /* Drop to the static orb when the battery is low and unplugged (and keep watching, so a
+       charge that drains mid-session also retires the WebGL loop). Honest power citizenship. */
+    function watchBattery() {
+      if (!navigator.getBattery) return;
+      navigator.getBattery().then(function (b) {
+        function check() { if (b.level <= 0.2 && !b.charging) teardown(); }
+        check();
+        b.addEventListener("levelchange", check);
+        b.addEventListener("chargingchange", check);
+      }).catch(function () {});
+    }
     return {
       mount: function () {
-        if (REDUCED || !init()) { shell.classList.add("no-webgl"); return; }
+        if (REDUCED || saveData() || !init()) { shell.classList.add("no-webgl"); return; }
         running = true; frame();
+        watchBattery();
         window.addEventListener("resize", resize);
         document.addEventListener("visibilitychange", function () {
           if (document.hidden) { running = false; cancelAnimationFrame(raf); }
-          else if (gl) { running = true; start = performance.now(); frame(); }
+          else if (gl && !shell.classList.contains("no-webgl")) {
+            running = true; start = performance.now(); frame();
+          }
         });
       },
       set: function (s) { state = s; }
@@ -158,6 +187,18 @@
   var csrf = (document.getElementById("csrfToken") || {}).value || "";
   // A per-page-load key so the back-and-forth groups into one saved conversation.
   var convoKey = (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+  // A durable key kept in localStorage: it survives reloads, so "text her back" still
+  // resolves to who you were just looking at after a refresh. Falls back to the page key.
+  var browserKey = (function () {
+    try {
+      var k = localStorage.getItem("rb_convo_key");
+      if (!k) {
+        k = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem("rb_convo_key", k);
+      }
+      return k;
+    } catch (e) { return convoKey; }
+  })();
   var history = [];
   var busy = false;
 
@@ -171,8 +212,7 @@
 
   function addTurn(role, text) {
     var turn = el("div", "turn " + role);
-    var av = el("div", "turn-avatar", role === "user" ? "You" : "M");
-    if (role === "user") av.textContent = "Y";
+    var av = el("div", "turn-avatar", role === "user" ? "Y" : "V");   // V = Vic, the AI employee
     var body = el("div", "turn-body");
     var bub = el("div", "bubble");
     bub.textContent = text;
@@ -186,10 +226,13 @@
   function addThinking() {
     var turn = el("div", "turn agent");
     turn.dataset.thinking = "1";
-    turn.appendChild(el("div", "turn-avatar", "M"));
+    turn.appendChild(el("div", "turn-avatar", "V"));
     var body = el("div", "turn-body");
     var bub = el("div", "bubble thinking");
+    bub.setAttribute("aria-hidden", "true");      // the dots are decorative
     bub.appendChild(el("i")); bub.appendChild(el("i")); bub.appendChild(el("i"));
+    // Announced ONCE by the transcript's aria-live (no nested live region / double-speak).
+    body.appendChild(el("span", "sr-only", "Working on it"));
     body.appendChild(bub); turn.appendChild(body);
     transcript.appendChild(turn); scrollDown();
     return turn;
@@ -294,10 +337,54 @@
       ga.href = card.href || "/setup";
       gacts.appendChild(ga);
       c.appendChild(gacts);
+    } else if (card.type === "briefing") {
+      /* The morning briefing rendered in-chat ("what should I focus on?"). Uses the same
+         appendBriefing as the server-rendered hero block, so the two never drift. */
+      appendBriefing(c, card);
     } else {
       c.classList.add("a-note"); c.textContent = card.body || "";
     }
     host.appendChild(c);
+  }
+
+  /* The briefing body (headline + sub + tap-action rows), shared by the in-chat card and
+     the server/poll-rendered hero block so the two never drift. Each row is a one-tap
+     action; an sr-only status word keeps tone from being conveyed by color alone. */
+  function appendBriefing(c, card) {
+    if (card.headline) c.appendChild(el("p", "briefing-headline", card.headline));
+    if (card.sub) c.appendChild(el("p", "briefing-sub", card.sub));
+    var bl = el("ul", "briefing-list");
+    (card.items || []).forEach(function (it) {
+      var li = el("li", "briefing-item is-" + (it.tone || "new"));
+      var row = el("button", "briefing-row"); row.type = "button";
+      if (it.label) row.appendChild(el("span", "sr-only", it.label + ": "));
+      var dot = el("span", "briefing-dot"); dot.setAttribute("aria-hidden", "true");
+      row.appendChild(dot);
+      var tx = el("span", "briefing-text");
+      tx.appendChild(el("span", "briefing-t", it.title || ""));
+      if (it.sub) tx.appendChild(el("span", "briefing-s", it.sub));
+      row.appendChild(tx);
+      var go = el("span", "briefing-go"); go.setAttribute("aria-hidden", "true");
+      go.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+      row.appendChild(go);
+      if (it.action) {                         // one tap runs the action through the chat
+        row.dataset.action = it.action;
+        row.addEventListener("click", function () { submit(row.dataset.action); });
+      } else {
+        row.disabled = true;
+      }
+      li.appendChild(row);
+      bl.appendChild(li);
+    });
+    c.appendChild(bl);
+  }
+  function buildBriefingNode(card) {
+    if (!card || !(card.items || []).length) return null;
+    var region = el("div", "briefing");
+    region.setAttribute("role", "region");
+    region.setAttribute("aria-label", "Your briefing");
+    appendBriefing(region, card);
+    return region;
   }
 
   function renderCards(cards, body) {
@@ -307,23 +394,60 @@
     body.appendChild(wrap); scrollDown();
   }
 
-  /* ---- confirm flow (gated actions) ---- */
+  /* ---- confirm flow (gated actions) ----
+     When the server sends a preview (a text to a real customer), show exactly WHO it
+     goes to, the verbatim body (editable -- SMS can't be recalled, so we edit before we
+     send, never undo after), and an honest live/test/opt-out badge. No blind sends. */
+  var CONFIRM_MODE = {
+    live:       ["pill-booked",  "Will send for real"],
+    simulated:  ["pill-neutral", "Test mode — not sent for real yet"],
+    blocked:    ["pill-warning", "Held — carrier registration not approved yet"],
+    suppressed: ["pill-warning", "This contact opted out — nothing will send"],
+    skipped:    ["pill-warning", "No number on file — nothing will send"]
+  };
   function renderConfirm(pending, body) {
     var c = el("div", "a-card confirm-card");
     c.appendChild(el("div", "cc-q", pending.summary || "Run this action?"));
+    var preview = pending.preview, bodyField = null, suppressed = false;
+    if (preview) {
+      suppressed = (preview.mode === "suppressed" || preview.mode === "skipped");
+      var pv = el("div", "cc-preview");
+      var who = el("div", "cc-to");
+      who.appendChild(el("span", "cc-to-k", "To"));
+      var nm = (preview.recipient_name || "").trim();
+      who.appendChild(el("span", "cc-to-v",
+        (nm ? nm + " · " : "") + (preview.recipient_phone || "unknown number")));
+      pv.appendChild(who);
+      bodyField = el("textarea", "cc-body");
+      bodyField.value = preview.body || "";
+      bodyField.rows = 3;
+      bodyField.setAttribute("aria-label", "Message to send — edit before sending");
+      pv.appendChild(bodyField);
+      var m = CONFIRM_MODE[preview.mode] || CONFIRM_MODE.simulated;
+      var badge = el("span", "pill " + m[0] + " cc-mode");
+      badge.appendChild(el("span", "pill-dot"));
+      badge.appendChild(document.createTextNode(m[1]));
+      pv.appendChild(badge);
+      c.appendChild(pv);
+    }
     var acts = el("div", "cc-actions");
-    acts.appendChild(btn("Confirm", "primary", function () {
-      c.parentNode && c.parentNode.removeChild(c);   // retire the prompt
+    var label = preview ? (suppressed ? "Can't send" : "Send") : "Confirm";
+    var confirmBtn = btn(label, "primary", function () {
+      if (bodyField) pending.args.message = bodyField.value;   // honor any edit
+      c.parentNode && c.parentNode.removeChild(c);             // retire the prompt
       runAction(pending);
-    }));
+    });
+    if (suppressed) confirmBtn.disabled = true;                // opted out -> can't send
+    acts.appendChild(confirmBtn);
     acts.appendChild(btn("Cancel", "ghost", function () {
       acts.innerHTML = ""; acts.appendChild(el("span", "draft-note", "Cancelled."));
     }));
     c.appendChild(acts);
     var wrap = el("div", "cards"); wrap.appendChild(c); body.appendChild(wrap); scrollDown();
+    try { confirmBtn.focus(); } catch (e) {}
   }
 
-  /* ---- proactive teaching offer (Mason offers to remember a recurring gap) ---- */
+  /* ---- proactive teaching offer (Vic offers to remember a recurring gap) ---- */
   function renderCoach(coach, body) {
     var c = el("div", "a-card confirm-card");
     c.appendChild(el("div", "cc-q", coach.prompt || "Want me to remember that?"));
@@ -355,29 +479,32 @@
         var body = addTurn("agent", res.reply || "Done.");
         history.push({ role: "assistant", content: res.reply || "" });
         renderCards(res.cards, body);
-        speak();
+        respond();
       })
       .catch(function () {
         thinking.parentNode && thinking.parentNode.removeChild(thinking);
         addTurn("agent", "Something went wrong running that. Try again.");
         Orb.set(0);
       })
-      .finally(function () { busy = false; send.disabled = false; input.focus(); });
+      .finally(function () { busy = false; send.disabled = false; refocus(); });
   }
 
   function post(url, data) {
     var p = new URLSearchParams();
     p.set("_csrf", csrf);
     p.set("convo_key", convoKey);
+    p.set("browser_key", browserKey);
     Object.keys(data).forEach(function (k) { p.set(k, data[k]); });
     return fetch(url, {
       method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: p.toString()
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) { if (!r.ok) { var e = new Error("http " + r.status); e.status = r.status; throw e; } return r.json(); });
   }
 
-  function speak() { Orb.set(2); setTimeout(function () { Orb.set(0); }, 1800); }
+  /* The orb's brief "responding" settle as a reply lands -- honest: no audio is played. */
+  function respond() { Orb.set(2); setTimeout(function () { Orb.set(0); }, 1800); }
+  function refocus() { if (!TOUCH) input.focus(); }
 
   function submit(text) {
     text = (text || "").trim();
@@ -389,38 +516,205 @@
     input.value = "";
     var thinking = addThinking();
     Orb.set(1);
+    if (canStream()) streamSubmit(text, thinking);
+    else postSubmit(text, thinking);
+  }
+
+  /* Reset the turn state and (on desktop) return focus to the bar. */
+  function endTurn() { busy = false; send.disabled = false; refocus(); }
+
+  /* Apply a completed result to a turn body: authoritative reply text, then cards/confirm/
+     coach. Shared by the streaming and non-streaming paths so the two never drift. */
+  function applyResult(res, body) {
+    var bub = body.querySelector(".bubble");
+    if (bub) bub.textContent = res.reply || bub.textContent || "";
+    history.push({ role: "assistant", content: res.reply || "" });
+    renderCards(res.cards, body);
+    if (res.pending_action) renderConfirm(res.pending_action, body);
+    if (res.coach) renderCoach(res.coach, body);
+    respond();
+  }
+
+  /* Non-streaming fallback: one JSON POST, render the whole reply at once. Used when the
+     browser can't stream, when reduced-motion is set (instant answer is the a11y win), and
+     as the recovery path if a stream fails before any text arrives. */
+  function postSubmit(text, thinking) {
     post("/assistant", { message: text, history: JSON.stringify(history.slice(-12)) })
       .then(function (res) {
         thinking.parentNode && thinking.parentNode.removeChild(thinking);
-        var body = addTurn("agent", res.reply || "");
-        history.push({ role: "assistant", content: res.reply || "" });
-        renderCards(res.cards, body);
-        if (res.pending_action) renderConfirm(res.pending_action, body);
-        if (res.coach) renderCoach(res.coach, body);
-        speak();
+        applyResult(res, addTurn("agent", ""));
       })
-      .catch(function () {
+      .catch(function (err) {
         thinking.parentNode && thinking.parentNode.removeChild(thinking);
-        addTurn("agent", "I could not reach the server just now. Try again in a moment.");
+        var msg = (err && err.status === 403)
+          ? "Your session expired — refresh the page to keep going."
+          : "I could not reach the server just now. Try again in a moment.";
+        addTurn("agent", msg);
         Orb.set(0);
       })
-      .finally(function () { busy = false; send.disabled = false; input.focus(); });
+      .finally(endTurn);
   }
 
-  /* ---- suggestion chips ---- */
-  (function () {
-    var raw = shell.getAttribute("data-suggestions");
-    var list = [];
-    try { list = JSON.parse(raw || "[]"); } catch (e) {}
-    list.forEach(function (s) {
+  /* Streaming path: read the SSE body, append text deltas live, finalize on the done frame.
+     The done frame carries the same shape /assistant returns, so cards/confirm/coach reuse
+     the exact renderers and the confirm gate is identical. */
+  function canStream() {
+    return !REDUCED && window.fetch && window.ReadableStream && window.TextDecoder;
+  }
+  function streamSubmit(text, thinking) {
+    var p = new URLSearchParams();
+    p.set("_csrf", csrf); p.set("convo_key", convoKey); p.set("browser_key", browserKey);
+    p.set("message", text); p.set("history", JSON.stringify(history.slice(-12)));
+    var body = null, started = false, acc = "", done = false;
+    function ensureBody() {
+      if (body) return;
+      thinking.parentNode && thinking.parentNode.removeChild(thinking);
+      body = addTurn("agent", "");
+    }
+    function onFrame(f) {
+      if (f.t === "delta") {
+        started = true; ensureBody(); acc += f.v;
+        var bub = body.querySelector(".bubble"); if (bub) bub.textContent = acc;
+        scrollDown();
+      } else if (f.t === "done") {
+        done = true; ensureBody(); applyResult(f.result || {}, body);
+      }
+    }
+    fetch("/assistant/stream", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: p.toString()
+    }).then(function (resp) {
+      if (!resp.ok || !resp.body) throw new Error("no stream");
+      var reader = resp.body.getReader(), dec = new TextDecoder(), buf = "";
+      function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) return;
+          buf += dec.decode(r.value, { stream: true });
+          var parts = buf.split("\n\n"); buf = parts.pop();
+          parts.forEach(function (chunk) {
+            var line = chunk.replace(/^data: /, "").trim();
+            if (line) { try { onFrame(JSON.parse(line)); } catch (e) {} }
+          });
+          return pump();
+        });
+      }
+      return pump();
+    }).then(function () {
+      if (!done && !started) postSubmit(text, thinking);   // empty stream -> JSON fallback
+      else endTurn();
+    }).catch(function () {
+      if (!started) { postSubmit(text, thinking); return; }  // failed early -> JSON fallback
+      addTurn("agent", "The connection dropped mid-reply. Try that again.");
+      Orb.set(0); endTurn();
+    });
+  }
+
+  /* ---- suggestion chips (rebuilt on each feed refresh) ---- */
+  function rebuildChips(list) {
+    chipsEl.innerHTML = "";
+    (list || []).forEach(function (s) {
       var chip = el("button", "chip", s); chip.type = "button";
       chip.addEventListener("click", function () { submit(s); });
       chipsEl.appendChild(chip);
     });
+  }
+  (function () {
+    var list = [];
+    try { list = JSON.parse(shell.getAttribute("data-suggestions") || "[]"); } catch (e) {}
+    rebuildChips(list);
+  })();
+
+  /* ---- server-rendered briefing: wire the initial items as one-tap actions ---- */
+  (function () {
+    var rows = document.querySelectorAll("#briefingSlot .briefing-row[data-action]");
+    Array.prototype.forEach.call(rows, function (row) {
+      row.addEventListener("click", function () { submit(row.getAttribute("data-action")); });
+    });
+  })();
+
+  /* ---- real-time feed poll: refresh the briefing + chips in place, never touching the
+     transcript -- so a just-missed call surfaces without a reload that would wipe the chat.
+     Skips while busy or backgrounded; refreshes on tab focus. (SSE + web push are the
+     documented next step -- see SETUP_NEEDED.) ---- */
+  (function () {
+    var lastSig = shell.getAttribute("data-feed-sig") || "";
+    var slot = document.getElementById("briefingSlot");
+    function applyFeed(res) {
+      if (!res || !res.sig || res.sig === lastSig) return;
+      lastSig = res.sig;
+      if (slot) {
+        slot.innerHTML = "";
+        var node = buildBriefingNode(res.briefing);
+        if (node) slot.appendChild(node);
+      }
+      rebuildChips(res.suggestions);
+    }
+    function poll() {
+      if (busy || document.hidden) return;
+      fetch("/api/feed", { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (res) { if (res) applyFeed(res); })
+        .catch(function () {});
+    }
+    setInterval(poll, 25000);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) poll(); });
   })();
 
   form.addEventListener("submit", function (e) { e.preventDefault(); submit(input.value); });
 
+  /* ---- Offline banner: an honest "you're offline" strip so a failed send isn't a mystery
+     in the field (spotty signal in a crawlspace / truck). Polite + dismissable by reconnect. */
+  (function () {
+    var dock = document.querySelector(".command-dock");
+    if (!dock) return;
+    var bar = el("div", "offline-banner", "You're offline — RingBack will catch up when you reconnect.");
+    bar.setAttribute("role", "status");
+    bar.hidden = true;
+    dock.insertBefore(bar, dock.firstChild);
+    function sync() { bar.hidden = navigator.onLine !== false; }
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    sync();
+  })();
+
+  /* ---- Push-to-talk voice: Web Speech API only, no new infra. Tap to start/stop; the
+     transcript fills the command bar so the owner can read + edit before sending -- it never
+     auto-sends (no blind send). The mic stays hidden when the browser can't do speech. ---- */
+  (function () {
+    var mic = document.getElementById("commandMic");
+    if (!mic) return;
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { mic.hidden = true; return; }
+    mic.hidden = false;
+    var rec = new SR();
+    rec.lang = "en-US"; rec.interimResults = true; rec.maxAlternatives = 1;
+    var listening = false, finalText = "";
+    rec.onstart = function () {
+      listening = true; mic.classList.add("is-listening");
+      mic.setAttribute("aria-pressed", "true");
+    };
+    rec.onend = function () {
+      listening = false; mic.classList.remove("is-listening");
+      mic.setAttribute("aria-pressed", "false");
+    };
+    rec.onerror = rec.onend;
+    rec.onresult = function (e) {
+      var interim = "", fin = finalText;
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) fin += t; else interim += t;
+      }
+      finalText = fin;
+      input.value = (fin + interim).replace(/\s+/g, " ").trim();
+    };
+    mic.addEventListener("click", function () {
+      if (listening) { try { rec.stop(); } catch (e) {} return; }
+      finalText = input.value ? input.value.trim() + " " : "";
+      try { rec.start(); } catch (e) {}
+    });
+    window.addEventListener("pagehide", function () { if (listening) { try { rec.stop(); } catch (e) {} } });
+  })();
+
   Orb.mount();
-  input.focus();
+  if (!TOUCH) input.focus();
 })();

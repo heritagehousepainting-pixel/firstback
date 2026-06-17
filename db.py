@@ -18,7 +18,9 @@ _BUSINESS_COLS = ["name", "trade", "service_area", "hours", "owner_name",
                   "phone", "ai_instructions",
                   # Scheduling preferences (Phase 1): the owner shapes their own
                   # availability instead of the global ESTIMATE_TIMES default.
-                  "estimate_times", "working_days", "buffer_minutes"]
+                  "estimate_times", "working_days", "buffer_minutes",
+                  # Phase 3: the owner's public Google review link (review-request copy).
+                  "review_link"]
 
 
 def get_conn():
@@ -307,13 +309,20 @@ def init_db():
         -- we can replay it, call out the weak spots, and learn from confirmed corrections.
         CREATE TABLE IF NOT EXISTS assistant_convos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_id INTEGER NOT NULL, session_key TEXT,
+            business_id INTEGER NOT NULL, session_key TEXT, browser_key TEXT,
             started_at TEXT, last_at TEXT
         );
         CREATE TABLE IF NOT EXISTS assistant_turns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             convo_id INTEGER NOT NULL, business_id INTEGER NOT NULL,
             role TEXT, content TEXT, tool TEXT, status TEXT, created_at TEXT
+        );
+        -- What a turn put on screen (leads/appointments), so a later turn can resolve
+        -- "text her back" / "book the second one" to the right record. Tenant-scoped.
+        CREATE TABLE IF NOT EXISTS assistant_turn_entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL, convo_id INTEGER NOT NULL, turn_id INTEGER NOT NULL,
+            kind TEXT, entity_id INTEGER, name TEXT, phone TEXT, ordinal INTEGER, created_at TEXT
         );
         CREATE TABLE IF NOT EXISTS assistant_flags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -326,8 +335,21 @@ def init_db():
             source_turn_id INTEGER, confirmed INTEGER DEFAULT 0, uses INTEGER DEFAULT 0,
             created_at TEXT
         );
+        -- Per-tenant action counters (sliding window key) for rate limiting the assistant,
+        -- and an audit trail of gated actions the owner confirmed.
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            business_id INTEGER NOT NULL, k TEXT NOT NULL, n INTEGER DEFAULT 0,
+            PRIMARY KEY (business_id, k)
+        );
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL, action TEXT, detail TEXT, created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_biz ON audit_log(business_id, id);
         CREATE INDEX IF NOT EXISTS idx_aturns_convo ON assistant_turns(convo_id);
         CREATE INDEX IF NOT EXISTS idx_aturns_biz ON assistant_turns(business_id);
+        CREATE INDEX IF NOT EXISTS idx_aconvos_browser ON assistant_convos(business_id, browser_key);
+        CREATE INDEX IF NOT EXISTS idx_aents_convo ON assistant_turn_entities(convo_id);
         CREATE INDEX IF NOT EXISTS idx_aflags_biz ON assistant_flags(business_id);
         CREATE INDEX IF NOT EXISTS idx_alearn_biz ON assistant_learnings(business_id);
         """
@@ -336,6 +358,10 @@ def init_db():
     cols = [r[1] for r in c.execute("PRAGMA table_info(leads)").fetchall()]
     if "urgent" not in cols:
         c.execute("ALTER TABLE leads ADD COLUMN urgent INTEGER DEFAULT 0")
+    # Migration: durable browser_key on conversations (reload continuity for memory/anaphora).
+    acols = [r[1] for r in c.execute("PRAGMA table_info(assistant_convos)").fetchall()]
+    if "browser_key" not in acols:
+        c.execute("ALTER TABLE assistant_convos ADD COLUMN browser_key TEXT")
     # Migration: appointments gain a real `day` (YYYY-MM-DD) for the calendar.
     appt_cols = [r[1] for r in c.execute("PRAGMA table_info(appointments)").fetchall()]
     if "day" not in appt_cols:
@@ -443,7 +469,11 @@ def init_db():
             # Whether the provisioned number actually has its Twilio Voice + SMS
             # webhooks wired (set by messaging.provision_number on success). A number
             # without webhooks can receive nothing, so it must NOT read as "live".
-            ("webhooks_wired", "INTEGER DEFAULT 0")):
+            ("webhooks_wired", "INTEGER DEFAULT 0"),
+            # Phase 3 growth engine: the owner's public review link (used in review-request
+            # copy) and the opt-in flag for auto-queued growth touches (default OFF -- the
+            # feed + one-tap gated sends are always live; auto-texting is explicit opt-in).
+            ("review_link", "TEXT"), ("growth_on", "INTEGER DEFAULT 0")):
         if col not in biz_cols:
             c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
     # messages gain delivery tracking for real (Twilio) SMS.
@@ -515,6 +545,27 @@ def init_db():
         c.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uniq_followup_per_lead "
             "ON scheduled_messages(lead_id) WHERE kind='followup'")
+    # One ACTIVE growth touch per (lead, kind) -- the same race-safe dedupe for the
+    # Phase 3 growth engine. Partial on status!='canceled' so a touch can be re-queued
+    # after it's canceled (e.g. a reschedule), but never double-queued while in flight.
+    if "uniq_growth_touch_per_lead" not in sched_idx:
+        # Collapse any pre-existing active duplicates (keep the earliest per lead+kind) so the
+        # UNIQUE index can't fail to build on an already-populated DB.
+        c.execute(
+            "DELETE FROM scheduled_messages WHERE kind NOT IN ('reminder','followup') "
+            "AND status!='canceled' AND id NOT IN ("
+            "  SELECT MIN(id) FROM scheduled_messages "
+            "  WHERE kind NOT IN ('reminder','followup') AND status!='canceled' "
+            "  GROUP BY lead_id, kind)")
+        c.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uniq_growth_touch_per_lead "
+            "ON scheduled_messages(lead_id, kind) "
+            "WHERE kind NOT IN ('reminder','followup') AND status!='canceled'")
+    # Speed the growth-engine per-lead aggregates (growth_candidates correlated subqueries).
+    c.execute("CREATE INDEX IF NOT EXISTS idx_messages_lead "
+              "ON messages(lead_id, direction, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_appts_lead "
+              "ON appointments(lead_id, status, day)")
 
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
@@ -565,6 +616,16 @@ def get_business(business_id=1):
     row = conn.execute("SELECT * FROM businesses WHERE id=?", (business_id,)).fetchone()
     conn.close()
     return dict(row) if row else dict(DEFAULT_BUSINESS, id=business_id)
+
+
+def set_growth_on(business_id, on):
+    """Opt a business in/out of auto-queued growth touches (Phase 3). Kept out of the
+    Settings-form path (_BUSINESS_COLS) so a profile save never flips it by omission."""
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET growth_on=? WHERE id=?",
+                 (1 if on else 0, business_id))
+    conn.commit()
+    conn.close()
 
 
 def update_business(business_id, fields):
@@ -763,6 +824,31 @@ def list_leads(business_id):
     return [dict(r) for r in rows]
 
 
+def search_leads(business_id, query, limit=8):
+    """Free-text lead lookup (name / phone / project / summary), tenant-scoped, newest first.
+    A digit run in the query also matches the stored E.164 phone (so "5550111" finds
+    "+15125550111"). Returns [] for an empty query."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    like = f"%{q}%"
+    digits = re.sub(r"\D", "", q)
+    clauses = ["name LIKE ? COLLATE NOCASE", "phone LIKE ?",
+               "IFNULL(project_type,'') LIKE ? COLLATE NOCASE",
+               "IFNULL(summary,'') LIKE ? COLLATE NOCASE"]
+    params = [business_id, like, like, like, like]
+    if len(digits) >= 4:
+        clauses.append("phone LIKE ?")
+        params.append(f"%{digits}%")
+    params.append(limit)
+    conn = get_conn()
+    rows = conn.execute(
+        f"SELECT * FROM leads WHERE business_id=? AND ({' OR '.join(clauses)}) "
+        "ORDER BY id DESC LIMIT ?", tuple(params)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def leads_with_stage(business_id):
     """Leads (newest first) with a triage stage available for every lead without
     opening it: scheduled (booked) / warm (has replied) / new (no reply yet)."""
@@ -786,9 +872,15 @@ def leads_with_stage(business_id):
     return out
 
 
-def mark_lead_urgent(lead_id):
+def mark_lead_urgent(lead_id, business_id=None):
+    # business_id is optional for back-compat, but production callers pass it: defense-in-depth
+    # tenant scoping so a stray lead_id can never flip another tenant's lead.
     conn = get_conn()
-    conn.execute("UPDATE leads SET urgent=1 WHERE id=?", (lead_id,))
+    if business_id is None:
+        conn.execute("UPDATE leads SET urgent=1 WHERE id=?", (lead_id,))
+    else:
+        conn.execute("UPDATE leads SET urgent=1 WHERE id=? AND business_id=?",
+                     (lead_id, business_id))
     conn.commit()
     conn.close()
 
@@ -1677,10 +1769,16 @@ def get_suggestion(sug_id, business_id):
     return dict(row) if row else None
 
 
-def set_suggestion_status(sug_id, status):
+def set_suggestion_status(sug_id, status, business_id=None):
+    # business_id optional for back-compat; production callers pass it for defense-in-depth
+    # tenant scoping (the routes already 404-guard via get_suggestion, this is belt + braces).
     conn = get_conn()
-    conn.execute("UPDATE contact_suggestions SET status=?, updated_at=? WHERE id=?",
-                 (status, now_iso(), sug_id))
+    if business_id is None:
+        conn.execute("UPDATE contact_suggestions SET status=?, updated_at=? WHERE id=?",
+                     (status, now_iso(), sug_id))
+    else:
+        conn.execute("UPDATE contact_suggestions SET status=?, updated_at=? "
+                     "WHERE id=? AND business_id=?", (status, now_iso(), sug_id, business_id))
     conn.commit()
     conn.close()
 
@@ -1869,6 +1967,58 @@ def mark_scheduled(sched_id, status):
     conn.close()
 
 
+# ---- Phase 3 growth engine: signal reads (one pass feeds every play) ----
+def growth_candidates(business_id):
+    """One row per lead with the aggregates every growth play needs: contact + status +
+    last inbound/outbound message times + booked-appointment count + most recent booked
+    appointment day. Powers growth.plays() in a single pass (no per-lead N+1)."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT l.id, l.name, l.phone, l.status, l.created_at, l.address, "
+        "(SELECT MAX(m.created_at) FROM messages m "
+        "   WHERE m.lead_id=l.id AND m.direction='out') AS last_out_at, "
+        "(SELECT MAX(m.created_at) FROM messages m "
+        "   WHERE m.lead_id=l.id AND m.direction='in') AS last_in_at, "
+        "(SELECT COUNT(*) FROM appointments a "
+        "   WHERE a.lead_id=l.id AND a.status='booked') AS booked_count, "
+        "(SELECT MAX(a.day) FROM appointments a "
+        "   WHERE a.lead_id=l.id AND a.status='booked') AS last_appt_day "
+        "FROM leads l WHERE l.business_id=?",
+        (business_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def growth_touch_index(business_id):
+    """Map lead_id -> set of growth `kind`s already in flight (status != canceled), so
+    plays()/scan() never re-offer or re-queue a touch already pending or sent, in one query."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT lead_id, kind FROM scheduled_messages "
+        "WHERE business_id=? AND status!='canceled' "
+        "AND kind NOT IN ('reminder','followup')", (business_id,)).fetchall()
+    conn.close()
+    idx = {}
+    for r in rows:
+        idx.setdefault(r["lead_id"], set()).add(r["kind"])
+    return idx
+
+
+def cancel_lead_growth_touches(lead_id, kinds):
+    """Cancel a lead's PENDING growth touches of the given kinds -- e.g. pause the whole
+    quote-followup sequence the moment the lead books. Mirrors cancel_lead_pending_reminders."""
+    kinds = list(kinds or [])
+    if not kinds:
+        return
+    conn = get_conn()
+    qs = ",".join("?" for _ in kinds)
+    conn.execute(f"UPDATE scheduled_messages SET status='canceled' "
+                 f"WHERE lead_id=? AND kind IN ({qs}) AND status='pending'",
+                 (lead_id, *kinds))
+    conn.commit()
+    conn.close()
+
+
 def followup_candidate_rows(business_id):
     """Warm leads (replied, not booked) with their last-message time and whether a
     follow-up was ever queued. The 'is it cold yet' time decision is left to the
@@ -2013,31 +2163,119 @@ def analytics(business_id, days=30):
 
 
 # ---- Command-center conversation memory (record / flag / learn) ----
-def start_or_get_convo(business_id, session_key):
-    """Reuse this browser session's current conversation (if recent) or open a new one."""
+def start_or_get_convo(business_id, session_key, browser_key=None):
+    """Reuse this owner's current conversation or open a new one. A `browser_key` (a stable
+    id the client keeps in localStorage) is preferred when present: it survives page reloads
+    -- so "text her back" still resolves after a refresh -- with a 24h window. The ephemeral
+    `session_key` (per page load) remains the fallback for older clients, with a 2h window."""
     conn = get_conn()
-    row = conn.execute(
-        "SELECT id, last_at FROM assistant_convos WHERE business_id=? AND session_key=? "
-        "ORDER BY id DESC LIMIT 1", (business_id, session_key or "")).fetchone()
     cid = None
-    if row:
-        try:
-            gap = (datetime.now(timezone.utc)
-                   - datetime.fromisoformat(row["last_at"])).total_seconds()
-            if gap < 7200:
-                cid = row["id"]
-        except (ValueError, TypeError):
-            cid = row["id"]
+    if browser_key:
+        row = conn.execute(
+            "SELECT id, last_at FROM assistant_convos WHERE business_id=? AND browser_key=? "
+            "ORDER BY id DESC LIMIT 1", (business_id, browser_key)).fetchone()
+        cid = _reuse_convo(row, 86400)        # 24h: reload-durable
+    if cid is None:
+        row = conn.execute(
+            "SELECT id, last_at FROM assistant_convos WHERE business_id=? AND session_key=? "
+            "ORDER BY id DESC LIMIT 1", (business_id, session_key or "")).fetchone()
+        cid = _reuse_convo(row, 7200)         # 2h: per-page-load fallback
     now = now_iso()
     if cid is None:
         cid = conn.execute(
-            "INSERT INTO assistant_convos (business_id, session_key, started_at, last_at) "
-            "VALUES (?,?,?,?)", (business_id, session_key or "", now, now)).lastrowid
+            "INSERT INTO assistant_convos (business_id, session_key, browser_key, started_at, "
+            "last_at) VALUES (?,?,?,?,?)",
+            (business_id, session_key or "", browser_key or "", now, now)).lastrowid
     else:
         conn.execute("UPDATE assistant_convos SET last_at=? WHERE id=?", (now, cid))
     conn.commit()
     conn.close()
     return cid
+
+
+def _reuse_convo(row, window_secs):
+    """The convo id to reuse from a lookup row if it's within `window_secs`, else None."""
+    if not row:
+        return None
+    try:
+        gap = (datetime.now(timezone.utc) - datetime.fromisoformat(row["last_at"])).total_seconds()
+        return row["id"] if gap < window_secs else None
+    except (ValueError, TypeError):
+        return row["id"]
+
+
+def record_turn_entities(business_id, convo_id, turn_id, entities):
+    """Remember the records a turn showed (leads/appointments), so a later turn can resolve
+    a referent ("her", "the second one") to a concrete id. Safe no-op when empty."""
+    if not entities:
+        return
+    conn = get_conn()
+    now = now_iso()
+    conn.executemany(
+        "INSERT INTO assistant_turn_entities (business_id, convo_id, turn_id, kind, entity_id, "
+        "name, phone, ordinal, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        [(business_id, convo_id, turn_id, e.get("kind"), e.get("id"), e.get("name") or "",
+          e.get("phone") or "", e.get("ordinal"), now) for e in entities])
+    conn.commit()
+    conn.close()
+
+
+def incr_rate(business_id, bucket, window_secs=60):
+    """Increment and return this tenant's action count in the current time window -- a cheap
+    per-tenant sliding-window rate counter. Stale windows for this bucket are pruned on every
+    call, so the table never accumulates more than one row per (tenant, bucket)."""
+    import time
+    key = f"{bucket}:{int(time.time() // window_secs)}"
+    conn = get_conn()
+    conn.execute("INSERT INTO rate_limits (business_id, k, n) VALUES (?,?,1) "
+                 "ON CONFLICT(business_id, k) DO UPDATE SET n = n + 1", (business_id, key))
+    # Drop every other window for this bucket -- only the current one is ever consulted.
+    conn.execute("DELETE FROM rate_limits WHERE business_id=? AND k LIKE ? AND k<>?",
+                 (business_id, f"{bucket}:%", key))
+    n = conn.execute("SELECT n FROM rate_limits WHERE business_id=? AND k=?",
+                     (business_id, key)).fetchone()["n"]
+    conn.commit()
+    conn.close()
+    return n
+
+
+def add_audit(business_id, action, detail=""):
+    """Record a gated/confirmed action for this tenant -- the abuse + reconciliation trail."""
+    conn = get_conn()
+    conn.execute("INSERT INTO audit_log (business_id, action, detail, created_at) "
+                 "VALUES (?,?,?,?)", (business_id, action, (detail or "")[:500], now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def list_audit(business_id, limit=50):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT action, detail, created_at FROM audit_log WHERE business_id=? "
+        "ORDER BY id DESC LIMIT ?", (business_id, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def recent_entities(business_id, convo_id):
+    """The entities most recently shown in this conversation (the latest turn that showed
+    any), ordered by the position they appeared in -- the context for resolving "her" /
+    "the second one". [] when nothing has been shown yet."""
+    if not convo_id:
+        return []
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT MAX(turn_id) AS t FROM assistant_turn_entities WHERE business_id=? AND convo_id=?",
+        (business_id, convo_id)).fetchone()
+    if not row or row["t"] is None:
+        conn.close()
+        return []
+    rows = conn.execute(
+        "SELECT kind, entity_id, name, phone, ordinal FROM assistant_turn_entities "
+        "WHERE business_id=? AND turn_id=? ORDER BY ordinal", (business_id, row["t"])).fetchall()
+    conn.close()
+    return [{"kind": r["kind"], "id": r["entity_id"], "name": r["name"],
+             "phone": r["phone"], "ordinal": r["ordinal"]} for r in rows]
 
 
 def recent_user_turns(convo_id, business_id, limit=6):

@@ -3,9 +3,10 @@
 {% block page_title %}{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="/static/assistant.css?v=7">
+<link rel="stylesheet" href="/static/assistant.css?v=13">
 <section class="command-shell" id="command"
          data-suggestions='{{ suggestions|tojson }}'
+         data-feed-sig="{{ feed_sig }}"
          data-hello="{{ hello }}">
 
   {# ---- The Jarvis core: a living orb that is the assistant's presence ---- #}
@@ -23,11 +24,45 @@
       <p class="convo-sub">Tell me what you want done. I can pull your numbers, show your
         leads and booked estimates, save a contact, connect your calendar, and text a lead
         back. You can still work by hand in the <a href="/pipeline">Pipeline</a>.</p>
+      {# The trust headline the competition can't copy (BRAIN §6). Stated plainly, not loudly. #}
+      <ul class="trust-line" aria-label="Our promises to you">
+        <li>We don't sell your leads.</li>
+        <li>We don't share your customers.</li>
+        <li>We don't text anyone you haven't approved.</li>
+      </ul>
+      {# ---- Morning briefing: server-rendered, money first, one action each. Works with
+         zero JS. Honest by construction (composed from real leads/estimates, never a
+         guessed name). Shown only when there's something to act on. ---- #}
+      <div id="briefingSlot">
+      {% if briefing and briefing['items'] %}
+      <div class="briefing" role="region" aria-label="Your briefing">
+        <p class="briefing-headline">{{ briefing['headline'] }}</p>
+        {% if briefing['sub'] %}<p class="briefing-sub">{{ briefing['sub'] }}</p>{% endif %}
+        <ul class="briefing-list">
+          {% for it in briefing['items'] %}
+          <li class="briefing-item is-{{ it['tone'] }}">
+            <button type="button" class="briefing-row" data-action="{{ it['action'] }}">
+              {% if it['label'] %}<span class="sr-only">{{ it['label'] }}: </span>{% endif %}
+              <span class="briefing-dot" aria-hidden="true"></span>
+              <span class="briefing-text">
+                <span class="briefing-t">{{ it['title'] }}</span>
+                {% if it['sub'] %}<span class="briefing-s">{{ it['sub'] }}</span>{% endif %}
+              </span>
+              <span class="briefing-go" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </span>
+            </button>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      </div>{# /briefingSlot #}
       {% if digest and digest.has_content %}<p class="convo-digest">{{ digest.line }} <a href="/training">Review in Memory</a>.</p>{% endif %}
       {# Go-live nudge: server-rendered, works with zero JS, and the no-JS path to /setup.
          Honest — never shown once the tenant is verified-live (golive.live_verified). #}
       {% if golive and not golive.live_verified %}
-      <p class="convo-setup convo-setup--{{ golive.status }}">
+      <div class="convo-setup convo-setup--{{ golive.status }}">
         <a class="convo-setup-link" href="/setup">
           {% if golive.status == 'setup_complete' %}
           <svg class="convo-setup-ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
@@ -38,7 +73,7 @@
           {% endif %}
           <svg class="convo-setup-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </a>
-      </p>
+      </div>
       {% endif %}
     </div>
     <div class="transcript" id="transcript" aria-live="polite"></div>
@@ -50,8 +85,14 @@
     <form class="command-bar" id="commandBar" autocomplete="off">
       <span class="command-spark" aria-hidden="true"></span>
       <input class="command-input" id="commandInput" name="message" type="text"
-             placeholder="Ask RingBack to do something..." aria-label="Command RingBack"
-             autofocus>
+             placeholder="Ask RingBack to do something..." aria-label="Command RingBack">
+      {# Push-to-talk: Web Speech API only, no new infra. Hidden until JS confirms support;
+         dictates into the bar so the owner can review before it ever sends (no blind send). #}
+      <button class="command-mic" id="commandMic" type="button" aria-pressed="false"
+              aria-label="Dictate your command" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
       <button class="command-send" id="commandSend" type="submit" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
@@ -60,7 +101,7 @@
     <p class="command-foot">RingBack confirms before it texts anyone. Nothing is sent without your okay.</p>
   </div>
 
-  <input type="hidden" id="csrfToken" value="">
+  <input type="hidden" id="csrfToken" value="{{ csrf_token }}">
 </section>
-<script defer src="/static/assistant.js?v=8"></script>
+<script defer src="/static/assistant.js?v=18"></script>
 {% endblock %}

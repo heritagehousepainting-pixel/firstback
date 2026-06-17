@@ -5,6 +5,191 @@ vs. gated. This is the list of things **you** must do to turn the honest-but-gat
 beta / placeholder states into fully live ones. Integration credential steps live in
 `USER_TO_DO.md`; this file tracks the truth-audit follow-ups.
 
+## Command Center — Phase 0 (the "honest hands") — what's live vs. gated
+The `/dashboard` command center was hardened (see `BRAIN.md` for the full vision). Phase 0
+needs **no new external accounts**; it works keyless in the demo brain. Notes:
+- **Honest confirm:** before any text reaches a customer the owner now sees the exact
+  recipient, the editable body, and a live/test/opt-out badge. The badge keys off the Twilio +
+  A2P setup already tracked below — until those are live it correctly reads **"Test mode — not
+  sent for real yet."** Nothing new to configure for the safety itself.
+- **Conversation memory + "text her back":** server-side, no setup. Works in `demo`.
+- **Multi-step tool-calling brain:** engages when a real LLM key is set (`ANTHROPIC_API_KEY` +
+  `RINGBACK_PROVIDER=claude`, or `MINIMAX_API_KEY` + `RINGBACK_PROVIDER=minimax`); with no key the
+  deterministic keyword router runs everything (honest, single-step). **Verified live against
+  MiniMax** (multi-step reads work end-to-end); the Claude path is verified against the official
+  tool-use API reference. **Reliability note:** MiniMax does not reliably *invoke* write tools
+  (it tends to talk about texting instead of calling the tool), so **clear write intents (text /
+  book / cancel / scheduling change) are routed through the deterministic router even when an LLM
+  is keyed** — they gate reliably. Reads, chat, and fuzzy phrasing use the LLM loop. The confirm
+  gate is never bypassed on either path. For the richest LLM behavior (multi-step writes like
+  "book John then text him"), use Claude (`ANTHROPIC_API_KEY`).
+- **Rate limit (new knob):** `RINGBACK_ASSISTANT_RPM` (default **60** assistant turns/min per
+  tenant) caps runaway LLM cost/abuse. Raise/lower in env; no action needed for normal use.
+- **CSRF:** the assistant POSTs now require the per-session token (auto-wired in the page). No
+  setup; just don't strip the hidden `csrfToken` field from `command.html`.
+
+### Phase 1 (booking + search + money-framed leads) — no new setup
+The chat can now **book / cancel estimates, show open windows, flag urgent, and find a lead by
+name or number** (all tenant-scoped; the slot/appointment is pinned at confirm so you book exactly
+what you saw). No new accounts or keys. One thing to set for the **dollar framing** on the lead
+card ("3 open, ~$8,400 on the table"): the owner's **average job value** in *Settings* (or it just
+shows leads without the money line until then). Booking does **not** text the customer — it holds
+the slot and offers to send a confirmation, which still goes through the honest confirm.
+
+### Phase 2 (Vic shows up: briefing + tappable feed + persona + real-time) — no new setup
+The command center is now proactive. Live, keyless, works in the `demo` brain:
+- **Morning Briefing** — a server-rendered, money-ranked card on `/dashboard`: what needs
+  the owner now (urgent → replied → today's estimates → new leads), one action each,
+  read in ~12 seconds. Honest by construction (composed from real leads/estimates, never a
+  guessed name; quiet + empty when there's nothing yet). Also summonable by chat
+  ("what should I focus on?", "catch me up").
+- **Tappable ambient feed** — each briefing item is a one-tap action (text the lead, show
+  booked estimates, show leads). Keyboard-focusable, ≥44px targets, sr-only status words so
+  tone is never conveyed by color alone. Zero-JS fallback: items are still readable.
+- **The Vic persona** — one foreman voice woven through every LLM reply path (lead with
+  money, own the recommendation, never perform, never make up a customer detail). Engages
+  when an LLM key is set; the keyword floor speaks the same way. No setup.
+- **Real-time refresh (poll baseline)** — `GET /api/feed` returns the current briefing +
+  chips + a content signature; the page polls every 25s (and on tab focus) and refreshes the
+  feed **in place without wiping the chat**. A just-missed call now surfaces without a reload.
+  Read-only, tenant-scoped, login-gated. No setup.
+
+**Documented next step (NOT built yet) — lower-latency + away-case notifications:**
+- **SSE** (server-sent events) would replace the 25s poll with a push stream for instant
+  updates. Needs a streaming-capable worker (gunicorn `gthread`/`gevent` + `X-Accel-Buffering:
+  no`); the poll baseline above is the honest, working fallback until then.
+- **Web push** (notify the owner when the app is closed) needs **VAPID keys** (operator
+  generates a keypair, sets `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`), `pywebpush`, a service
+  worker, and a `push_subscriptions` table. This is real user setup + a service-worker build,
+  so it's deferred and called out here rather than half-built. SMS/email owner alerts
+  (`alerts.py`) already cover the away case in the meantime.
+
+## Phase 3 — The growth engine (convert + grow)
+Vic now hunts new business: a money-ranked **plays** feed computed from signals that already
+exist (`growth.py`), surfaced via the chat ("what plays do I have", "money left behind",
+"grow my business", "get reviews") and the **Money Left Behind** stat. Each play is one tap
+to a **gated** draft text — the owner sees exact recipient + body + opt-out + live/test and
+approves before anything sends (same confirm as everywhere else). Live, keyless:
+- **Convert:** compliant **review requests** (asks EVERY completed-job customer — the trigger
+  references no sentiment/rating signal; review gating is illegal, FTC + Google) and **quote
+  follow-ups** (a quiet quote 24h–30d out).
+- **Grow:** **reactivation** (cold quotes 30d+), **win-back** (past customers 12–18 mo),
+  **referral** (just-wrapped jobs), **membership** (repeat, lower-ticket customers), plus
+  owner-initiated **seasonal**, **density** (3+ jobs in a parsed zip / 14 days), and
+  **financing** prompts (over the trade threshold).
+- **Auto-pause:** booking a lead cancels its pending follow-up/reactivation touches.
+- **Honest proxies (no new external data):** "job completed" ≈ a booked appointment whose
+  day has passed; "ticket value" ≈ your **average job value** (set it in Settings for the
+  dollar figures); "zip" ≈ parsed from a lead's address (skipped when absent).
+
+### What you must set / decide for Phase 3
+- **Your Google review link** — set `review_link` on the business so review-request copy links
+  straight to your Google review page (until set, the draft shows a `[your Google review link]`
+  placeholder the owner fills before sending). No UI toggle yet; set via Settings/DB.
+- **Auto-send opt-in (`growth_on`, default OFF)** — the plays feed + one-tap gated sends are
+  always live. **Auto-queued** growth texts (the background scheduler enqueuing reviews /
+  follow-ups on a schedule) are an explicit per-business opt-in via `db.set_growth_on(biz, 1)`,
+  and even then they only *simulate* until Twilio + A2P are live (see below). This is the
+  safety so nobody blasts customers by accident. No UI toggle yet.
+- **The scheduler** — auto-touches fire from the same `POST /tasks/run-due` cron as reminders
+  (`reminders.tick_once` now also runs `growth.scan`). Already wired; needs the cron hitting
+  `/tasks/run-due` in prod (same as reminders/followups).
+
+### Deferred — needs a Google Business Profile (GBP) connector (NOT built)
+- **Negative-review rapid response** (draft a reply to a <3-star review) and **before/after +
+  GBP post** require reading/writing Google Business Profile review + post data. There is no
+  GBP integration yet (only Google Calendar/Contacts OAuth). These are intentionally **not**
+  built rather than faked. To add: a GBP OAuth connector + a `reviews` store, then the draft
+  play lights up. Tracked here so it's not a surprise.
+
+### Local testing (no Render, no keys): `./run_local.sh`
+Spins up an **isolated** instance at `http://localhost:8800` on its own `local_test.db` (your
+real `ringback.db` is never touched), keyless demo brain, seeded with a login
+(`owner@ringback.local` / `test1234`) and 3 sample leads. Try: *"show my leads"* →
+*"text the second lead saying running 10 minutes late"* to see the honest confirm + anaphora.
+
+## Phase 4 — Polish & soul (streaming, brain, mobile/field, a11y, voice, trust)
+Phase 4 made the command center feel like an employee. Live, keyless where possible; the
+honest live-vs-deferred status:
+
+- **Brain → Claude (recommended default).** `config.PROVIDER` now defaults to **`claude`**.
+  It only engages once **`ANTHROPIC_API_KEY`** is set; with no key it falls back to the demo
+  brain (safe no-op locally) — set `RINGBACK_PROVIDER=minimax` to use MiniMax instead. To run
+  Claude for real, set `ANTHROPIC_API_KEY` + `RINGBACK_PROVIDER=claude` (`CLAUDE_MODEL`
+  defaults to `claude-opus-4-8`). **Status: the Claude path — including the new streaming
+  branch — is code-verified against the official Messages API reference but NOT live-fired
+  (no key in this environment).** The demo + MiniMax paths are exercised.
+- **Streaming replies (`/assistant/stream`, real SSE).** A genuine `text/event-stream`
+  sibling of `/assistant`: identical auth + CSRF + rate-limit + memory + the **confirm gate**
+  (a write still stops at a `pending_action` you approve). Each frame is `data: {json}` — text
+  `delta`s, then one `done` carrying the same `{reply, cards, pending_action, coach}` shape.
+  **Honest scope:** tokens stream **live from the model only on the Claude path**
+  (`messages.stream`); for the demo / MiniMax / keyword-routed paths the server-computed reply
+  is streamed **chunked** over the same SSE transport (a keyword router has no tokens to
+  stream). The non-streaming `/assistant` stays the fallback (used automatically when the
+  browser can't stream, when reduced-motion is set, or if a stream fails before any text).
+  **Prod note:** SSE needs a streaming-capable worker (gunicorn `gthread`/`gevent` +
+  `X-Accel-Buffering: no`, already set on the response) — the same requirement the Phase 2 SSE
+  note tracks. On a single-threaded sync worker the stream still works but ties up the worker
+  for the turn.
+- **Daily LLM budget (new knob).** `RINGBACK_ASSISTANT_DAILY` (default **400** LLM-backed
+  turns/tenant/day) caps cumulative cost on top of the per-minute `RINGBACK_ASSISTANT_RPM`.
+  Past it the assistant **degrades to the keyword floor** (booking, lists, and the confirm
+  gate all still work; only the fuzzy/chat LLM path is withheld until the window rolls over) —
+  it does not hard-block. No action needed for normal use.
+- **Push-to-talk voice — Web Speech API only, no new infra.** A mic button in the command bar
+  dictates into the bar so the owner can read/edit before sending (**never auto-sends**). It
+  is hidden automatically when the browser has no `SpeechRecognition` (e.g. most desktop
+  Firefox). Nothing to configure; no server-side voice service involved (that's the separate,
+  still-deferred `ringback-voice` beta below).
+- **Honest/gated orb + a11y + mobile/field.** The orb's old "speaking" state is renamed
+  **"responding"** (there is no audio); the WebGL orb is gated off (static glow) for
+  reduced-motion, **Save-Data**, and a **low/unplugged battery**. Mobile: autofocus dropped on
+  touch (no keyboard-pop over the briefing), ≥48px tap targets, a **Save-Data/`prefers-contrast`
+  sunlight** treatment, and an **offline banner**. No setup.
+- **The trust headline** ("We don't sell your leads. We don't share your customers. We don't
+  text anyone you haven't approved.") is surfaced on the command center. It's a promise the
+  product keeps by construction (per-tenant isolation + the confirm gate) — keep it true.
+- **Delight moments:** the Morning Briefing, the "replied/waiting" nudge, and **The Win**
+  (a booked estimate shown with `~$<avg job value> booked`, only when the value is set) are
+  tuned for restraint. **The 5-Star** (review thank-you) and **The Catch** (slot-collision
+  warning) are honestly **not built** — the 5-Star needs the Google Business Profile connector
+  (see Phase 3 deferred), and collision detection is a future slice, not faked.
+
+## Phase 5 — deep-audit punch-list (none block local/simulated use; close before LIVE sends)
+A 5-agent deep audit of the whole command center (2026-06-17) found **zero P0 regressions**; the
+gate, tenant isolation, and review-gating compliance are sound. Fixed in code: review-request now
+only fires on jobs ≤90 days old; a simulated send no longer renders with a green "success" tint;
+`execute()` returns the full `{reply,cards,pending_action,meta}` shape; defense-in-depth tenant
+scoping added to `mark_lead_urgent` / `set_suggestion_status`; a batch of frontend a11y fixes
+(WCAG-AA label contrast, ≥44px chip/button tap targets, expired-session message on 403, mic
+stop on navigation, confirm-button focus); and two pre-existing marketing-copy honesty carryovers
+(the "live AI voice" lede on `/product`, the invented testimonial on the login page). These remain
+as a punch-list — **none affect the current simulated/local state**, but address before real
+customer sends / prod cron:
+- **Growth auto-send + the trust headline.** Enabling `growth_on=1` makes the background scheduler
+  send growth texts without a per-send approval — which makes the "we don't text anyone you haven't
+  approved" promise conditional. `growth_on` is **OFF by default with no UI toggle**, so this can't
+  happen from the app today. **Before shipping a `growth_on` UI toggle, add a per-send/per-batch
+  approval step** (or an explicit opt-in disclosure that carves scheduled automations out of the
+  headline).
+- **A failed growth touch currently can't be retried.** The dedupe index keeps one touch per lead
+  per kind for any status except `canceled`; a touch that lands in `failed` (a Twilio error once
+  live) holds the slot and blocks re-queue. Only relevant once Twilio + A2P are live. Fix: exclude
+  `failed` from `uniq_growth_touch_per_lead` and `growth_touch_index` (index migration), or cancel
+  a failed touch so the slot frees.
+- **Cancel-then-reminder ordering.** `cancel_appointment` cancels the appointment, then its reminders
+  on a separate connection. The ticker re-checks appointment status before sending, so **no double
+  text can go out** — but a canceled appt's reminder can show "skipped" instead of "canceled", and a
+  crash between the two leaves an orphaned reminder row. Minor; fold the reminder-cancel into the
+  same transaction when convenient.
+- **Rate-counter window edge.** At the exact second a rate window rolls over, a concurrent prune can
+  reset the next window's counter, letting a few extra turns through. It's a cost guard, not a
+  security control; impact is negligible. Optional: wrap `incr_rate` in `BEGIN IMMEDIATE`.
+- **Cron secret required in prod.** `/tasks/run-due` (reminders + growth scan) returns 403 unless
+  `RINGBACK_TASKS_SECRET` (and `RINGBACK_INTERNAL_SECRET` for internal calls) are set in the prod
+  env. Code fails closed when unset — so set them, or the scheduler silently never runs.
+
 ## Go-Live wizard (`/setup`) — contractor self-serve connection
 The **Go Live** page (`connections.py` + `templates/setup.html`) takes a contractor from
 signup to live missed-call text-back without a shell or the Twilio console: business profile

@@ -28,7 +28,11 @@ TAGLINE = "Never lose another job to a missed call."
 #   "demo"    -> built-in rule-based script (zero setup, but no real understanding)
 # If the chosen provider has no API key, RingBack safely falls back to the demo
 # brain so the app always runs.
-PROVIDER = os.environ.get("RINGBACK_PROVIDER", "minimax")
+# Default is "claude": the recommended brain for the launch (richest multi-step agentic
+# writes + live token streaming on /assistant/stream). It engages only once ANTHROPIC_API_KEY
+# is set -- with no key it falls back to the demo brain, so this default is a safe no-op
+# locally. Set RINGBACK_PROVIDER=minimax to use MiniMax instead.
+PROVIDER = os.environ.get("RINGBACK_PROVIDER", "claude")
 
 # MiniMax — OpenAI-compatible chat completions. Set MINIMAX_API_KEY to turn on.
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")

@@ -14,7 +14,7 @@ from functools import wraps
 from urllib.parse import quote
 
 from flask import (Flask, render_template, request, redirect, jsonify, session,
-                   url_for, abort)
+                   url_for, abort, Response, stream_with_context)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import json
@@ -173,7 +173,66 @@ def inject_globals():
     # signed in (no template renders on JSON/webhook routes, so this stays cheap).
     golive_complete = bool(u and connections.is_live(biz))
     return {"app_name": APP_NAME, "tagline": TAGLINE, "brain": ai.brain_mode(),
-            "business": biz, "current_user": u, "golive_complete": golive_complete}
+            "business": biz, "current_user": u, "golive_complete": golive_complete,
+            "csrf_token": _csrf_token()}
+
+
+# ---- Command-center hardening: CSRF, history sanitization, rate limiting ----
+# Per-tenant ceiling on assistant turns per minute. SameSite=Lax already blocks cross-site
+# POSTs; this caps runaway cost/abuse from an authenticated client hammering the LLM.
+ASSISTANT_RPM = int(os.environ.get("RINGBACK_ASSISTANT_RPM", "60") or "60")
+# Per-tenant DAILY ceiling on LLM-backed assistant turns. The per-minute limiter above stops
+# bursts; this caps cumulative daily cost. Past it the assistant keeps working but degrades to
+# the deterministic keyword floor (allow_llm=False) -- booking, lists, and the confirm gate
+# all still function; only the fuzzy/chat LLM path is withheld until the window rolls over.
+ASSISTANT_DAILY = int(os.environ.get("RINGBACK_ASSISTANT_DAILY", "400") or "400")
+
+
+def _assistant_budget(biz, message):
+    """Spend one assistant turn against this tenant's rate budgets. Returns
+    (allow_llm, throttled): `throttled` trips the per-minute burst limiter (caller should ask
+    the owner to slow down); `allow_llm` is False once the daily LLM budget is spent (caller
+    degrades to the keyword floor). No-op for an empty message."""
+    if not message:
+        return True, False
+    throttled = db.incr_rate(biz["id"], "assistant", 60) > ASSISTANT_RPM
+    allow_llm = db.incr_rate(biz["id"], "assistant_daily", 86400) <= ASSISTANT_DAILY
+    return allow_llm, throttled
+
+
+def _csrf_token():
+    """Get-or-create this session's CSRF token (double-submit). Rendered into the command
+    center and echoed back by the JS as `_csrf`; validated on every assistant POST."""
+    tok = session.get("csrf_token")
+    if not tok:
+        tok = secrets.token_hex(32)
+        session["csrf_token"] = tok
+    return tok
+
+
+def _csrf_ok():
+    """The form's `_csrf` matches the session token (constant-time). Defense in depth on top
+    of the SameSite session cookie."""
+    tok = session.get("csrf_token")
+    return bool(tok) and secrets.compare_digest(tok, request.form.get("_csrf", ""))
+
+
+def _sanitize_history(raw):
+    """Client-supplied chat history is UNTRUSTED (it feeds the LLM). Keep only well-formed
+    user/assistant turns, cap each to 500 chars and the list to 12, and drop anything else
+    (impersonated 'system' turns, non-strings, junk) before it reaches the brain."""
+    try:
+        data = json.loads(raw or "[]")
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    clean = []
+    for item in data[-12:]:
+        if isinstance(item, dict) and item.get("role") in ("user", "assistant") \
+                and isinstance(item.get("content"), str):
+            clean.append({"role": item["role"], "content": item["content"][:500]})
+    return clean
 
 
 # ---- Pages ----
@@ -364,10 +423,40 @@ def dashboard():
     biz = current_business()
     owner = (biz.get("owner_name") or "").strip() if biz else ""
     hello = f"{part}, {owner.split()[0]}." if owner else f"{part}."
+    brief, chips, feed_sig = _command_feed(biz)
     return render_template("command.html", hello=hello,
+                           briefing=brief, feed_sig=feed_sig,
                            digest=convos.digest(biz["id"]),
                            golive=connections.golive_summary(biz),
-                           suggestions=assistant.suggestions())
+                           suggestions=chips)
+
+
+def _command_feed(biz):
+    """The command-center feed payload: the briefing card, adaptive chips, and a content
+    signature. Best-effort -- a DB hiccup degrades to a quiet briefing / static chips, never
+    a 500. Shared by the /dashboard render and the /api/feed real-time poll."""
+    try:
+        brief = assistant.briefing(biz)
+    except Exception as e:
+        print(f"[ringback] briefing failed, hiding it: {e}", flush=True)
+        brief = {"type": "briefing", "tone": "quiet", "headline": "", "sub": "", "items": []}
+    try:
+        chips = assistant.adaptive_suggestions(biz)
+    except Exception as e:
+        print(f"[ringback] adaptive suggestions failed, using static: {e}", flush=True)
+        chips = assistant.suggestions()
+    return brief, chips, assistant.briefing_signature(brief)
+
+
+@app.route("/api/feed")
+@login_required
+def api_feed():
+    """Real-time refresh for the command center (poll baseline). Returns the current briefing
+    card, adaptive chips, and a signature so the client re-renders only on change. Read-only,
+    tenant-scoped -- a just-missed call surfaces without a reload that would wipe the chat."""
+    biz = current_business()
+    brief, chips, sig = _command_feed(biz)
+    return jsonify(briefing=brief, suggestions=chips, sig=sig)
 
 
 @app.route("/pipeline")
@@ -399,19 +488,79 @@ def assistant_chat():
     (RingBack's API auth is the SameSite session cookie). Returns reply, inline cards, and
     an optional pending_action that needs an explicit confirm before it runs."""
     biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     message = (request.form.get("message") or "").strip()
-    try:
-        history = json.loads(request.form.get("history") or "[]")
-        if not isinstance(history, list):
-            history = []
-    except (ValueError, TypeError):
-        history = []
-    out = assistant.run(biz, message, history[-12:])
+    allow_llm, throttled = _assistant_budget(biz, message)
+    if throttled:
+        return jsonify({"reply": "One moment, that was a lot at once. Give it a few seconds "
+                                 "and try again.", "cards": [], "pending_action": None,
+                        "meta": {"tool": None, "status": "rate_limited"}}), 429
+    history = _sanitize_history(request.form.get("history"))
+    # Resolve the conversation up front (browser_key survives reloads) so we can recall what
+    # was just shown and resolve referents like "text her back" before routing.
+    convo_key = request.form.get("convo_key", "")
+    browser_key = (request.form.get("browser_key") or "").strip()
+    convo_id = db.start_or_get_convo(biz["id"], convo_key, browser_key) if message else None
+    entities = db.recent_entities(biz["id"], convo_id) if convo_id else []
+    out = assistant.run(biz, message, history, entities=entities, allow_llm=allow_llm)
     if message:
-        convo_id, _ = convos.record_exchange(biz["id"], request.form.get("convo_key", ""),
-                                             message, out)
+        convo_id, _ = convos.record_exchange(biz["id"], convo_key, message, out,
+                                             browser_key=browser_key, convo_id=convo_id)
         out["coach"] = convos.coach_offer(biz["id"], convo_id, message)
     return jsonify(out)
+
+
+@app.route("/assistant/stream", methods=["POST"])
+@login_required
+def assistant_stream():
+    """Streaming sibling of /assistant: the same turn over a Server-Sent-Events channel so
+    the reply renders token-by-token. Identical auth + CSRF + rate-limit + memory contract;
+    each frame is `data: {json}` -- a {"t":"delta","v":...} per text slice, then one
+    {"t":"done","result":{...}} carrying the SAME shape /assistant returns (cards,
+    pending_action, coach), so the client reuses the exact renderers and confirm gate. The
+    non-streaming /assistant above stays the fallback for clients without streaming."""
+    biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
+    message = (request.form.get("message") or "").strip()
+    allow_llm, throttled = _assistant_budget(biz, message)
+    # Throttle before the stream opens, so the HTTP status is an honest 429 (you can't set a
+    # status code once SSE bytes have started). The client's fallback re-hits /assistant.
+    if throttled:
+        return jsonify({"reply": "One moment, that was a lot at once. Give it a few seconds "
+                                 "and try again.", "cards": [], "pending_action": None,
+                        "meta": {"tool": None, "status": "rate_limited"}}), 429
+    history = _sanitize_history(request.form.get("history"))
+    convo_key = request.form.get("convo_key", "")
+    browser_key = (request.form.get("browser_key") or "").strip()
+    convo_id = db.start_or_get_convo(biz["id"], convo_key, browser_key) if message else None
+    entities = db.recent_entities(biz["id"], convo_id) if convo_id else []
+
+    def _sse(obj):
+        return "data: " + json.dumps(obj) + "\n\n"
+
+    def gen():
+        try:
+            for kind, payload in assistant.run_stream(biz, message, history,
+                                                      entities=entities, allow_llm=allow_llm):
+                if kind == "delta":
+                    yield _sse({"t": "delta", "v": payload})
+                else:  # done
+                    if message:
+                        cid, _ = convos.record_exchange(biz["id"], convo_key, message, payload,
+                                                        browser_key=browser_key,
+                                                        convo_id=convo_id)
+                        payload["coach"] = convos.coach_offer(biz["id"], cid, message)
+                    yield _sse({"t": "done", "result": payload})
+        except Exception as e:
+            print(f"[ringback] assistant stream failed: {e}", flush=True)
+            yield _sse({"t": "done", "result": {
+                "reply": "Something went wrong on my end. Try that again.", "cards": [],
+                "pending_action": None, "meta": {"tool": None, "status": "error"}}})
+
+    return Response(stream_with_context(gen()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/assistant/learn", methods=["POST"])
@@ -419,11 +568,14 @@ def assistant_chat():
 def assistant_learn():
     """Accept the assistant's proactive teaching offer: store the learning + resolve the gap."""
     biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     pattern = (request.form.get("pattern") or "").strip()
     action = (request.form.get("action") or "route").strip()
     value = (request.form.get("value") or "").strip()
     if pattern:
         convos.accept_coach(biz["id"], pattern, action, value)
+        db.add_audit(biz["id"], "learn", f"{action}: {pattern[:80]}")
     return jsonify({"ok": bool(pattern)})
 
 
@@ -433,6 +585,8 @@ def assistant_confirm():
     """Run a gated action the owner just approved (e.g. texting a lead). The send still
     flows through the gated messaging.send_sms seam (opt-outs + simulated-vs-live honored)."""
     biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     tool = (request.form.get("tool") or "").strip()
     try:
         args = json.loads(request.form.get("args") or "{}")
@@ -441,12 +595,14 @@ def assistant_confirm():
     except (ValueError, TypeError):
         args = {}
     out = assistant.execute(biz, tool, args)
+    # Audit the confirmed action (no raw phone numbers; the body is the owner's own words).
+    db.add_audit(biz["id"], f"confirm:{tool}", str(args.get("message") or "")[:120])
     convos.record_exchange(biz["id"], request.form.get("convo_key", ""),
                            f"[confirmed: {tool}]", out)
     return jsonify(out)
 
 
-# ---- Mason's Memory / Training: review conversations, call out issues, teach ----
+# ---- Vic's Memory / Training: review conversations, call out issues, teach ----
 _ISSUE_LABEL = {"capability_gap": "RingBack had no tool for this",
                 "empty": "A tool returned nothing", "repeat": "You had to re-ask",
                 "negative": "You pushed back on the answer",
@@ -932,7 +1088,7 @@ def handle_inbound(biz, lead, body):
     db.add_message(lead_id, "in", body)
     urgent = ai.detect_urgency(body)
     if urgent:
-        db.mark_lead_urgent(lead_id)
+        db.mark_lead_urgent(lead_id, biz["id"])
         alerts.notify_async(biz, "urgent", {"lead_id": lead_id,
                                             "name": lead.get("name"),
                                             "phone": lead.get("phone")})
@@ -954,6 +1110,9 @@ def handle_inbound(biz, lead, body):
             # call from them is engaged, not mistaken for a cold lead (never
             # overrides an owner-set personal/vendor/blocked tag).
             db.learn_customer(biz["id"], lead.get("phone"), lead.get("name"))
+            # They booked: stop any queued growth chase (quote follow-up / reactivation),
+            # same auto-pause the command-center booking does.
+            db.cancel_lead_growth_touches(lead_id, ("quote_followup", "reactivation"))
             # Reschedule: now that the new slot is held, release the lead's old
             # estimate(s) so a re-book never double-books or orphans a slot.
             for a in prior:
@@ -1260,7 +1419,7 @@ def api_suggestion_accept(sug_id):
     if category not in ("personal", "vendor", "blocked", "customer"):
         return jsonify(error="Invalid category."), 400
     db.set_contact(biz["id"], sug["number"], category, name=sug.get("name"), source="suggested")
-    db.set_suggestion_status(sug_id, "accepted")
+    db.set_suggestion_status(sug_id, "accepted", biz["id"])
     return jsonify(ok=True, category=category)
 
 
@@ -1271,7 +1430,7 @@ def api_suggestion_dismiss(sug_id):
     biz = current_business()
     if not db.get_suggestion(sug_id, biz["id"]):
         return jsonify(error="Suggestion not found."), 404
-    db.set_suggestion_status(sug_id, "dismissed")
+    db.set_suggestion_status(sug_id, "dismissed", biz["id"])
     return jsonify(ok=True)
 
 
@@ -1286,7 +1445,7 @@ def api_suggestion_reopen(sug_id):
         return jsonify(error="Suggestion not found."), 404
     if sug["status"] == "accepted":
         db.delete_contact(biz["id"], sug["number"])
-    db.set_suggestion_status(sug_id, "pending")
+    db.set_suggestion_status(sug_id, "pending", biz["id"])
     return jsonify(ok=True)
 
 
@@ -1311,13 +1470,13 @@ def api_suggestions_bulk():
         if action == "accept":
             db.set_contact(biz["id"], sug["number"], sug["suggested_category"],
                            name=sug.get("name"), source="suggested")
-            db.set_suggestion_status(sid, "accepted")
+            db.set_suggestion_status(sid, "accepted", biz["id"])
         elif action == "dismiss":
-            db.set_suggestion_status(sid, "dismissed")
+            db.set_suggestion_status(sid, "dismissed", biz["id"])
         else:  # reopen
             if sug["status"] == "accepted":
                 db.delete_contact(biz["id"], sug["number"])
-            db.set_suggestion_status(sid, "pending")
+            db.set_suggestion_status(sid, "pending", biz["id"])
         done += 1
     return jsonify(ok=True, count=done)
 

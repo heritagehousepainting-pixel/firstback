@@ -29,3 +29,6 @@ refs/**/*.mp4
 
 # Reference docs that are their own git repo (not part of the deployable app)
 research/design-for-ai
+
+# Playwright MCP scratch
+.playwright-mcp/

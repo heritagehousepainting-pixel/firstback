@@ -130,6 +130,29 @@ def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True):
     return {"status": "sent", "sid": sid}
 
 
+def outbound_mode(business, to):
+    """What a real send to `to` WOULD do right now, computed without sending -- so the
+    command center can show an honest confirm before anything leaves. Mirrors the gate
+    order in send_sms(). One of:
+      "suppressed" -- recipient opted out; nothing would go out
+      "simulated"  -- Twilio creds / from-number not set; recorded but not really sent
+      "blocked"    -- configured, but A2P 10DLC not approved yet; held back
+      "live"       -- would actually send for real
+      "skipped"    -- no destination number
+    """
+    to = (to or "").strip()
+    if not to:
+        return "skipped"
+    biz_id = business.get("id") if isinstance(business, dict) else None
+    if biz_id and db.is_suppressed(biz_id, to):
+        return "suppressed"
+    if not configured() or not _from_number(business):
+        return "simulated"
+    if not compliance.a2p_ready(business):
+        return "blocked"
+    return "live"
+
+
 def place_call(business, to, twiml_url, status_callback=None):
     """Place an outbound voice call that hands off to TwiML at `twiml_url` (our
     ConversationRelay endpoint, served by voice_service.py). Real Twilio when

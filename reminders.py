@@ -245,8 +245,16 @@ def tick_once(now=None):
     except Exception as e:
         print(f"[ringback] suggestion scan failed: {e}", file=sys.stderr, flush=True)
     queued = scan_followups(now)
+    # Phase 3: enqueue due growth touches (opt-in per business; sent by run_due_once below
+    # through the same gate, simulated until Twilio + A2P are live).
+    growth_queued = 0
+    try:
+        import growth
+        growth_queued = growth.scan(now).get("queued", 0)
+    except Exception as e:
+        print(f"[ringback] growth scan failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
-    return {"queued": queued, "sent": sent}
+    return {"queued": queued, "growth_queued": growth_queued, "sent": sent}
 
 
 # ---- The ticker thread ----

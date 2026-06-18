@@ -28,7 +28,7 @@ import mail
 import messaging
 
 ALERT_KINDS = ("lead", "booking", "urgent", "canceled", "sms_fail", "forwarding_lost",
-               "roi_milestone")
+               "roi_milestone", "vic_morning", "vic_stall")
 # Collapse identical alerts (same business + event) within this many seconds.
 ALERT_DEDUPE_SECONDS = 120
 
@@ -37,7 +37,10 @@ ALERT_DEDUPE_SECONDS = 120
 _TOGGLE_COL = {"lead": "alert_on_lead", "booking": "alert_on_booking",
                "urgent": "alert_on_urgent", "canceled": "alert_on_booking",
                "sms_fail": "alert_on_urgent", "forwarding_lost": "alert_on_urgent",
-               "roi_milestone": "alert_on_roi_milestone"}
+               "roi_milestone": "alert_on_roi_milestone",
+               # Proactive push kinds (ALPHA): map to the lead-alert toggle so they respect
+               # the owner's existing preference without requiring a new DB column.
+               "vic_morning": "alert_on_lead", "vic_stall": "alert_on_lead"}
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -80,6 +83,30 @@ def format_message(kind, context):
     if kind == "forwarding_lost":
         return (f"Call forwarding may be broken for your FirstBack number. "
                 f"Open FirstBack to re-verify.{tail}").rstrip()
+    if kind == "vic_morning":
+        # Honest digest: tell the owner what's waiting, direct them to the app.
+        # NEVER "tap to send" -- the in-app briefing chip is where the one-tap lives.
+        n = context.get("n", 0)
+        money = (context.get("money") or "").strip()
+        hottest = (context.get("hottest") or "").strip()
+        money_part = f", ~{money} on the table" if money else ""
+        hottest_part = f" {hottest}." if hottest else ""
+        lead_word = "lead" if n == 1 else "leads"
+        return f"{n} {lead_word} need you{money_part}.{hottest_part} Open FirstBack."
+    if kind == "vic_stall":
+        name = (context.get("name") or "them").strip()
+        idle_h = context.get("idle_hours", 0)
+        try:
+            idle_h = float(idle_h)
+        except (TypeError, ValueError):
+            idle_h = 0
+        hours_label = f"{int(round(idle_h))}h"
+        money = (context.get("money") or "").strip()
+        money_part = f" -- ~{money} on the table" if money else ""
+        # >48h -> add urgency signal; honest, never alarmist.
+        urgency = " They may be shopping around." if idle_h > 48 else ""
+        return (f"{name} replied {hours_label} ago and is still waiting{money_part}."
+                f"{urgency} Open FirstBack to text them back.")
     return f"FirstBack alert ({kind})."
 
 
@@ -90,7 +117,9 @@ def _subject(kind):
             "canceled": "Estimate canceled — FirstBack",
             "sms_fail": "SMS delivery failed — FirstBack",
             "forwarding_lost": "Call forwarding issue — FirstBack",
-            "roi_milestone": "FirstBack paid for itself — FirstBack"}.get(kind, "FirstBack alert")
+            "roi_milestone": "FirstBack paid for itself — FirstBack",
+            "vic_morning": "Your morning briefing — FirstBack",
+            "vic_stall": "Lead still waiting — FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):
@@ -101,9 +130,39 @@ def _enabled_for(business, kind):
 
 def _dedupe_key(kind, context):
     """A stable key per event so a double-trigger collapses but distinct events
-    (a different lead, a re-book to a new time) still each alert."""
+    (a different lead, a re-book to a new time) still each alert.
+
+    vic_morning: day-stamped per business (one per local calendar day).
+    vic_stall:   day-stamped per (lead, local calendar day) so each lead is
+                 nudged at most once per day, not per window."""
+    if kind == "vic_morning":
+        day = (context.get("local_day") or "").strip()
+        return f"vic_morning:{day}"
+    if kind == "vic_stall":
+        lead_id = context.get("lead_id", "")
+        day = (context.get("local_day") or "").strip()
+        return f"vic_stall:{lead_id}:{day}"
     base = f"{kind}:{context.get('lead_id')}"
     return base + (f":{context.get('when')}" if kind in ("booking", "canceled") else "")
+
+
+def _briefing_tail(business):
+    """Return the one-line briefing headline to append to lead/booking alert bodies,
+    or an empty string when the briefing is quiet/empty or on any exception.
+
+    Lazy-imports assistant to avoid circular-import issues at module load. This is a
+    best-effort enrichment -- it must NEVER break an alert. Returns '' on any failure."""
+    try:
+        import assistant as _assistant  # lazy: avoids circular import at module level
+        card = _assistant.briefing(business)
+        tone = card.get("tone", "")
+        items = card.get("items") or []
+        headline = (card.get("headline") or "").strip()
+        if tone != "active" or not items or not headline:
+            return ""
+        return headline
+    except Exception:
+        return ""
 
 
 # Serializes the dedupe check + in-app claim across concurrent notify_async daemon
@@ -122,6 +181,20 @@ def notify(business, kind, context):
         return []
     dedupe = _dedupe_key(kind, context)
     body = format_message(kind, context)
+    # P1-1: for lead and booking alerts, append a one-line briefing headline so the
+    # owner sees the pipeline state on the same lock-screen notification. Cap the full
+    # body at 320 chars; the tail is truncated first (core event line always survives).
+    if kind in ("lead", "booking"):
+        tail = _briefing_tail(business)
+        if tail:
+            candidate = body + " " + tail
+            if len(candidate) <= 320:
+                body = candidate
+            elif len(body) <= 320:
+                # Fit as much of the tail as possible without exceeding the cap.
+                room = 320 - len(body) - 1   # -1 for the space
+                if room > 5:
+                    body = body + " " + tail[:room]
     attempted = []
     # Claim the event atomically: the dedupe check + the in-app insert run under a
     # process lock so two concurrent notify_async threads for the SAME event can't

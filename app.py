@@ -413,6 +413,113 @@ def simulator():
     return render_template("simulator.html", business=current_business())
 
 
+# ---- Public demo + sandbox business (Agent GAMMA — Phase 0) ----
+# The demo runs against a DEDICATED sandbox business that is NEVER a real tenant.
+# Identified by the sentinel name stored in _DEMO_BIZ_SENTINEL; created once on
+# first use and reused on subsequent calls.  No real-tenant data is ever read or
+# written by the /demo or /api/demo/* routes.
+_DEMO_BIZ_SENTINEL = "__firstback_demo_sandbox__"
+_demo_biz_id_cache = None   # module-level cache so we skip the SELECT on hot paths
+_demo_biz_lock = threading.Lock()
+
+
+def _get_or_create_demo_biz():
+    """Return the ID of the dedicated sandbox business, creating it the first time.
+    Thread-safe; result cached for the lifetime of the process."""
+    global _demo_biz_id_cache
+    if _demo_biz_id_cache is not None:
+        return _demo_biz_id_cache
+    with _demo_biz_lock:
+        if _demo_biz_id_cache is not None:  # double-checked under lock
+            return _demo_biz_id_cache
+        conn = db.get_conn()
+        row = conn.execute(
+            "SELECT id FROM businesses WHERE name=? LIMIT 1",
+            (_DEMO_BIZ_SENTINEL,),
+        ).fetchone()
+        if row:
+            bid = row[0]
+        else:
+            cur = conn.execute(
+                "INSERT INTO businesses (name, trade, service_area, hours, "
+                "owner_name, ai_instructions, phone) VALUES (?,?,?,?,?,?,?)",
+                (
+                    _DEMO_BIZ_SENTINEL,
+                    "Residential & commercial painting",
+                    "Greater metro area (30-mile radius)",
+                    "Mon-Sat, 7am-6pm",
+                    "Demo",
+                    (
+                        "You are the assistant for a home-services demo, replying by "
+                        "text to a caller you just missed. Be friendly and brief. "
+                        "Find out what they need painted, confirm they are in your "
+                        "service area, then offer two estimate windows and book one."
+                    ),
+                    "(555) 314-2270",
+                ),
+            )
+            conn.commit()
+            bid = cur.lastrowid
+        conn.close()
+        _demo_biz_id_cache = bid
+        return bid
+
+
+def _demo_biz():
+    """Return the sandbox business dict, with a display-friendly name injected."""
+    bid = _get_or_create_demo_biz()
+    biz = db.get_business(bid)
+    biz["name"] = "FirstBack Demo"   # override sentinel name for UI display only
+    return biz
+
+
+@app.route("/demo")
+def demo():
+    """Public demo — NO login required.  Runs the simulator against the dedicated
+    sandbox business so visitors can experience the text-back flow without touching
+    any real tenant's data."""
+    return render_template("simulator.html", business=_demo_biz(), demo_mode=True)
+
+
+@app.route("/api/demo/incoming", methods=["POST"])
+def demo_sim_incoming():
+    """Public sim incoming — scoped EXCLUSIVELY to the sandbox business."""
+    biz = _demo_biz()
+    data = request.get_json(silent=True) or {}
+    scenario = (data.get("scenario") or "prospect").strip().lower()
+    if scenario in ("spam", "known"):
+        if scenario == "spam":
+            score, reasons = triage.spam_score(
+                {"attestation": "TN-Validation-Failed-C", "neighbor_spoof": True,
+                 "line_type": "nonFixedVoip", "behavior": {"missed_calls": 4}})
+            return jsonify(screened=True, status="screened_spam", label="Spam",
+                           score=score, reasons=reasons)
+        return jsonify(screened=True, status="trusted", label="Known caller", score=0,
+                       reasons=["You've worked with this caller before — FirstBack leaves "
+                                "them to you instead of sending an automated text."])
+    bid = _get_or_create_demo_biz()
+    lead_id = db.create_lead(bid, data.get("name") or "Demo Caller",
+                             data.get("phone") or "+1 (415) 555-0142")
+    reply = open_conversation(biz, db.get_lead(lead_id))
+    return jsonify(lead_id=lead_id, reply=reply, _demo=True, _biz_id=bid)
+
+
+@app.route("/api/demo/reply", methods=["POST"])
+def demo_sim_reply():
+    """Public sim reply — scoped EXCLUSIVELY to the sandbox business."""
+    bid = _get_or_create_demo_biz()
+    data, err = _get_json("lead_id", "body")
+    if err:
+        return err
+    # Ownership-scoped: only leads that belong to the sandbox business are reachable
+    lead = db.get_lead(data["lead_id"], bid)
+    if not lead:
+        return jsonify(error="Lead not found."), 404
+    biz = _demo_biz()
+    reply, booked, urgent = handle_inbound(biz, lead, data["body"])
+    return jsonify(reply=reply, booked=booked, urgent=urgent, _demo=True)
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():

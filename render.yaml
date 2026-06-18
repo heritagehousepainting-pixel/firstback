@@ -43,6 +43,8 @@ services:
         generateValue: true
       - key: FIRSTBACK_RUN_TICKER    # start the reminders/follow-ups scheduler in-process
         value: "1"
+      - key: FIRSTBACK_SCREEN_MODE    # call-screening rollout mode: monitor=watch+log only, enforce=act
+        value: "monitor"
       - key: FIRSTBACK_HTTPS         # secure session cookies (Render serves HTTPS)
         value: "1"
       - key: FIRSTBACK_TZ            # <-- set to the business's timezone

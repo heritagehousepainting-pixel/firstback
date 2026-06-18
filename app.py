@@ -1841,6 +1841,24 @@ def tasks_run_due():
     return jsonify(out)
 
 
+# ---- SF-3: Ticker heartbeat health endpoint ----
+# No auth: this is a liveness/health probe for ops monitoring.
+# Returns only platform-level metadata; zero tenant data is exposed.
+@app.route("/health/ticker")
+def health_ticker():
+    from datetime import timezone as _tz
+    raw = db.get_meta("last_tick_utc")
+    fresh = not reminders.ticker_is_stale()
+    age_s = None
+    if raw:
+        try:
+            last = datetime.fromisoformat(raw)
+            age_s = int((datetime.now(_tz.utc) - last).total_seconds())
+        except (TypeError, ValueError):
+            age_s = None
+    return jsonify(fresh=fresh, last_tick_utc=raw, age_s=age_s)
+
+
 # ---- Internal seam for the separate voice service (Phase 3 production split) ----
 # voice_service.py runs as its own process and cannot share this app's SQLite disk,
 # so it relays each spoken turn here. The web app owns the DB and runs the SAME

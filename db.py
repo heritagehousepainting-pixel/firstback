@@ -351,6 +351,11 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_aents_convo ON assistant_turn_entities(convo_id);
         CREATE INDEX IF NOT EXISTS idx_aflags_biz ON assistant_flags(business_id);
         CREATE INDEX IF NOT EXISTS idx_alearn_biz ON assistant_learnings(business_id);
+        -- Platform meta: a simple key-value store for internal signals (e.g. heartbeat).
+        CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
         """
     )
     # Migration: add `urgent` to older databases that predate the column.
@@ -584,6 +589,23 @@ def init_db():
         )
     conn.commit()
     conn.close()
+
+
+# ---- Platform meta (key-value) ----
+def set_meta(key, value):
+    """Upsert a platform-level key-value pair (e.g. 'last_tick_utc')."""
+    conn = get_conn()
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)", (key, str(value)))
+    conn.commit()
+    conn.close()
+
+
+def get_meta(key):
+    """Return the stored string value for `key`, or None if absent."""
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    conn.close()
+    return row[0] if row else None
 
 
 # ---- Users / auth ----  (create_user / get_user / get_user_by_email are in the

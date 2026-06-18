@@ -237,8 +237,15 @@ def scan_followups(now=None):
 
 def tick_once(now=None):
     """One scheduler pass: refresh caller-triage suggestions, queue follow-ups, then
-    send everything due."""
+    send everything due. Always writes a heartbeat to meta (SF-3), even on partial
+    failure, so the /health/ticker endpoint can report staleness accurately."""
     now = now or db.now_iso()
+    # Record the heartbeat FIRST so a partial failure still timestamps the tick.
+    _tick_utc = datetime.now(timezone.utc).isoformat()
+    try:
+        db.set_meta("last_tick_utc", _tick_utc)
+    except Exception as e:
+        print(f"[firstback] heartbeat write failed: {e}", file=sys.stderr, flush=True)
     try:
         import triage
         triage.scan_all_suggestions()  # observe callers -> refresh the review queue
@@ -252,9 +259,24 @@ def tick_once(now=None):
         import growth
         growth_queued = growth.scan(now).get("queued", 0)
     except Exception as e:
+        # Even on partial failure, the heartbeat above has already been written.
         print(f"[firstback] growth scan failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
     return {"queued": queued, "growth_queued": growth_queued, "sent": sent}
+
+
+def ticker_is_stale(max_age_s=600):
+    """Return True when the ticker hasn't run within max_age_s seconds (default 10 min).
+    Returns True (stale) when no heartbeat has ever been written. Used by /health/ticker."""
+    raw = db.get_meta("last_tick_utc")
+    if not raw:
+        return True
+    try:
+        last = datetime.fromisoformat(raw)
+        age = (datetime.now(timezone.utc) - last).total_seconds()
+        return age > max_age_s
+    except (TypeError, ValueError):
+        return True
 
 
 # ---- The ticker thread ----

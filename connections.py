@@ -13,9 +13,11 @@ rest of the telephony layer (mirrors messaging.py): the Twilio status sync is a 
 no-op when unconfigured and swallows + logs any API error with the "[firstback]"
 prefix, never raising into a request.
 """
+import re
 import sys
 from datetime import datetime, timezone, timedelta
 
+import config
 import db
 import messaging
 import compliance
@@ -35,13 +37,38 @@ _STEP_TITLES = {
 }
 
 
+def registration_path(biz):
+    """Return the A2P registration path for a business.
+
+    sole_prop -> name + business_address is enough (NO EIN required; an EIN
+    actively disqualifies a sole-prop Starter brand submission).
+    llc / unknown -> name + ein + business_address are all required.
+
+    Reads biz.get('business_type'). Returns 'sole_prop', 'llc', or 'unknown'.
+    """
+    bt = (biz or {}).get("business_type") or "unknown"
+    if bt == "sole_prop":
+        return "sole_prop"
+    if bt == "llc":
+        return "llc"
+    return "unknown"
+
+
 def _profile_done(biz):
-    # Enough to register an A2P brand: a name, an EIN, and a business address.
+    """Enough to register an A2P brand. Forks on business_type:
+    - sole_prop: name + business_address (NO EIN required).
+    - llc / unknown: name + ein + business_address required.
+    """
+    path = registration_path(biz)
+    if path == "sole_prop":
+        return bool(biz.get("name") and biz.get("business_address"))
+    # llc or unknown: EIN is required
     return bool(biz.get("name") and biz.get("ein") and biz.get("business_address"))
 
 
 def profile_complete(biz):
-    """Public check that the A2P registration intake is filled in (name+EIN+address)."""
+    """Public check that the A2P registration intake is filled in.
+    Forks on business_type: sole_prop relaxes the EIN requirement; llc/unknown require it."""
     return _profile_done(biz or {})
 
 
@@ -227,6 +254,229 @@ def available_numbers(area_code, limit=5):
     return messaging.search_numbers(area_code=area_code, limit=limit)
 
 
+# ---- Phase 3: A2P submission + micro-site slug helpers ----
+
+def build_slug(name, business_id):
+    """Build a URL-safe micro-site slug from a business name + id.
+
+    Lowercases the name, collapses runs of non-alphanumeric chars to a single
+    hyphen, strips leading/trailing hyphens, caps at 40 chars, then appends
+    '-{business_id}' for uniqueness. Falls back to 'biz-{business_id}' when
+    the name normalizes to empty.
+    """
+    slug = (name or "").lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    slug = slug[:40]
+    if not slug:
+        return f"biz-{business_id}"
+    return f"{slug}-{business_id}"
+
+
+def build_contact_email(slug):
+    """Return the micro-site contact email for a slug.
+    {slug}@{CLIENTS_EMAIL_DOMAIN} (domain from config.CLIENTS_EMAIL_DOMAIN).
+    """
+    domain = getattr(config, "CLIENTS_EMAIL_DOMAIN", "clients.firstback.com")
+    return f"{slug}@{domain}"
+
+
+def submit_a2p(business_id):
+    """Dispatch A2P registration for a business by registration_path.
+
+    Returns a dict with 'status': 'simulated' | 'submitted' | 'error'.
+
+    # NEVER set status='approved' here -- only a2p_sync() may, after polling.
+
+    When messaging.trust_hub_configured() is False (Trust Hub product SID not
+    set), records a2p_status='pending' + submitted_at (so the wizard advances)
+    and returns {'status': 'simulated'}.
+
+    Path B (llc/unknown): builds slug + contact_email -> db.set_micro_site ->
+    re-fetches biz -> create_a2p_brand -> create_a2p_messaging_service ->
+    create_a2p_campaign. Short-circuits on any step error.
+
+    Path A (sole_prop): same brand/svc/campaign chain without micro-site.
+
+    Never raises.
+    """
+    try:
+        biz = db.get_business(business_id)
+        if not biz:
+            return {"status": "error", "step": "lookup", "error": "business not found"}
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Gate: if Trust Hub is not configured, record pending and return simulated.
+        if not messaging.trust_hub_configured():
+            db.set_a2p_registration(business_id, status="pending", submitted_at=now)
+            return {"status": "simulated"}
+
+        path = registration_path(biz)
+
+        if path != "sole_prop":
+            # Path B: llc / unknown — build micro-site first.
+            slug = build_slug(biz.get("name") or "", business_id)
+            contact_email = build_contact_email(slug)
+            db.set_micro_site(business_id, slug, contact_email)
+            # Re-fetch so brand creation sees the slug/email columns.
+            biz = db.get_business(business_id)
+
+        # --- Step 1: brand ---
+        brand_result = messaging.create_a2p_brand(biz)
+        if brand_result.get("status") == "error":
+            return {"status": "error", "step": "brand", "error": brand_result.get("error", "brand failed")}
+
+        brand_sid = brand_result.get("brand_sid")
+
+        # --- Step 2: messaging service ---
+        svc_result = messaging.create_a2p_messaging_service(biz)
+        if svc_result.get("status") == "error":
+            return {"status": "error", "step": "messaging_service",
+                    "error": svc_result.get("error", "messaging service failed")}
+
+        messaging_service_sid = svc_result.get("messaging_service_sid")
+
+        # --- Step 3: campaign ---
+        campaign_result = messaging.create_a2p_campaign(biz, messaging_service_sid, brand_sid)
+        if campaign_result.get("status") == "error":
+            return {"status": "error", "step": "campaign",
+                    "error": campaign_result.get("error", "campaign failed")}
+
+        campaign_sid = campaign_result.get("campaign_sid")
+
+        # Record all three SIDs + set status=pending (NEVER approved here).
+        db.set_a2p_registration(
+            business_id,
+            brand_sid=brand_sid,
+            campaign_sid=campaign_sid,
+            messaging_service_sid=messaging_service_sid,
+            status="pending",
+            submitted_at=now,
+        )
+
+        result = {"status": "submitted", "path": "A" if path == "sole_prop" else "B"}
+        if brand_sid:
+            result["brand_sid"] = brand_sid
+        if campaign_sid:
+            result["campaign_sid"] = campaign_sid
+        if messaging_service_sid:
+            result["messaging_service_sid"] = messaging_service_sid
+        return result
+
+    except Exception as e:
+        print(f"[firstback] submit_a2p error (biz {business_id}): {e}",
+              file=sys.stderr, flush=True)
+        return {"status": "error", "step": "unknown", "error": str(e)}
+
+
+def flush_blocked_sends(business_id):
+    """Replay blocked sends for a business whose A2P has just been approved.
+
+    Implements all 8 safety rules from the AUTO-FLUSH SAFETY SPEC:
+    1. Freshness window (FLUSH_MAX_AGE_HOURS, default 6) — skip 'stale'
+    2. Opt-out check (db.is_suppressed) — skip 'opted_out'
+    3. Quiet-hours — inherited via send_sms transactional=True
+    4. Dedupe — mark flushed=1 BEFORE send; on send error mark 'send_error', never reset
+    5. Order oldest-first, cap 50
+    6. Conversation-coherence — skip 'conversation_progressed' if a real subsequent
+       message (direction in/out, non-null provider_sid, created_at > blocked_at) exists
+    7. All-stale is correct (no multi-day re-texts)
+    8. Still-blocked guard — if send_sms returns 'blocked', log + STOP
+
+    Returns {'flushed': N, 'skipped': N, 'errors': N}. Never raises.
+    """
+    flushed = skipped = errors = 0
+    try:
+        biz = db.get_business(business_id)
+        if not biz:
+            print(f"[firstback] flush_blocked_sends: business {business_id} not found",
+                  file=sys.stderr, flush=True)
+            return {"flushed": flushed, "skipped": skipped, "errors": errors}
+
+        max_age_hours = getattr(config, "FLUSH_MAX_AGE_HOURS", 6)
+        now_utc = datetime.now(timezone.utc)
+        cutoff = now_utc - timedelta(hours=max_age_hours)
+
+        rows = db.get_blocked_sends(business_id, flushed=False, limit=50)
+
+        for row in rows:
+            row_id = row["id"]
+            to = row["to_number"]
+            body = row["body"]
+            lead_id = row.get("lead_id")
+            blocked_at_raw = row.get("blocked_at") or ""
+
+            # --- Rule 1: freshness window ---
+            try:
+                blocked_at = datetime.fromisoformat(
+                    blocked_at_raw.replace("Z", "+00:00"))
+                if blocked_at.tzinfo is None:
+                    blocked_at = blocked_at.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                # Can't parse — treat as stale to be safe
+                db.mark_flush_skipped(row_id, "stale")
+                skipped += 1
+                continue
+
+            if blocked_at < cutoff:
+                db.mark_flush_skipped(row_id, "stale")
+                skipped += 1
+                continue
+
+            # --- Rule 2: opt-out ---
+            if db.is_suppressed(business_id, to):
+                db.mark_flush_skipped(row_id, "opted_out")
+                skipped += 1
+                continue
+
+            # --- Rule 6: conversation-coherence ---
+            if lead_id is not None:
+                try:
+                    messages = db.get_messages(lead_id)
+                    has_subsequent = any(
+                        m.get("direction") in ("in", "out")
+                        and m.get("provider_sid")
+                        and (m.get("created_at") or "") > blocked_at_raw
+                        for m in messages
+                    )
+                    if has_subsequent:
+                        db.mark_flush_skipped(row_id, "conversation_progressed")
+                        skipped += 1
+                        continue
+                except Exception as e:
+                    print(f"[firstback] flush_blocked_sends: get_messages error "
+                          f"(lead {lead_id}): {e}", file=sys.stderr, flush=True)
+
+            # --- Rule 4: dedupe — mark flushed BEFORE send ---
+            db.mark_flushed(row_id)
+
+            # --- Rule 3 + 8: send via send_sms (transactional=True) ---
+            result = messaging.send_sms(biz, to, body, lead_id=lead_id,
+                                        gate=True, transactional=True)
+
+            if isinstance(result, dict) and result.get("status") == "blocked":
+                # Rule 8: should be impossible post-approval; log + STOP
+                print(f"[firstback] flush_blocked_sends: send_sms returned blocked "
+                      f"for biz {business_id} — state inconsistency; stopping flush",
+                      file=sys.stderr, flush=True)
+                errors += 1
+                return {"flushed": flushed, "skipped": skipped, "errors": errors}
+            elif isinstance(result, dict) and result.get("status") == "error":
+                # Rule 4: on send error, mark send_error (already marked flushed, no reset)
+                db.mark_flush_skipped(row_id, "send_error")
+                errors += 1
+                continue
+
+            flushed += 1
+
+    except Exception as e:
+        print(f"[firstback] flush_blocked_sends error (biz {business_id}): {e}",
+              file=sys.stderr, flush=True)
+
+    return {"flushed": flushed, "skipped": skipped, "errors": errors}
+
+
 # ---- A2P 10DLC status sync (Twilio -> our a2p_status) ----
 # Twilio's campaign status strings mapped onto our 4-state model. Approval is the
 # only thing that flips a business to "live"; anything in-flight stays "pending".
@@ -243,7 +493,11 @@ _A2P_STATUS_MAP = {
 def a2p_sync(business):
     """Refresh a business's a2p_status from Twilio when there's a campaign on file.
     Returns the (possibly updated) status. No-op returning the current status when
-    there's nothing to sync or Twilio isn't configured. Never raises."""
+    there's nothing to sync or Twilio isn't configured. Never raises.
+
+    When the transition is pending->approved, fires flush_blocked_sends inside its
+    own try/except so a flush failure never breaks the sync tick.
+    """
     biz = (business if isinstance(business, dict) else db.get_business(business))
     if not biz:
         return "unregistered"
@@ -256,6 +510,13 @@ def a2p_sync(business):
               file=sys.stderr, flush=True)
     if mapped and mapped != current:
         db.set_a2p_status(biz["id"], mapped)
+        # Auto-flush: on the pending->approved transition, replay any blocked sends.
+        if mapped == "approved" and current != "approved":
+            try:
+                flush_blocked_sends(biz["id"])
+            except Exception as _fe:
+                print(f"[firstback] a2p_sync flush error (biz {biz['id']}): {_fe}",
+                      file=sys.stderr, flush=True)
         return mapped
     return current
 

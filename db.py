@@ -2807,11 +2807,16 @@ def claim_confirm_token(business_id, token_id):
     return won
 
 
-def set_confirm_result(token_id, result_json):
-    """Store the executed result so a replayed tap returns it verbatim (no re-execution)."""
+def set_confirm_result(token_id, result_json, business_id=None):
+    """Store the executed result so a replayed tap returns it verbatim (no re-execution).
+    Scoped by business_id (defense-in-depth) when the caller supplies it."""
     conn = get_conn()
-    conn.execute("UPDATE pending_confirms SET result_json=? WHERE token_id=?",
-                 (result_json, token_id))
+    if business_id is None:
+        conn.execute("UPDATE pending_confirms SET result_json=? WHERE token_id=?",
+                     (result_json, token_id))
+    else:
+        conn.execute("UPDATE pending_confirms SET result_json=? WHERE token_id=? "
+                     "AND business_id=?", (result_json, token_id, business_id))
     conn.commit()
     conn.close()
 

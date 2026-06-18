@@ -952,11 +952,11 @@ def assistant_confirm():
     # confirm card. The recipient + the action stay server-bound (from the stored args), so
     # an edit can't redirect the message or change what runs.
     if tool == "text_lead":
-        edited = (request.form.get("message") or "").strip()
+        edited = (request.form.get("message") or "").strip()[:1600]  # cap pathological input
         if edited:
             args["message"] = edited
     out = assistant.execute(biz, tool, args)
-    db.set_confirm_result(token_id, json.dumps(out))
+    db.set_confirm_result(token_id, json.dumps(out), business_id=biz["id"])
     # Audit the confirmed action (token id, no raw phone; body is the owner's own words).
     db.add_audit(biz["id"], f"confirm:{tool}",
                  f"token={token_id[:8]} {str(args.get('message') or '')[:100]}")

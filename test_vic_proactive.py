@@ -340,8 +340,13 @@ row3b = conn.execute(
     (biz3b["id"],)).fetchone()
 conn.close()
 body3b = row3b["body"] if row3b else ""
-check("test3: >48h stall nudge escalates tone (body reflects urgency)",
-      "still waiting" in body3b or "Open FirstBack" in body3b)
+check("test3: >48h stall nudge escalates tone (urgent-only phrase present)",
+      "shopping around" in body3b)
+# The 30h (<48h) nudge above must NOT carry the urgent phrase -- proves the escalation
+# is real, not a constant string in every body.
+_body3_under48 = dict(stall_rows[0])["body"] if stall_rows else ""
+check("test3: a <48h stall nudge does NOT carry the urgent phrase",
+      "shopping around" not in _body3_under48)
 
 # Stall body says "Open FirstBack" and does NOT say "tap to send".
 check("test3: stall body says 'Open FirstBack'", "Open FirstBack" in body3b)

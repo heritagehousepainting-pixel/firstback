@@ -2227,8 +2227,15 @@ def run_stream(business, message, history=None, entities=None, allow_llm=True):
         tool, args = _demo_route(message)
         spec = TOOLS.get(tool)
         if spec and spec["confirm"]:
-            if tool in _LEAD_TOOLS and entities and _is_referential(message):
-                _apply_referent(message, args, entities)
+            if tool in _LEAD_TOOLS and _is_referential_lead(message):
+                if entities:
+                    _apply_referent(message, args, entities)
+                elif not _is_named_or_pinned(args):
+                    # P1-4: bare referent with nothing shown -- never guess a recipient
+                    # (mirror run(); the streaming path must not silently target most-recent).
+                    yield from _stream_static(
+                        _say("Which lead? Tell me a name, or say \"list my leads\" first."))
+                    return
             yield from _stream_static(_gated(business, tool, args, message))
             return
         result = None

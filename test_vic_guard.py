@@ -75,11 +75,12 @@ check("'last lead' + message: token_id minted",
       (r2.get("pending_action") or {}).get("token_id") is not None)
 check("'last lead' + message: body is 'running late'",
       "running late" in ((r2.get("pending_action") or {}).get("args") or {}).get("message", ""))
-check("'last lead' NOT caught as referential (regression guard)",
-      not assistant._is_referential("text my last lead saying running late") or
-      # if _is_referential catches it, entities being None should NOT block it since
-      # the message contains 'last lead' which routes deterministically
-      r2.get("pending_action") is not None)
+# Regression: "my last lead" must resolve to the ACTUAL most-recent lead (not be blocked by
+# the new ambiguity guard, and not target the wrong person). Compare against the DB truth.
+_recent = max(db.leads_with_stage(biz["id"]), key=lambda l: l["id"])
+_pa2_to = ((r2.get("pending_action") or {}).get("preview") or {}).get("recipient_name", "")
+check("'last lead' resolves to the most-recent lead (not blocked, not misrouted)",
+      _pa2_to == (_recent.get("name") or ""))
 
 print("\n--- BETA Test 3: 'text {Name} back' (named, no body) -> genuine one-tap draft ---")
 r3 = assistant.run(biz, "text Dana back", entities=None)
@@ -135,6 +136,27 @@ if token4:
     data4b = json.loads(resp2.get_data(as_text=True))
     check("token is single-use: second redeem replays or rejects (no double-send)",
           "reply" in data4b)
+
+print("\n--- BETA Test 5: the STREAMING path also asks (P1-4 in run_stream) ---")
+# Audit P1: run_stream had the OLD guard and would target most-recent on a bare referent.
+# Force the live-Claude branch (the gated write short-circuits before any real LLM call) and
+# confirm the streaming path ALSO asks "which lead" instead of guessing.
+import ai as _ai
+_orig_provider = _ai._active_provider
+_ai._active_provider = lambda: "claude"
+try:
+    done = None
+    for kind, payload in assistant.run_stream(biz, "text her back saying hey", entities=None,
+                                              allow_llm=True):
+        if kind == "done":
+            done = payload
+    check("stream: bare referent + no entities asks (does not guess)",
+          done is not None and ("which lead" in (done.get("reply", "").lower())
+                                or "name" in (done.get("reply", "").lower())))
+    check("stream: no token minted on the ambiguous referent",
+          not (done or {}).get("pending_action"))
+finally:
+    _ai._active_provider = _orig_provider
 
 print(f"\n{'='*40}")
 print(f"Result: {_pass} passed, {_fail} failed")

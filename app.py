@@ -1462,6 +1462,32 @@ def open_conversation(biz, lead):
                     gday, gtime, tz=_tz)
                 reminders.enqueue_reminder(biz, lead, gday, gtime)
                 reminders.enqueue_morning_reminder(biz, lead, gday, gtime)
+            # Phase-4: a first-turn booking is a real booking -> fire the owner's
+            # Show-Up-Prepared alert + the ROI milestone check, same as handle_inbound
+            # (previously only the reply-turn path did this).
+            _book_ctx = {"lead_id": lead["id"], "name": lead.get("name"),
+                         "phone": lead.get("phone"), "when": booking}
+            if lead.get("address"):
+                _book_ctx["address"] = lead["address"]
+            if lead.get("project_type"):
+                _book_ctx["project"] = lead["project_type"]
+            if lead.get("summary"):
+                _book_ctx["summary"] = lead["summary"]
+            alerts.notify_async(biz, "booking", _book_ctx)
+            try:
+                import roi as _roi_mod
+                _milestone = _roi_mod.check_roi_milestone(biz["id"])
+                if _milestone:
+                    from datetime import timezone as _tzu
+                    alerts.notify_async(biz, "roi_milestone",
+                                        {"body": _milestone.get("body", ""),
+                                         "multiple": _milestone.get("multiple"),
+                                         "revenue": _milestone.get("revenue")})
+                    db.set_roi_milestone_sent(biz["id"],
+                                              datetime.now(_tzu.utc).isoformat())
+            except Exception as _me:
+                print(f"[firstback] milestone hook error (biz {biz['id']}): {_me}",
+                      file=sys.stderr, flush=True)
     return reply
 
 
@@ -2325,7 +2351,9 @@ def twilio_sms_inbound():
         twiml_url = (VOICE_PUBLIC_URL.rstrip("/")
                      + f"/twiml?biz={biz['id']}&lead={lead['id']}&name={quote(biz.get('name') or '')}")
         res = messaging.place_call(biz, caller, twiml_url)
-        if res.get("status") in ("placed", "simulated"):
+        # Honesty: only claim "calling you now" when a real call was actually placed.
+        # Simulated/error must not promise a call that isn't happening.
+        if res.get("status") == "placed":
             return _twiml("<Response><Message>Calling you now.</Message></Response>")
     # Tier 3 content screen (gated; off by default): on the caller's FIRST reply,
     # classify whether this is a real homeowner or noise (a sales pitch / survey /

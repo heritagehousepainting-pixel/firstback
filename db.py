@@ -718,6 +718,11 @@ def init_db():
     biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
     if "roi_milestone_sent_at" not in biz_cols:
         c.execute("ALTER TABLE businesses ADD COLUMN roi_milestone_sent_at TEXT")
+    # The owner-alert toggle for the milestone (default ON, like the other alert kinds).
+    # alerts._TOGGLE_COL maps "roi_milestone" -> this column; without it a Settings
+    # toggle write would hit a missing column.
+    if "alert_on_roi_milestone" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN alert_on_roi_milestone INTEGER DEFAULT 1")
     # Phase 4 — Dispatcher-call rate-limit is PER LEAD (one urgency call per caller,
     # not one per business), so the timestamp lives on the lead row.
     lead_cols = [r[1] for r in c.execute("PRAGMA table_info(leads)").fetchall()]

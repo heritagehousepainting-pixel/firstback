@@ -98,12 +98,25 @@ def fpost(path, params):
 
 
 CALLER2 = "+14155550288"
+# Honesty: "Calling you now" must only be promised when a real call was PLACED.
+# Stub place_call to the real prod outcome for this assertion.
+_orig_place = messaging.place_call
+messaging.place_call = lambda biz, to, url, status_callback=None: {"status": "placed", "sid": "CAtest"}
 r = fpost("/webhooks/twilio/sms/inbound",
           {"To": BIZ_NUM, "From": CALLER2, "Body": "call me", "MessageSid": "SMc1"})
-check("'call me' triggers the voice callback (Calling you now)",
+check("'call me' + a placed call -> promises 'Calling you now'",
       "Calling you now" in r.get_data(as_text=True))
 c = db.get_consent(1, CALLER2)
 check("'call me' records affirmative voice consent", bool(c) and c["voice_ok"] == 1)
+
+# And when the call could NOT be placed (simulated/error), we must NOT falsely claim it.
+messaging.place_call = lambda biz, to, url, status_callback=None: {"status": "simulated"}
+CALLER3 = "+14155550299"
+r2 = fpost("/webhooks/twilio/sms/inbound",
+           {"To": BIZ_NUM, "From": CALLER3, "Body": "call me", "MessageSid": "SMc2"})
+check("'call me' with NO real call placed -> never says 'Calling you now'",
+      "Calling you now" not in r2.get_data(as_text=True))
+messaging.place_call = _orig_place
 
 
 os.unlink(_TMP.name)

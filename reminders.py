@@ -19,6 +19,7 @@ second tick or a restart mid-send can't double-send. One follow-up per lead, eve
 Honest: when Twilio isn't configured the text is simulated onto the lead's thread,
 never reported as really sent.
 """
+import re
 import sys
 import threading
 import time
@@ -28,6 +29,17 @@ import db
 import messaging
 from config import (app_tz, REMINDER_LEAD_HOURS, FOLLOWUP_IDLE_HOURS, TICK_SECONDS,
                     QUIET_START, QUIET_END)
+
+# SF-5: per-business timezone helper (Agent 1 defines biz_tz in config.py;
+# we import lazily so tests can monkeypatch before the real function exists).
+def _biz_tz(business):
+    """Resolve a business dict (or id int) to a tzinfo using config.biz_tz when
+    available, falling back to config.app_tz() so the module still works without A1."""
+    try:
+        from config import biz_tz as _cfg_biz_tz
+        return _cfg_biz_tz(business)
+    except (ImportError, AttributeError):
+        return app_tz()
 
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
@@ -146,7 +158,7 @@ def enqueue_reminder(business, lead, day_iso, slot_time):
     appt = db.find_appointment(business["id"], lead["id"], day_iso, slot_time)
     if not appt:
         return {"status": "skipped", "reason": "appointment not found"}
-    tz = app_tz()
+    tz = _biz_tz(business)  # SF-5: per-business timezone
     if _local(day_iso, slot_time, tz) <= datetime.now(tz):
         return {"status": "skipped", "reason": "estimate already passed"}
     send_at = compute_send_at(day_iso, slot_time, _lead_hours(business), tz,
@@ -159,18 +171,130 @@ def enqueue_reminder(business, lead, day_iso, slot_time):
     return {"status": "queued", "send_at": send_at}
 
 
+# ---- F05: Morning-of reminder ----
+def enqueue_morning_reminder(business, lead, day_iso, slot_time):
+    """Queue an 8 AM local reminder on the morning of the estimate day.
+
+    Skips when:
+    - The estimate starts before 10:00 AM (morning IS the estimate; too close).
+    - 8 AM that morning is already in the past.
+    - A morning_reminder for this lead+appointment already exists (dedupe via
+      db.find_scheduled_message).
+    Returns a status dict."""
+    if not reminders_on(business):
+        return {"status": "disabled"}
+    phone = (lead.get("phone") or "").strip()
+    if not phone:
+        return {"status": "skipped", "reason": "no phone"}
+    appt = db.find_appointment(business["id"], lead["id"], day_iso, slot_time)
+    if not appt:
+        return {"status": "skipped", "reason": "appointment not found"}
+    # Skip if estimate is before 10:00 AM (morning reminder would be too close or after).
+    try:
+        slot_hh = int((slot_time or "00:00").split(":")[0])
+    except (ValueError, AttributeError):
+        slot_hh = 0
+    if slot_hh < 10:
+        return {"status": "skipped", "reason": "estimate before 10am"}
+    tz = _biz_tz(business)
+    # Build 8 AM local on the estimate day.
+    try:
+        y, mo, d = (int(x) for x in day_iso.split("-"))
+        morning_local = datetime(y, mo, d, 8, 0, tzinfo=tz)
+    except (TypeError, ValueError) as e:
+        return {"status": "skipped", "reason": f"bad day_iso: {e}"}
+    # Skip if 8 AM has already passed.
+    if morning_local <= datetime.now(tz):
+        return {"status": "skipped", "reason": "morning already past"}
+    # Dedupe: skip if a morning_reminder row already exists for this lead+appt.
+    try:
+        existing = db.find_scheduled_message(business["id"], lead["id"], "morning_reminder")
+        if existing:
+            return {"status": "skipped", "reason": "already queued"}
+    except Exception:
+        pass  # db.find_scheduled_message not yet available (A1); safe no-op
+    send_at = morning_local.astimezone(timezone.utc).isoformat()
+    body = reminder_body(lead.get("name"), business.get("name") or "your contractor",
+                         when_phrase(day_iso, slot_time))
+    db.add_scheduled_message(business["id"], lead["id"], appt["id"], "morning_reminder",
+                             send_at, body)
+    return {"status": "queued", "send_at": send_at}
+
+
+# ---- F05: RSVP classification ----
+def classify_rsvp(text):
+    """Classify a reply as 'yes', 'no', or 'unknown' for RSVP purposes.
+    'yes' = confirmed attendance; 'no' = declining/canceling; 'unknown' = unclear.
+    Returns one of those three strings. Fails open to 'unknown'."""
+    t = (text or "").lower().strip()
+    if not t:
+        return "unknown"
+    # Negation check first (so "no I can't" beats any accidental affirmative words).
+    _neg = re.compile(
+        r"\b(?:no\b|nope|nah|can'?t|cannot|won'?t|not|don'?t|unable|cancel|"
+        r"reschedule|skip|won't|not able|can not|have to cancel|need to cancel|"
+        r"not going to|not coming|something came up|can.t make it|won.t be|"
+        r"not available|unavailable)\b")
+    _yes = re.compile(
+        r"\b(?:yes\b|yeah|yep|yup|sure|confirm(?:ed)?|confirmed|on my way|"
+        r"see you|be there|i.ll be|i will be|we.ll be|we will be|absolutely|"
+        r"definitely|for sure|ok\b|okay|sounds good|all set|set|ready|"
+        r"still on|still good|looking forward|can'?t wait)\b")
+    if _neg.search(t):
+        # "yes" words present too? Negation wins (e.g. "yes I need to cancel").
+        return "no"
+    if _yes.search(t):
+        return "yes"
+    return "unknown"
+
+
 # ---- The scheduler tick ----
-def _appt_passed(day_iso, slot_time):
-    tz = app_tz()
+def _appt_passed(day_iso, slot_time, business=None):
+    """True when the appointment datetime is in the past. Accepts optional
+    business (dict or int) for per-business timezone (SF-5); falls back to
+    app_tz() when omitted (backward compat)."""
+    tz = _biz_tz(business) if business is not None else app_tz()
     try:
         return _local(day_iso, slot_time, tz) <= datetime.now(tz)
     except (TypeError, ValueError):
         return False
 
 
+def _enqueue_retry(biz, row, attempt):
+    """SF-4: schedule an async retry row for a failed SMS. Backoff: 30s/2m/10m.
+    At attempt >3, fire an sms_fail owner alert instead. NEVER sync-retries."""
+    backoff = {1: 30, 2: 120, 3: 600}
+    try:
+        if attempt <= 3:
+            delay_s = backoff.get(attempt, 600)
+            from datetime import timezone as _tz
+            send_at = (datetime.now(_tz.utc) + timedelta(seconds=delay_s)).isoformat()
+            db.queue_sms_retry(
+                row["business_id"],
+                row.get("lead_id"),
+                row.get("lead_phone", ""),
+                row["body"],
+                attempt,
+                send_at,
+            )
+        else:
+            try:
+                import alerts
+                alerts.notify_async(biz, "sms_fail", {
+                    "lead_id": row.get("lead_id"),
+                    "message_id": row["id"],
+                })
+            except Exception as ae:
+                print(f"[firstback] sms_fail alert failed: {ae}", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[firstback] enqueue_retry failed (id {row['id']}): {e}",
+              file=sys.stderr, flush=True)
+
+
 def run_due_once(now=None):
     """Send every scheduled message that's due. Idempotent + defensive. Returns the
-    count actually sent (or simulated)."""
+    count actually sent (or simulated). Handles kinds: reminder, morning_reminder,
+    followup, sms_retry (SF-4), and any other kind (best-effort send)."""
     now = now or db.now_iso()
     sent = 0
     biz_cache = {}
@@ -178,11 +302,16 @@ def run_due_once(now=None):
         if not db.claim_scheduled_message(row["id"]):
             continue  # another tick already claimed it
         try:
-            if row["kind"] == "reminder":
+            kind = row.get("kind", "")
+            # reminder + morning_reminder: skip if appointment is gone or passed.
+            if kind in ("reminder", "morning_reminder"):
                 if row.get("appt_status") and row["appt_status"] != "booked":
                     db.mark_scheduled(row["id"], "canceled")
                     continue
-                if row.get("appt_day") and _appt_passed(row["appt_day"], row.get("appt_slot")):
+                biz_for_tz = biz_cache.get(row["business_id"]) or db.get_business(row["business_id"])
+                biz_cache[row["business_id"]] = biz_for_tz
+                if row.get("appt_day") and _appt_passed(
+                        row["appt_day"], row.get("appt_slot"), biz_for_tz):
                     db.mark_scheduled(row["id"], "skipped")  # estimate already started
                     continue
             phone = (row.get("lead_phone") or "").strip()
@@ -191,7 +320,16 @@ def run_due_once(now=None):
                 continue
             biz = biz_cache.get(row["business_id"]) or db.get_business(row["business_id"])
             biz_cache[row["business_id"]] = biz
-            res = messaging.send_sms(biz, phone, row["body"], lead_id=row["lead_id"])
+            try:
+                res = messaging.send_sms(biz, phone, row["body"], lead_id=row["lead_id"])
+            except Exception as send_err:
+                # SF-4: synchronous send errors also go async, never sync-retry.
+                print(f"[firstback] send_sms raised (id {row['id']}): {send_err}",
+                      file=sys.stderr, flush=True)
+                db.mark_scheduled(row["id"], "failed")
+                attempt = int(row.get("retry_count") or 0) + 1
+                _enqueue_retry(biz, row, attempt)
+                continue
             status = res.get("status")
             if status == "simulated":
                 # Honest: Twilio is off, nothing really went out -> don't leave the
@@ -201,7 +339,10 @@ def run_due_once(now=None):
             elif status == "sent":
                 sent += 1  # row already 'sent' from the claim
             else:
+                # SF-4: non-sent, non-simulated = delivery failure -> async re-enqueue.
                 db.mark_scheduled(row["id"], "failed")
+                attempt = int(row.get("retry_count") or 0) + 1
+                _enqueue_retry(biz, row, attempt)
         except Exception as e:
             db.mark_scheduled(row["id"], "failed")
             print(f"[firstback] scheduled send failed (id {row['id']}): {e}",
@@ -214,14 +355,16 @@ def scan_followups(now=None):
     queued."""
     now = now or db.now_iso()
     queued = 0
-    try:
-        now_local = datetime.fromisoformat(now).astimezone(app_tz())
-    except (TypeError, ValueError):
-        now_local = datetime.now(app_tz())
-    send_at = next_send_time(now_local, QUIET_START, QUIET_END).astimezone(timezone.utc).isoformat()
     for biz in db.list_businesses():
         if not followups_on(biz):
             continue
+        # SF-5: per-business timezone for followup send_at computation.
+        biz_tz = _biz_tz(biz)
+        try:
+            now_local = datetime.fromisoformat(now).astimezone(biz_tz)
+        except (TypeError, ValueError):
+            now_local = datetime.now(biz_tz)
+        send_at = next_send_time(now_local, QUIET_START, QUIET_END).astimezone(timezone.utc).isoformat()
         rows = db.followup_candidate_rows(biz["id"])
         for lead in due_followup_leads(rows, now, FOLLOWUP_IDLE_HOURS):
             try:
@@ -261,6 +404,12 @@ def tick_once(now=None):
     except Exception as e:
         # Even on partial failure, the heartbeat above has already been written.
         print(f"[firstback] growth scan failed: {e}", file=sys.stderr, flush=True)
+    # One-line seam (SF-7): probe forwarding health once per tick; A2 defines the function.
+    try:
+        import connections
+        connections.check_forwarding_health()
+    except Exception as e:
+        print(f"[firstback] forwarding health check failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
     return {"queued": queued, "growth_queued": growth_queued, "sent": sent}
 

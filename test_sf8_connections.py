@@ -253,6 +253,19 @@ check("submit_a2p: NEVER sets approved on simulated",
 # Reset for next batch
 db.set_a2p_registration(1, status="unregistered", submitted_at=None)
 
+
+def _clear_a2p_sids():
+    """Hard-clear the A2P SID columns. set_a2p_registration's partial-write ignores
+    None so it CANNOT blank them; and submit_a2p now SKIPS any step whose SID already
+    exists (idempotent retry -- no duplicate $4 Twilio brands), so each fresh-submit
+    sub-test must start truly clean."""
+    conn = db.get_conn()
+    conn.execute("UPDATE businesses SET a2p_brand_sid='', a2p_campaign_sid='', "
+                 "a2p_messaging_service_sid='', a2p_status='unregistered', "
+                 "a2p_submitted_at=NULL WHERE id=1")
+    conn.commit(); conn.close()
+
+
 # 4b. trust_hub on + all mocks succeed -> submitted
 messaging.trust_hub_configured = lambda: True
 _brand_calls = []
@@ -294,8 +307,7 @@ check("submit_a2p: path B for llc",                       res.get("path") == "B"
 _brand_calls.clear(); _svc_calls.clear(); _camp_calls.clear()
 messaging.create_a2p_brand = lambda biz: (
     _brand_calls.append(biz.get("id")) or {"status": "error", "error": "TCR rejected"})
-db.set_a2p_registration(1, status="unregistered", brand_sid=None,
-                        campaign_sid=None, messaging_service_sid=None)
+_clear_a2p_sids()
 res2 = connections.submit_a2p(1)
 check("submit_a2p: brand failure -> status=error",        res2["status"] == "error")
 check("submit_a2p: brand failure -> step=brand",          res2.get("step") == "brand")
@@ -308,8 +320,7 @@ _brand_calls.clear(); _svc_calls.clear(); _camp_calls.clear()
 messaging.create_a2p_brand = _mock_brand_ok
 messaging.create_a2p_messaging_service = lambda biz: (
     _svc_calls.append(biz.get("id")) or {"status": "error", "error": "Twilio 500"})
-db.set_a2p_registration(1, status="unregistered", brand_sid=None,
-                        campaign_sid=None, messaging_service_sid=None)
+_clear_a2p_sids()
 res3 = connections.submit_a2p(1)
 check("submit_a2p: svc failure -> status=error",          res3["status"] == "error")
 check("submit_a2p: svc failure -> step=messaging_service",res3.get("step") == "messaging_service")
@@ -321,8 +332,7 @@ messaging.create_a2p_brand = _mock_brand_ok
 messaging.create_a2p_messaging_service = _mock_svc_ok
 messaging.create_a2p_campaign = _mock_camp_ok
 db.set_business_type(1, "sole_prop")
-db.set_a2p_registration(1, status="unregistered", brand_sid=None,
-                        campaign_sid=None, messaging_service_sid=None)
+_clear_a2p_sids()
 # Wipe micro_site fields so we can check they're NOT set
 conn = db.get_conn()
 conn.execute("UPDATE businesses SET micro_site_slug=NULL, a2p_contact_email=NULL WHERE id=1")
@@ -337,6 +347,25 @@ check("submit_a2p: sole_prop -> no micro_site_slug set",
       not saved_sp.get("micro_site_slug"))
 check("submit_a2p: a2p_status NEVER approved after sole_prop submit",
       saved_sp["a2p_status"] != "approved")
+
+# 4f. IDEMPOTENT RETRY: SIDs already present -> create_* are SKIPPED (no duplicate
+# $4 Twilio brand on a retry after a partial failure).
+_brand_calls.clear(); _svc_calls.clear(); _camp_calls.clear()
+messaging.create_a2p_brand = _mock_brand_ok
+messaging.create_a2p_messaging_service = _mock_svc_ok
+messaging.create_a2p_campaign = _mock_camp_ok
+db.set_business_type(1, "llc")
+_clear_a2p_sids()
+db.set_a2p_registration(1, brand_sid="BNexisting", messaging_service_sid="MGexisting",
+                        campaign_sid="CMexisting")
+res_idem = connections.submit_a2p(1)
+check("submit_a2p idempotent: still submitted with pre-existing SIDs",
+      res_idem["status"] == "submitted")
+check("submit_a2p idempotent: brand NOT re-created", len(_brand_calls) == 0)
+check("submit_a2p idempotent: messaging_service NOT re-created", len(_svc_calls) == 0)
+check("submit_a2p idempotent: campaign NOT re-created", len(_camp_calls) == 0)
+check("submit_a2p idempotent: keeps the existing brand_sid",
+      db.get_business(1)["a2p_brand_sid"] == "BNexisting")
 
 # Restore to known state
 db.set_business_type(1, "llc")

@@ -322,35 +322,47 @@ def submit_a2p(business_id):
             # Re-fetch so brand creation sees the slug/email columns.
             biz = db.get_business(business_id)
 
-        # --- Step 1: brand ---
-        brand_result = messaging.create_a2p_brand(biz)
-        if brand_result.get("status") == "error":
-            return {"status": "error", "step": "brand", "error": brand_result.get("error", "brand failed")}
+        # Each Twilio object is created at real cost ($4 brand / $10 campaign). To keep
+        # this idempotent across a retry after a PARTIAL failure, we (a) reuse any SID
+        # already stored on the business instead of re-creating it, and (b) persist each
+        # SID the instant it's created -- so a later step failing never orphans an
+        # already-created Twilio object into a duplicate on the next attempt.
 
-        brand_sid = brand_result.get("brand_sid")
+        # --- Step 1: brand ---
+        brand_sid = biz.get("a2p_brand_sid")
+        if not brand_sid:
+            brand_result = messaging.create_a2p_brand(biz)
+            if brand_result.get("status") == "error":
+                return {"status": "error", "step": "brand", "error": brand_result.get("error", "brand failed")}
+            brand_sid = brand_result.get("brand_sid")
+            if brand_sid:
+                db.set_a2p_registration(business_id, brand_sid=brand_sid)
 
         # --- Step 2: messaging service ---
-        svc_result = messaging.create_a2p_messaging_service(biz)
-        if svc_result.get("status") == "error":
-            return {"status": "error", "step": "messaging_service",
-                    "error": svc_result.get("error", "messaging service failed")}
-
-        messaging_service_sid = svc_result.get("messaging_service_sid")
+        messaging_service_sid = biz.get("a2p_messaging_service_sid")
+        if not messaging_service_sid:
+            svc_result = messaging.create_a2p_messaging_service(biz)
+            if svc_result.get("status") == "error":
+                return {"status": "error", "step": "messaging_service",
+                        "error": svc_result.get("error", "messaging service failed")}
+            messaging_service_sid = svc_result.get("messaging_service_sid")
+            if messaging_service_sid:
+                db.set_a2p_registration(business_id, messaging_service_sid=messaging_service_sid)
 
         # --- Step 3: campaign ---
-        campaign_result = messaging.create_a2p_campaign(biz, messaging_service_sid, brand_sid)
-        if campaign_result.get("status") == "error":
-            return {"status": "error", "step": "campaign",
-                    "error": campaign_result.get("error", "campaign failed")}
+        campaign_sid = biz.get("a2p_campaign_sid")
+        if not campaign_sid:
+            campaign_result = messaging.create_a2p_campaign(biz, messaging_service_sid, brand_sid)
+            if campaign_result.get("status") == "error":
+                return {"status": "error", "step": "campaign",
+                        "error": campaign_result.get("error", "campaign failed")}
+            campaign_sid = campaign_result.get("campaign_sid")
+            if campaign_sid:
+                db.set_a2p_registration(business_id, campaign_sid=campaign_sid)
 
-        campaign_sid = campaign_result.get("campaign_sid")
-
-        # Record all three SIDs + set status=pending (NEVER approved here).
+        # All three SIDs are in hand -- mark pending + submitted (NEVER approved here).
         db.set_a2p_registration(
             business_id,
-            brand_sid=brand_sid,
-            campaign_sid=campaign_sid,
-            messaging_service_sid=messaging_service_sid,
             status="pending",
             submitted_at=now,
         )

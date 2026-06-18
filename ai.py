@@ -418,6 +418,49 @@ def _clean_punct(text):
     return text.strip()
 
 
+# --------------------------------------------------------------------------
+# F03 GUARDS (Phase 2)
+# --------------------------------------------------------------------------
+
+# Turn cap: max inbound messages before handing off to a human.
+_TURN_CAP = 12
+
+# Price guard: matches explicit currency mentions only.
+# Anchored to $ symbol OR explicit word "dollars"/"bucks".
+# MUST NOT match bare numbers ("3 rooms", "estimate is free").
+_PRICE_RE = re.compile(
+    r"(\$\s*\d[\d,]*(?:\.\d+)?"              # $500, $1,200.00, $ 500
+    r"|\d[\d,]*(?:\.\d+)?\s*dollars?"        # 500 dollars, 1200 dollar
+    r"|\d[\d,]*(?:\.\d+)?\s*bucks"           # 500 bucks
+    r"|(?:five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|"
+    r"seventy|eighty|ninety|hundred|thousand)\s+(?:dollars?|bucks))",  # five hundred dollars
+    re.IGNORECASE,
+)
+_PRICE_SCRUB = "[we'll provide a quote at the estimate]"
+
+# Length cap: trim at ~480 chars at a sentence boundary.
+_LENGTH_CAP = 480
+
+
+def _apply_price_guard(text):
+    """Scrub explicit price mentions; leave bare numbers and 'free' alone."""
+    return _PRICE_RE.sub(_PRICE_SCRUB, text)
+
+
+def _apply_length_guard(text):
+    """Cap reply at ~480 chars, trimming at a sentence boundary."""
+    if len(text) <= _LENGTH_CAP:
+        return text
+    # Try to find the last sentence-ending punctuation before the cap.
+    chunk = text[:_LENGTH_CAP]
+    last = max(chunk.rfind(". "), chunk.rfind("! "), chunk.rfind("? "))
+    if last > 0:
+        return text[:last + 1].strip()
+    # No boundary found: hard trim at cap.
+    return chunk.rstrip() + "..."
+
+
 def generate_reply(business, history, exclude_slot_ids=None, lead_id=None):
     """Returns (visible_text, booking_slot_or_None). `exclude_slot_ids` is an
     optional set of slot ids from a connected external calendar to treat as
@@ -426,6 +469,19 @@ def generate_reply(business, history, exclude_slot_ids=None, lead_id=None):
     # Dollar daily cap gate: degrade honestly rather than silently.
     if is_over_daily_cap(business["id"]):
         return _CAP_SMS_REPLY, None
+
+    # F03 turn cap: count inbound messages; hand off when limit is reached.
+    inbound_count = sum(1 for m in history if m.get("direction") == "in")
+    if inbound_count >= _TURN_CAP:
+        phone = business.get("phone", "")
+        handoff = (
+            "We've covered a lot of ground! Our team would love to help you "
+            "directly. Please call or text us at "
+            + (phone if phone else "the number on file")
+            + " and we will take care of you right away."
+        )
+        return handoff, None
+
     slots = _open_slots(business["id"], exclude_ids=exclude_slot_ids)
     provider = _active_provider()
     raw = None
@@ -458,6 +514,11 @@ def generate_reply(business, history, exclude_slot_ids=None, lead_id=None):
               f"caller's explicit choice {slot['label']!r}", file=sys.stderr, flush=True)
     booking = slot["label"] if slot else None
     raw = _clean_punct(raw)  # enforce dash-free, standard punctuation
+
+    # F03 post-reply guards: price scrub then length trim.
+    raw = _apply_price_guard(raw)
+    raw = _apply_length_guard(raw)
+
     return raw, booking
 
 

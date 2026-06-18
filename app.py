@@ -1299,7 +1299,23 @@ def open_conversation(biz, lead):
     reply, booking = ai.generate_reply(biz, [], exclude_slot_ids=exclude)
     db.add_message(lead["id"], "out", reply)
     if booking:
-        db.book_appointment(biz["id"], lead["id"], booking)
+        if db.book_appointment(biz["id"], lead["id"], booking):
+            # F04: mirror post-booking hooks from handle_inbound for first-turn bookings.
+            gday, gtime = db.parse_day(booking), db.time_key(booking)
+            if gday and gtime:
+                try:
+                    from config import biz_tz as _biz_tz
+                    _tz = _biz_tz(biz)
+                except (ImportError, AttributeError):
+                    _tz = config.app_tz()
+                appt = db.find_appointment(biz["id"], lead["id"], gday, gtime)
+                appt_id = appt["id"] if appt else None
+                google_cal.create_event_async(
+                    biz["id"], appt_id,
+                    f"Estimate: {lead['name']}",
+                    f"FirstBack booked a free estimate for {lead['name']} ({lead.get('phone')}).",
+                    gday, gtime, tz=_tz)
+                reminders.enqueue_reminder(biz, lead, gday, gtime)
     return reply
 
 
@@ -1315,6 +1331,18 @@ def handle_inbound(biz, lead, body):
         alerts.notify_async(biz, "urgent", {"lead_id": lead_id,
                                             "name": lead.get("name"),
                                             "phone": lead.get("phone")})
+
+    # F05: RSVP classification -- wire classify_rsvp into handle_inbound.
+    rsvp = reminders.classify_rsvp(body)
+    if rsvp == "yes":
+        alerts.notify_async(biz, "booking", {"lead_id": lead_id, "name": lead.get("name"),
+                                             "phone": lead.get("phone"),
+                                             "when": "confirmed (RSVP)"})
+    elif rsvp == "no":
+        # Owner notified; AI handles rebooking -- do NOT auto-cancel.
+        alerts.notify_async(biz, "canceled", {"lead_id": lead_id, "name": lead.get("name"),
+                                              "phone": lead.get("phone")})
+
     history = db.get_messages(lead_id)
     exclude = google_cal.busy_slot_ids(biz["id"])  # Google conflicts, empty if not connected
     reply, booking = ai.generate_reply(biz, history, exclude_slot_ids=exclude,
@@ -1346,11 +1374,38 @@ def handle_inbound(biz, lead, body):
             # Mirror onto Google Calendar + queue the pre-estimate reminder (both
             # best-effort, off the hot path; no-ops unless configured).
             if gday and gtime:
+                try:
+                    from config import biz_tz as _biz_tz
+                    _tz = _biz_tz(biz)
+                except (ImportError, AttributeError):
+                    _tz = config.app_tz()
+                appt = db.find_appointment(biz["id"], lead_id, gday, gtime)
+                appt_id = appt["id"] if appt else None
                 google_cal.create_event_async(
-                    biz["id"], f"Estimate: {lead['name']}",
+                    biz["id"], appt_id,
+                    f"Estimate: {lead['name']}",
                     f"FirstBack booked a free estimate for {lead['name']} ({lead['phone']}).",
-                    gday, gtime)
+                    gday, gtime, tz=_tz)
                 reminders.enqueue_reminder(biz, lead, gday, gtime)
+        else:
+            # F03 double-booking recovery: slot was taken between turns.
+            # Generate a recovery reply offering the next open slot.
+            recovery_history = db.get_messages(lead_id)
+            recovery_msg = {"direction": "in", "body":
+                "I'm sorry, that slot is no longer available. Could you please suggest "
+                "a different time?"}
+            recovery_history_ext = list(recovery_history) + [recovery_msg]
+            try:
+                recovery_reply, _ = ai.generate_reply(
+                    biz, recovery_history_ext,
+                    exclude_slot_ids=exclude, lead_id=lead_id)
+                # Replace the already-recorded out reply.
+                db.add_message(lead_id, "out", recovery_reply)
+                reply = recovery_reply
+            except Exception as _e:
+                import sys
+                print(f"[firstback] double-booking recovery failed: {_e}",
+                      file=sys.stderr, flush=True)
     # Precompute notes off the hot path (after booking, so a booked lead is summed
     # as 'scheduled'); never blocks this turn.
     _schedule_notes(lead_id)
@@ -2082,9 +2137,41 @@ def twilio_sms_inbound():
 @app.route("/webhooks/twilio/sms/status", methods=["POST"])
 @require_twilio_signature
 def twilio_sms_status():
-    """Twilio delivery receipts -> reconcile the stored message's status."""
-    db.set_message_delivery(request.form.get("MessageSid", ""),
-                            request.form.get("MessageStatus", ""))
+    """Twilio delivery receipts -> reconcile the stored message's status.
+    SF-4: on failed/undelivered, schedule an async retry (never sync-retry)."""
+    msg_sid = request.form.get("MessageSid", "")
+    msg_status = request.form.get("MessageStatus", "")
+    db.set_message_delivery(msg_sid, msg_status)
+    if msg_status in ("failed", "undelivered") and msg_sid:
+        try:
+            row = db.get_message_by_provider_sid(msg_sid)
+            if row:
+                attempt = int(row.get("retry_count") or 0) + 1
+                backoff = {1: 30, 2: 120, 3: 600}
+                if attempt <= 3:
+                    from datetime import timezone as _tz
+                    delay_s = backoff.get(attempt, 600)
+                    send_at = (datetime.now(_tz.utc)
+                               + __import__("datetime").timedelta(seconds=delay_s)).isoformat()
+                    biz = db.get_business(row["business_id"]) if row.get("business_id") else None
+                    db.queue_sms_retry(
+                        row["business_id"],
+                        row.get("lead_id"),
+                        row.get("to", row.get("phone", "")),
+                        row.get("body", ""),
+                        attempt,
+                        send_at,
+                    )
+                else:
+                    biz = db.get_business(row["business_id"]) if row.get("business_id") else None
+                    if biz:
+                        alerts.notify_async(biz, "sms_fail", {
+                            "lead_id": row.get("lead_id"),
+                            "message_id": row.get("id"),
+                        })
+        except Exception as _e:
+            print(f"[firstback] SF-4 retry enqueue failed ({msg_sid}): {_e}",
+                  file=sys.stderr, flush=True)
     return _twiml("<Response/>")
 
 
@@ -2213,6 +2300,29 @@ def internal_voice_turn():
         return jsonify(error="Unknown business or lead."), 404
     reply, booked, urgent = handle_inbound(biz, lead, (data.get("text") or "").strip())
     return jsonify(reply=reply, booked=booked, urgent=urgent)
+
+
+# ---- Reliability: error handlers (Phase 2) ----
+# JSON for API/webhook paths; on-brand HTML for everything else.
+# 500 uses the existing print-to-stderr convention (no logging.basicConfig).
+
+def _is_api_path(path):
+    return (path or "").startswith(("/api/", "/webhooks/"))
+
+
+@app.errorhandler(404)
+def not_found(e):
+    if _is_api_path(request.path):
+        return jsonify(error="Not found.", status=404), 404
+    return render_template("errors/404.html"), 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    print(f"[firstback] 500: {e}", file=sys.stderr, flush=True)
+    if _is_api_path(request.path):
+        return jsonify(error="Internal server error.", status=500), 500
+    return render_template("errors/500.html"), 500
 
 
 # Under a production WSGI server (gunicorn) the __main__ block below never runs, so

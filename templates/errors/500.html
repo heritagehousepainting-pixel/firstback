@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Server Error - FirstBack</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .error-page{display:flex;flex-direction:column;align-items:center;justify-content:center;
+                min-height:60vh;text-align:center;padding:2rem}
+    .error-code{font-size:6rem;font-weight:900;color:var(--error-11);line-height:1;margin:0}
+    .error-title{font-size:1.5rem;font-weight:700;margin:1rem 0 0.5rem;color:var(--ink)}
+    .error-desc{color:var(--muted);margin-bottom:2rem}
+    .error-link{display:inline-block;background:var(--accent);color:var(--bg);padding:0.65rem 1.5rem;
+                border-radius:6px;text-decoration:none;font-weight:600}
+    .error-link:hover{background:var(--accent-hover)}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" style="fill:var(--accent)"/>
+          <g style="stroke:var(--bg)" stroke-width="2.4" stroke-linecap="round">
+            <line x1="16" y1="6" x2="16" y2="26"/><line x1="6" y1="16" x2="26" y2="16"/>
+            <line x1="9" y1="9" x2="23" y2="23"/><line x1="23" y1="9" x2="9" y2="23"/>
+          </g>
+        </svg>
+        <span>FirstBack</span>
+      </a>
+    </div>
+  </header>
+  <main>
+    <div class="error-page">
+      <p class="error-code">500</p>
+      <h1 class="error-title">Something Went Wrong</h1>
+      <p class="error-desc">An unexpected error occurred. Our team has been notified. Please try again in a moment.</p>
+      <a class="error-link" href="/dashboard">Go to Dashboard</a>
+    </div>
+  </main>
+</body>
+</html>

@@ -494,7 +494,20 @@
     var wrap = el("div", "cards"); wrap.appendChild(c); body.appendChild(wrap); scrollDown();
   }
 
-  /* Run a confirmed/gated action and append the result as a fresh agent turn. */
+  /* P1-5 "Vic's resting" status pill. Informative, not an error tint.
+     Shown when allow_llm=False (daily budget spent); briefing + one-tap still work. */
+  function renderVicStatus(res, body) {
+    if (res.vic_status !== "resting") return;
+    var pill = el("div", "vic-resting-pill");
+    pill.setAttribute("role", "status");
+    pill.textContent = "Vic's resting -- briefing and one-tap still work. Back to full power tomorrow.";
+    body.appendChild(pill);
+    scrollDown();
+  }
+
+  /* Run a confirmed/gated action and append the result as a fresh agent turn.
+     P1-6: set_screen_mode=enforce requires two taps -- first tap shows a warning state,
+     second tap re-POSTs with enforce_ack=true to complete. */
   function runAction(pending) {
     if (busy) return;
     busy = true; send.disabled = true; Orb.set(1);
@@ -505,9 +518,31 @@
     var data = { confirm_token: pending.token_id || "" };
     if (pending.tool === "text_lead" && pending.args && pending.args.message != null)
       data.message = pending.args.message;
+    /* P1-6: pass enforce_ack if the owner has already seen the warning. */
+    if (pending._enforceAcked) data.enforce_ack = "true";
     post("/assistant/confirm", data)
       .then(function (res) {
         thinking.parentNode && thinking.parentNode.removeChild(thinking);
+        /* P1-6: server returns pending_ack status for enforce-mode first tap -- show warning
+           inline and wire the second tap with enforce_ack=true. */
+        if ((res.meta || {}).status === "pending_ack") {
+          var warnBody = addTurn("agent", res.reply || "Tap again to confirm.");
+          history.push({ role: "assistant", content: res.reply || "" });
+          var acts = el("div", "cc-actions");
+          var ackBtn = btn("Confirm anyway", "primary", function () {
+            acts.innerHTML = "";
+            var ackedPending = Object.assign({}, pending, { _enforceAcked: true });
+            runAction(ackedPending);
+          });
+          acts.appendChild(ackBtn);
+          acts.appendChild(btn("Cancel", "ghost", function () {
+            acts.innerHTML = "";
+            acts.appendChild(el("span", "draft-note", "Cancelled."));
+          }));
+          warnBody.appendChild(acts);
+          respond();
+          return;
+        }
         var body = addTurn("agent", res.reply || "Done.");
         history.push({ role: "assistant", content: res.reply || "" });
         renderCards(res.cards, body);
@@ -564,6 +599,7 @@
     renderCards(res.cards, body);
     if (res.pending_action) renderConfirm(res.pending_action, body);
     if (res.coach) renderCoach(res.coach, body);
+    if (res.vic_status) renderVicStatus(res, body);
     respond();
   }
 

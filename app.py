@@ -212,6 +212,26 @@ def _assistant_budget(biz, message):
     return allow_llm, throttled
 
 
+def _next_local_midnight_iso(biz):
+    """Return the next local midnight for this tenant as an ISO-8601 string (UTC offset
+    included). Used by the vic_status surface to tell the owner when full power returns.
+    Never raises -- falls back to UTC midnight on any error."""
+    try:
+        from config import biz_tz as _biz_tz
+        from datetime import datetime, timedelta
+        tz = _biz_tz(biz)
+        now_local = datetime.now(tz)
+        next_midnight = (now_local + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        return next_midnight.isoformat()
+    except Exception:
+        from datetime import datetime, timezone, timedelta
+        now_utc = datetime.now(timezone.utc)
+        next_midnight_utc = (now_utc + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        return next_midnight_utc.isoformat()
+
+
 def _csrf_token():
     """Get-or-create this session's CSRF token (double-submit). Rendered into the command
     center and echoed back by the JS as `_csrf`; validated on every assistant POST."""
@@ -787,6 +807,9 @@ def assistant_chat():
     convo_id = db.start_or_get_convo(biz["id"], convo_key, browser_key) if message else None
     entities = db.recent_entities(biz["id"], convo_id) if convo_id else []
     out = assistant.run(biz, message, history, entities=entities, allow_llm=allow_llm)
+    if not allow_llm:
+        out["vic_status"] = "resting"
+        out["resets_at"] = _next_local_midnight_iso(biz)
     if message:
         convo_id, _ = convos.record_exchange(biz["id"], convo_key, message, out,
                                              browser_key=browser_key, convo_id=convo_id)
@@ -830,6 +853,9 @@ def assistant_stream():
                 if kind == "delta":
                     yield _sse({"t": "delta", "v": payload})
                 else:  # done
+                    if not allow_llm:
+                        payload["vic_status"] = "resting"
+                        payload["resets_at"] = _next_local_midnight_iso(biz)
                     if message:
                         cid, _ = convos.record_exchange(biz["id"], convo_key, message, payload,
                                                         browser_key=browser_key,
@@ -885,6 +911,13 @@ def assistant_confirm():
                         "Ask me again if you still need it.", "cards": [],
                         "pending_action": None, "meta": {"tool": None, "status": "error"}})
     tool = row["tool"]
+    # Parse stored args immediately -- used for both the P1-6 enforce gate and execution below.
+    try:
+        args = json.loads(row["args_json"] or "{}")
+        if not isinstance(args, dict):
+            args = {}
+    except (ValueError, TypeError):
+        args = {}
     # Idempotent replay: already redeemed -> return the stored result, never re-execute.
     if row["consumed"]:
         try:
@@ -897,6 +930,13 @@ def assistant_confirm():
         return jsonify({"reply": "That confirmation expired -- the situation may have changed. "
                         "Ask me again and I'll show you the current picture.", "cards": [],
                         "pending_action": None, "meta": {"tool": tool, "status": "expired"}})
+    # P1-6 Enforce-mode second acknowledgment: silencing real callers requires two taps.
+    # Gate fires BEFORE atomic claim so the token stays valid for the second tap.
+    if (tool == "set_screen_mode" and args.get("mode") == "enforce"
+            and request.form.get("enforce_ack") != "true"):
+        return jsonify({"reply": "This silences real callers -- they get no text back. "
+                        "Tap again to confirm.", "cards": [], "pending_action": None,
+                        "meta": {"tool": tool, "status": "pending_ack"}})
     # Claim atomically: only the first redemption executes (race guard / no double-send).
     if not db.claim_confirm_token(biz["id"], token_id):
         again = db.get_confirm_token(biz["id"], token_id)
@@ -908,12 +948,6 @@ def assistant_confirm():
         return jsonify({"reply": "I'm already running that one -- give me a second.",
                         "cards": [], "pending_action": None,
                         "meta": {"tool": tool, "status": "ok"}})
-    try:
-        args = json.loads(row["args_json"] or "{}")
-        if not isinstance(args, dict):
-            args = {}
-    except (ValueError, TypeError):
-        args = {}
     # The ONLY client-overridable field: the text_lead body the owner may have edited on the
     # confirm card. The recipient + the action stay server-bound (from the stored args), so
     # an edit can't redirect the message or change what runs.

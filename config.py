@@ -94,6 +94,22 @@ SCREEN_SCORE_MID = _int_env("FIRSTBACK_SCREEN_MID", 45)
 # How many DISTINCT other businesses must have flagged a number as spam before the
 # crowdsourced cross-tenant signal counts (privacy-safe: only a COUNT is ever read).
 SCREEN_CROWD_MIN = _int_env("FIRSTBACK_SCREEN_CROWD_MIN", 2)
+
+# Screening graduation (Phase 5c): after the owner watches monitor mode for this
+# many days with at least this many would-have-blocked verdicts (and no rescues
+# that reset the clock), the system auto-promotes to enforce and alerts the owner.
+SCREEN_GRADUATION_DAYS = 7
+SCREEN_GRADUATION_MIN_VERDICTS = 10
+
+# Per-tenant sensitivity presets: (hard, mid) thresholds for the screening score.
+# The UI settings radio maps to these; a NULL per-tenant override inherits config
+# defaults (SCREEN_SCORE_HARD / SCREEN_SCORE_MID).
+SCREEN_SENSITIVITY_PRESETS = {
+    "conservative": (90, 55),
+    "balanced":     (80, 45),
+    "aggressive":   (65, 35),
+}
+
 # AI content screen (Tier 3): classify the caller's FIRST reply (real homeowner vs.
 # sales pitch / survey / wrong number) and bail mid-conversation on spam. Uses the
 # same brain as the conversation engine; OFF unless explicitly enabled AND a real

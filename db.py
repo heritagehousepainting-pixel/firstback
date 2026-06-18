@@ -593,6 +593,35 @@ def init_db():
         if col not in biz_cols:
             c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
 
+    # ── Phase 5c — Screening graduation columns ────────────────────────────────
+    # These 7 columns power the auto-graduation path (monitor -> enforce after 7d
+    # clean observation) and the UI sensitivity controls. All safe to ALTER on an
+    # existing DB because they default to NULL/0 and existing code ignores them.
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    for col, ddl in (
+            # Observation window start (ISO). NULL -> lazy-init on first graduation pass.
+            # A rescue resets this column, restarting the 7-day clock.
+            ("screening_window_start", "TEXT"),
+            # Lifetime count of owner rescues ("this was real") on screened callers.
+            ("screening_false_positives", "INTEGER DEFAULT 0"),
+            # Per-tenant sensitivity thresholds. NULL -> inherit config defaults.
+            ("screen_hard", "INTEGER"),
+            ("screen_mid",  "INTEGER"),
+            # Per-tenant reputation toggle (paid tier; inert until provider key set).
+            ("reputation_enabled", "INTEGER DEFAULT 0"),
+            # Set when auto-graduation flips screen_mode to 'enforce'.
+            ("screening_promoted_at", "TEXT"),
+            # When 1: hold in monitor mode indefinitely (defer auto-graduation).
+            ("screening_hold", "INTEGER DEFAULT 0")):
+        if col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+    # Backfill existing rows: set screening_window_start = now() so the graduation
+    # clock starts from migration time (not NULL, which would lazy-skip forever).
+    c.execute(
+        "UPDATE businesses SET screening_window_start=? "
+        "WHERE screening_window_start IS NULL",
+        (datetime.now(timezone.utc).isoformat(),))
+
     # ── Phase 1 A: Stripe billing columns on businesses ──────────────────────
     # CRITICAL GUARD: existing rows (esp. business_id=1 — the live seed tenant)
     # must default subscription_status='active' so the new gate in launch_blockers
@@ -1946,23 +1975,75 @@ def add_spam_flag(business_id, number):
     conn.close()
 
 
-def global_spam_count(number, exclude_business_id=None):
+def global_spam_count(number, exclude_business_id=None, within_hours=None):
     """How many DISTINCT businesses have flagged this number as spam -- the privacy-safe
     crowdsource signal (a COUNT only; never who). Optionally exclude the asking business
-    so a tenant's own flag doesn't double-count as 'the community'."""
+    so a tenant's own flag doesn't double-count as 'the community'.
+
+    `within_hours` (optional): restrict to flags created in the last N hours. Used by
+    the burst-detection signal in triage (calls lots of businesses in the past 24h)."""
     key = _digits10(number)
     if not key:
         return 0
     conn = get_conn()
+    where = "number=?"
+    args = [key]
     if exclude_business_id is not None:
-        n = conn.execute(
-            "SELECT COUNT(DISTINCT business_id) FROM spam_flags WHERE number=? AND business_id<>?",
-            (key, exclude_business_id)).fetchone()[0]
-    else:
-        n = conn.execute(
-            "SELECT COUNT(DISTINCT business_id) FROM spam_flags WHERE number=?", (key,)).fetchone()[0]
+        where += " AND business_id<>?"
+        args.append(exclude_business_id)
+    if within_hours is not None:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=within_hours)).isoformat()
+        where += " AND created_at>=?"
+        args.append(cutoff)
+    n = conn.execute(
+        f"SELECT COUNT(DISTINCT business_id) FROM spam_flags WHERE {where}",
+        args).fetchone()[0]
     conn.close()
     return n or 0
+
+
+def record_screening_rescue(business_id, number):
+    """Owner tapped 'This was real' on a screened caller. Atomically:
+      1. Upsert the number as a known 'customer' contact (source='owner-rescue').
+      2. Increment screening_false_positives.
+      3. Reset screening_window_start = now() -- restarts the graduation clock so a
+         real homeowner is never silenced without a second clean window.
+    Returns the normalized number key (10-digit), or None if the number is invalid."""
+    key = _digits10(number)
+    if not key:
+        return None
+    ts = datetime.now(timezone.utc).isoformat()
+    conn = get_conn()
+    # Upsert customer contact (source=owner-rescue).
+    conn.execute(
+        "INSERT INTO contacts (business_id, number, name, category, note, source, "
+        "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(business_id, number) DO UPDATE SET "
+        "  category='customer', source='owner-rescue', updated_at=excluded.updated_at",
+        (business_id, key, None, "customer", None, "owner-rescue", ts, ts))
+    # Increment false_positive count + reset observation window.
+    conn.execute(
+        "UPDATE businesses SET "
+        "  screening_false_positives = COALESCE(screening_false_positives, 0) + 1, "
+        "  screening_window_start = ? "
+        "WHERE id=?",
+        (ts, business_id))
+    conn.commit()
+    conn.close()
+    return key
+
+
+def promote_screening(business_id):
+    """Auto-graduate a business from monitor to enforce mode. Called by the graduation
+    scheduler after the observation window is clean. Sets screen_mode='enforce' and
+    records screening_promoted_at = now() atomically."""
+    ts = datetime.now(timezone.utc).isoformat()
+    conn = get_conn()
+    conn.execute(
+        "UPDATE businesses SET screen_mode='enforce', screening_promoted_at=? WHERE id=?",
+        (ts, business_id))
+    conn.commit()
+    conn.close()
 
 
 def set_voice_consent(business_id, number, ok=True):

@@ -28,13 +28,17 @@ import mail
 import messaging
 
 ALERT_KINDS = ("lead", "booking", "urgent", "canceled", "sms_fail", "forwarding_lost",
-               "roi_milestone", "vic_morning", "vic_stall")
+               "roi_milestone", "vic_morning", "vic_stall", "screening_graduated")
 # Collapse identical alerts (same business + event) within this many seconds.
 ALERT_DEDUPE_SECONDS = 120
 # Proactive daily pushes (day-stamped keys) collapse over the whole local day, not 120s --
 # the ticker fires every few minutes, so a short window would re-send them on each pass.
 _DAILY_DEDUPE_SECONDS = 26 * 3600
 _DAILY_DEDUPE_KINDS = ("vic_morning", "vic_stall")
+# Graduation fires once per business lifetime (the mode flips once), so dedupe
+# over a very long window to prevent any edge-case re-fire.
+_LONG_DEDUPE_SECONDS = 365 * 24 * 3600
+_LONG_DEDUPE_KINDS = ("screening_graduated",)
 
 # A cancellation rides the same toggle as a booking (both are "your calendar changed").
 # sms_fail and forwarding_lost ride the urgent toggle (operational alerts the owner needs).
@@ -44,7 +48,10 @@ _TOGGLE_COL = {"lead": "alert_on_lead", "booking": "alert_on_booking",
                "roi_milestone": "alert_on_roi_milestone",
                # Proactive push kinds (ALPHA): map to the lead-alert toggle so they respect
                # the owner's existing preference without requiring a new DB column.
-               "vic_morning": "alert_on_lead", "vic_stall": "alert_on_lead"}
+               "vic_morning": "alert_on_lead", "vic_stall": "alert_on_lead",
+               # Graduation is an operational owner notification: no new column needed,
+               # rides the urgent toggle (owner needs to know their filter went live).
+               "screening_graduated": "alert_on_urgent"}
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -111,19 +118,28 @@ def format_message(kind, context):
         urgency = " They may be shopping around." if idle_h > 48 else ""
         return (f"{name} replied {hours_label} ago and is still waiting{money_part}."
                 f"{urgency} Open FirstBack to text them back.")
+    if kind == "screening_graduated":
+        # Honest: state exactly what happened. Never claim a customer was contacted --
+        # these were monitor-mode verdicts (would-have-blocked, no text was suppressed yet).
+        n = context.get("n", 0)
+        robocaller_word = "robocaller" if n == 1 else "robocallers"
+        return (f"Spam blocking is now ON -- this week we'd have blocked {n} "
+                f"{robocaller_word} and you rescued none. "
+                f"Manage or pause it in Settings.")
     return f"FirstBack alert ({kind})."
 
 
 def _subject(kind):
-    return {"lead": "New lead — FirstBack",
-            "booking": "Estimate booked — FirstBack",
-            "urgent": "Urgent lead — FirstBack",
-            "canceled": "Estimate canceled — FirstBack",
-            "sms_fail": "SMS delivery failed — FirstBack",
-            "forwarding_lost": "Call forwarding issue — FirstBack",
-            "roi_milestone": "FirstBack paid for itself — FirstBack",
-            "vic_morning": "Your morning briefing — FirstBack",
-            "vic_stall": "Lead still waiting — FirstBack"}.get(kind, "FirstBack alert")
+    return {"lead": "New lead -- FirstBack",
+            "booking": "Estimate booked -- FirstBack",
+            "urgent": "Urgent lead -- FirstBack",
+            "canceled": "Estimate canceled -- FirstBack",
+            "sms_fail": "SMS delivery failed -- FirstBack",
+            "forwarding_lost": "Call forwarding issue -- FirstBack",
+            "roi_milestone": "FirstBack paid for itself -- FirstBack",
+            "vic_morning": "Your morning briefing -- FirstBack",
+            "vic_stall": "Lead still waiting -- FirstBack",
+            "screening_graduated": "Spam Shield is now active -- FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):
@@ -136,9 +152,10 @@ def _dedupe_key(kind, context):
     """A stable key per event so a double-trigger collapses but distinct events
     (a different lead, a re-book to a new time) still each alert.
 
-    vic_morning: day-stamped per business (one per local calendar day).
-    vic_stall:   day-stamped per (lead, local calendar day) so each lead is
-                 nudged at most once per day, not per window."""
+    vic_morning:          day-stamped per business (one per local calendar day).
+    vic_stall:            day-stamped per (lead, local calendar day).
+    screening_graduated:  once per business, keyed by kind only (no context needed;
+                          a business graduates exactly once)."""
     if kind == "vic_morning":
         day = (context.get("local_day") or "").strip()
         return f"vic_morning:{day}"
@@ -146,6 +163,8 @@ def _dedupe_key(kind, context):
         lead_id = context.get("lead_id", "")
         day = (context.get("local_day") or "").strip()
         return f"vic_stall:{lead_id}:{day}"
+    if kind == "screening_graduated":
+        return "screening_graduated"
     base = f"{kind}:{context.get('lead_id')}"
     return base + (f":{context.get('when')}" if kind in ("booking", "canceled") else "")
 
@@ -209,7 +228,13 @@ def notify(business, kind, context):
         # local day -- the ticker runs every few minutes, so a 120s window would re-send
         # the morning digest (and every stall nudge) on each pass. Use a 26h window for
         # those (slightly over a day to absorb DST / clock skew); 120s for event alerts.
-        window = _DAILY_DEDUPE_SECONDS if kind in _DAILY_DEDUPE_KINDS else ALERT_DEDUPE_SECONDS
+        # screening_graduated fires once per business lifetime; use a year-long window.
+        if kind in _LONG_DEDUPE_KINDS:
+            window = _LONG_DEDUPE_SECONDS
+        elif kind in _DAILY_DEDUPE_KINDS:
+            window = _DAILY_DEDUPE_SECONDS
+        else:
+            window = ALERT_DEDUPE_SECONDS
         if db.alert_recent(bid, dedupe, window):
             return []  # already alerted for this event recently
         db.add_alert(bid, kind, "inapp", "", "recorded", dedupe, body)

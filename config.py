@@ -303,7 +303,7 @@ def biz_tz(business):
     lookup). Resolution order:
 
       1. business['timezone'] / db row timezone column (valid IANA name) -> ZoneInfo
-      2. NPA of business['twilio_number'] -> NPA_TO_IANA -> ZoneInfo
+      2. NPA of business['twilio_number'] (then business['phone']) -> NPA_TO_IANA -> ZoneInfo
       3. app_tz() global fallback
 
     Never raises; always returns a tzinfo.
@@ -321,11 +321,12 @@ def biz_tz(business):
             return ZoneInfo(tz_name)
         except Exception:
             pass  # fall through to NPA
-    # 2. NPA fallback from the provisioned Twilio number
-    number = (business.get("twilio_number") or "").strip()
-    if number:
-        import re as _re
-        digits = _re.sub(r"\D", "", number)
+    # 2. NPA fallback. Prefer the provisioned Twilio number (usually a local NPA);
+    #    fall back to the contractor's own phone, the better region signal before a
+    #    number is provisioned.
+    import re as _re
+    for number in (business.get("twilio_number"), business.get("phone")):
+        digits = _re.sub(r"\D", "", (number or "").strip())
         # US numbers: +1NXXNXXXXXX -> NPA is digits[1:4] (after leading 1)
         npa = None
         if len(digits) == 11 and digits.startswith("1"):

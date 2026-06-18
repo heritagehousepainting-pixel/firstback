@@ -412,6 +412,40 @@ else:
     DB_PATH = _db_at_rest
     DB_BACKUP_PATH = os.environ.get("FIRSTBACK_DB_BACKUP_PATH", "").strip()
 
+# --- ROI / pricing -------------------------------------------------------
+# Monthly subscription cost used for the roi_multiple calculation in db.analytics
+# and roi.check_roi_milestone. Callers: A (analytics/roi), B (digest).
+PLAN_COST_MONTHLY = 99
+
+# Industry-average job values by trade, used when the owner has not set their own
+# avg_job_value. Keyed on the trade strings the app uses (set at signup / default
+# business profile). The $800 floor is the fallback for an unrecognised trade.
+# Source: contractor industry benchmarks (2024-2025 national averages). These are
+# ESTIMATES for internal ROI display only — never present as the owner's actual data.
+TRADE_JOB_VALUE_DEFAULTS = {
+    "plumbing":          1800,
+    "electrical":        1500,
+    "hvac":              2200,
+    "roofing":           8500,
+    "painting":          3200,
+    "residential & commercial painting": 3200,
+    "landscaping":       1200,
+    "general":            900,
+    "home services":      900,
+    "carpentry":         1600,
+    "flooring":          2800,
+    "remodeling":        6000,
+    "concrete":          3000,
+    "drywall":           1400,
+    "insulation":        1800,
+    "gutters":           1200,
+    "windows":           2500,
+    "fencing":           2800,
+    "decking":           5000,
+    "pest control":       450,
+    "cleaning":           400,
+}
+
 # --- Scheduling -----------------------------------------------------------
 # The estimate windows FirstBack offers on each OPEN day. The in-house calendar
 # fills open days with these times; the AI offers the soonest two. (Later these

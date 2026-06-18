@@ -714,6 +714,13 @@ def init_db():
         flushed INTEGER DEFAULT 0, flushed_at TEXT, skip_reason TEXT)""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_blocked_sends_biz ON blocked_sends(business_id, flushed)")
 
+    # Phase 4 — ROI milestone + dispatcher-call tracking on businesses
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    for col, ddl in (("roi_milestone_sent_at", "TEXT"),
+                     ("dispatcher_call_last_at", "TEXT")):
+        if col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
         b = DEFAULT_BUSINESS
@@ -2499,26 +2506,46 @@ def _roi_series(lead_days, booked_days, start, end):
 
 def analytics(business_id, days=30):
     """ROI metrics for a business over the last `days` (None = all time), bucketed by
-    business-local day. Read-only + tenant-scoped. 'revenue' is an ESTIMATE (booked x
-    avg_job_value) or None when the owner hasn't set a value. Conversion is guarded
-    against divide-by-zero."""
+    business-local day. Read-only + tenant-scoped.
+
+    HONESTY P0: only missed-call-sourced leads count toward 'leads'/recovered/conversion
+    (source='missed_call'). Manually-added leads are excluded so the numbers are honest.
+
+    'revenue' is ALWAYS an ESTIMATE (pipeline, never collected cash):
+      resolved_avg = owner avg_job_value (avg_source='owner') if set, else
+                     TRADE_JOB_VALUE_DEFAULTS.get(trade, 800) (avg_source='industry_default').
+      revenue = booked_n * resolved_avg  (integer, always present now)
+      roi_multiple = round(revenue / PLAN_COST_MONTHLY, 1) — None when revenue is 0.
+    Conversion is guarded against divide-by-zero."""
+    from config import PLAN_COST_MONTHLY, TRADE_JOB_VALUE_DEFAULTS
     biz = get_business(business_id)
+    # Resolve average job value: owner-set wins; else trade industry default; else $800 floor.
     try:
-        avg = float(biz.get("avg_job_value")) if biz.get("avg_job_value") not in (None, "") else None
+        owner_avg = float(biz.get("avg_job_value")) if biz.get("avg_job_value") not in (None, "") else None
     except (TypeError, ValueError):
-        avg = None
+        owner_avg = None
+    if owner_avg is not None:
+        resolved_avg = owner_avg
+        avg_source = "owner"
+    else:
+        trade_key = (biz.get("trade") or "").strip().lower()
+        resolved_avg = TRADE_JOB_VALUE_DEFAULTS.get(trade_key, 800)
+        avg_source = "industry_default"
     conn = get_conn()
+    # HONESTY P0: filter to source='missed_call' only — exclude manually-added leads.
     if days:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).isoformat()
         lead_rows = conn.execute(
-            "SELECT created_at FROM leads WHERE business_id=? AND created_at>=?",
+            "SELECT created_at FROM leads WHERE business_id=? AND source='missed_call' "
+            "AND created_at>=?",
             (business_id, cutoff)).fetchall()
         appt_rows = conn.execute(
             "SELECT created_at FROM appointments WHERE business_id=? AND status='booked' "
             "AND created_at>=?", (business_id, cutoff)).fetchall()
     else:
         lead_rows = conn.execute(
-            "SELECT created_at FROM leads WHERE business_id=?", (business_id,)).fetchall()
+            "SELECT created_at FROM leads WHERE business_id=? AND source='missed_call'",
+            (business_id,)).fetchall()
         appt_rows = conn.execute(
             "SELECT created_at FROM appointments WHERE business_id=? AND status='booked'",
             (business_id,)).fetchall()
@@ -2541,12 +2568,43 @@ def analytics(business_id, days=30):
     series = _roi_series(lead_days, booked_days, start, today)
     leads_n, booked_n = len(lead_days), len(booked_days)
     conversion = round(booked_n / leads_n * 100) if leads_n else 0
-    revenue = int(round(booked_n * avg)) if avg else None
+    revenue = int(round(booked_n * resolved_avg))
+    roi_multiple = round(revenue / PLAN_COST_MONTHLY, 1) if revenue else None
     return {
         "totals": {"leads": leads_n, "booked": booked_n,
                    "conversion": conversion, "revenue": revenue},
-        "series": series, "avg_job_value": avg, "days": days,
+        "series": series, "avg_job_value": owner_avg, "days": days,
+        "revenue": revenue, "roi_multiple": roi_multiple, "avg_source": avg_source,
     }
+
+
+# ---- Phase 4 ROI milestone + dispatcher helpers ----
+def set_roi_milestone_sent(business_id, ts):
+    """Record the ISO timestamp when the ROI milestone SMS was sent (idempotency guard)."""
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET roi_milestone_sent_at=? WHERE id=?", (ts, business_id))
+    conn.commit()
+    conn.close()
+
+
+def set_dispatcher_call_at(business_id, ts):
+    """Record the ISO timestamp of the most recent dispatcher call to the owner."""
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET dispatcher_call_last_at=? WHERE id=?", (ts, business_id))
+    conn.commit()
+    conn.close()
+
+
+def get_last_inbound_message(lead_id):
+    """Return the body of the most recent inbound message from this lead, or '' if none.
+    Used by the dispatcher TwiML to read the caller's exact last words to the owner."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT body FROM messages WHERE lead_id=? AND direction='in' "
+        "ORDER BY id DESC LIMIT 1",
+        (lead_id,)).fetchone()
+    conn.close()
+    return row[0] if row and row[0] else ""
 
 
 # ---- Command-center conversation memory (record / flag / learn) ----

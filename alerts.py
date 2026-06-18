@@ -1,4 +1,4 @@
-"""Owner alerts for RingBack: notify the contractor the moment a lead arrives, an
+"""Owner alerts for FirstBack: notify the contractor the moment a lead arrives, an
 estimate books, or a lead is flagged urgent -- so they can trust it while they
 work instead of watching the dashboard.
 
@@ -50,23 +50,23 @@ def format_message(kind, context):
     if kind == "lead":
         proj = (context.get("project") or "").strip()
         about = f' about "{proj}"' if proj else ""
-        return f"New lead: {who}{tail}{about}. Open RingBack to reply."
+        return f"New lead: {who}{tail}{about}. Open FirstBack to reply."
     if kind == "booking":
         when = (context.get("when") or "").strip()
         return f"Estimate booked: {who} for {when}.{tail}".rstrip()
     if kind == "urgent":
-        return f"Urgent: {who}{tail} needs attention. Open RingBack."
+        return f"Urgent: {who}{tail} needs attention. Open FirstBack."
     if kind == "canceled":
         when = (context.get("when") or "").strip()
         return f"Estimate canceled: {who}{(' for ' + when) if when else ''}.{tail}".rstrip()
-    return f"RingBack alert ({kind})."
+    return f"FirstBack alert ({kind})."
 
 
 def _subject(kind):
-    return {"lead": "New lead — RingBack",
-            "booking": "Estimate booked — RingBack",
-            "urgent": "Urgent lead — RingBack",
-            "canceled": "Estimate canceled — RingBack"}.get(kind, "RingBack alert")
+    return {"lead": "New lead — FirstBack",
+            "booking": "Estimate booked — FirstBack",
+            "urgent": "Urgent lead — FirstBack",
+            "canceled": "Estimate canceled — FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):
@@ -139,5 +139,5 @@ def _safe_notify(business, kind, context):
     try:
         notify(business, kind, context)
     except Exception as e:  # never let an alert failure crash the worker thread
-        print(f"[ringback] alert notify failed ({kind}): {e}",
+        print(f"[firstback] alert notify failed ({kind}): {e}",
               file=sys.stderr, flush=True)

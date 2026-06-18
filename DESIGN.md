@@ -10,10 +10,14 @@ hierarchy comes from scale, weight, and white space, not decoration. We beat the
 clean-SaaS competition at their own game by being *more* disciplined. **AI-powered is
 stated up front**, not buried.
 
-## Signature move
+## Signature moment  (PROTECTED)
 Oversized Archivo numerals on a strict baseline grid (how-it-works steps + feature
-indices). The blue accent appears **only** on primary CTAs, the active nav item, and
-the logo mark — nowhere else.
+indices) — built via large clamp() display weights (800/900) sharing the body baseline
+grid, no decoration. The blue accent appears **only** on primary CTAs, the active nav
+item, and the logo mark — nowhere else.
+PROTECTED: ui-audit enforces this move's a11y / perf / correctness but may NOT remove or
+simplify it on taste grounds. If it can't be made conformant, replace it with a different
+move of equal boldness — never a safe fallback.
 
 ## Type
 - Family: **Archivo** (single grotesque — Swiss discipline). Google Fonts.

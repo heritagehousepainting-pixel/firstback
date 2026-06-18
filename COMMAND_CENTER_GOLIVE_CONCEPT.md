@@ -90,7 +90,7 @@ Card payload the backend will send (you consume it — see contract):
   "done": 2, "total": 4,
   "steps": [                                            // condensed stepper (titles come from the backend)
     {"key":"profile",    "title":"Your business",             "state":"done"},
-    {"key":"number",     "title":"Your RingBack number",      "state":"done"},
+    {"key":"number",     "title":"Your FirstBack number",      "state":"done"},
     {"key":"a2p",        "title":"Carrier registration (A2P)","state":"current"}, // current = first actionable
     {"key":"forwarding", "title":"Forward your missed calls", "state":"todo"}
   ],

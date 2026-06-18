@@ -1,4 +1,4 @@
-"""RingBack's command center -- the conversational control surface (the "Jarvis").
+"""FirstBack's command center -- the conversational control surface (the "Jarvis").
 
 ONE natural-language seam over the product. The signed-in home is a chat: the owner
 types "how many leads this week", "show my booked estimates", "save this number as a
@@ -6,7 +6,7 @@ customer", "connect my Google calendar", "text my last lead back" -- and this tu
 into a real action against the existing engines (db, messaging, google_cal). No new
 source of truth: every tool wraps a function the manual UI already uses.
 
-Same three guarantees as the rest of RingBack:
+Same three guarantees as the rest of FirstBack:
   1. Provider-agnostic brain (ai._active_provider): Claude or MiniMax when keyed, with a
      deterministic keyword router as the always-works floor.
   2. Tenant-scoped: every tool runs against the signed-in business; nothing crosses tenants.
@@ -38,18 +38,18 @@ import google_contacts
 # multi-step go-live flow, so it delegates to the go-live card (one source of truth).
 _CONNECT = {
     "calendar": {"label": "Google Calendar", "href": "/api/calendar/google/connect",
-                 "note": "Sync your real availability so RingBack only offers open times "
+                 "note": "Sync your real availability so FirstBack only offers open times "
                          "and drops booked estimates onto your calendar.",
                  "done_note": "I'll keep estimates off your busy times.",
                  "is_connected": lambda bid: google_cal.is_connected(bid),
                  "aliases": ["calendar", "google calendar", "gcal", "schedule", "availability"]},
     "contacts": {"label": "your contacts", "href": "/api/contacts/google/connect",
-                 "note": "Import your address book so RingBack knows a customer from a stranger.",
-                 "done_note": "RingBack tells your people from strangers now.",
+                 "note": "Import your address book so FirstBack knows a customer from a stranger.",
+                 "done_note": "FirstBack tells your people from strangers now.",
                  "is_connected": lambda bid: google_contacts.is_connected(bid),
                  "aliases": ["contacts", "address book", "import contacts", "google contacts"]},
     "texting": {"label": "your texting number", "href": "/setup",
-                "note": "Get your RingBack number live so it texts missed callers for real.",
+                "note": "Get your FirstBack number live so it texts missed callers for real.",
                 "aliases": ["twilio", "texting", "text", "phone number", "sms", "number"]},
 }
 
@@ -190,7 +190,7 @@ def _h_add_contact(business, args):
                 "cards": []}
     who = name or number
     return {"reply": f"Saved {who} as a {category}.",
-            "cards": [_note(f"{who} is in your directory now. RingBack will treat their "
+            "cards": [_note(f"{who} is in your directory now. FirstBack will treat their "
                             "calls accordingly.", "ok")]}
 
 
@@ -1032,7 +1032,7 @@ def _chaperone_step_view(business, key, golive):
     if key in ("number", "a2p", "forwarding"):
         gl = _golive_card(business)
         notes = {
-            "number": "Now get your RingBack number -- the line missed callers get texted from. "
+            "number": "Now get your FirstBack number -- the line missed callers get texted from. "
                       "One tap on the Go Live page and I wire it up.",
             "a2p": "Carrier registration is next, on the Go Live page. It takes a few hours for "
                    "the carrier to approve, and texts are simulated until it clears -- nothing "
@@ -1058,7 +1058,7 @@ def _h_chaperone(business, args):
     biz = db.get_business(bid) or business
     golive = connections.golive_summary(biz)
     if golive.get("status") == "live":
-        return {"reply": "You're live and set up -- RingBack's catching your calls. I'll keep the "
+        return {"reply": "You're live and set up -- FirstBack's catching your calls. I'll keep the "
                          "morning briefing on your leads from here.", "cards": []}
     cal = google_cal.is_connected(bid)
     key = connections.chaperone_next_step(biz, golive, cal)
@@ -1434,7 +1434,7 @@ def _tool_schemas():
 # is one voice. (Deterministic routing and the confirm gate are unchanged; this only shapes
 # the words.)
 _VIC_PERSONA = (
-    "You are Vic, the AI marketing employee inside RingBack -- not a chatbot, a sharp foreman "
+    "You are Vic, the AI marketing employee inside FirstBack -- not a chatbot, a sharp foreman "
     "who knows marketing cold. Voice: blue-collar, short sentences, plain words. Never use "
     "corporate words (no leverage, optimize, utilize, synergy). Lead with money and capacity: "
     "turn leads into dollars and open estimate slots, never funnel jargon. Own the "
@@ -1450,7 +1450,7 @@ def _loop_system(business=None):
     taught_block = ("\nThe owner has TAUGHT you these corrections; honor them:\n" + taught
                     + "\n") if taught else ""
     return (
-        _VIC_PERSONA + " RingBack catches a home-services contractor's missed calls and books "
+        _VIC_PERSONA + " FirstBack catches a home-services contractor's missed calls and books "
         "estimates by text. Help the owner by CALLING the available tools to pull their "
         "numbers, list leads or booked estimates, save a contact, connect an account, change "
         "scheduling, or text a lead. You can call more than one tool in sequence when a "
@@ -1524,7 +1524,7 @@ def _tool_loop(business, message, history, entities=None, allow_llm=True):
         return {"reply": reply, "cards": cards, "pending_action": None, "entities": ents_out,
                 "meta": {"tool": "tools", "status": "ok" if cards else "chat"}}
     except Exception as e:
-        print(f"[ringback] tool loop failed, using keyword floor: {e}", flush=True)
+        print(f"[firstback] tool loop failed, using keyword floor: {e}", flush=True)
         return None
 
 
@@ -1783,9 +1783,9 @@ def _demo_route(message):
 _GOLIVE_REPLY = {
     "not_live": "Let's get you live. Here's where you are. The Go Live page walks you through "
                 "your number, carrier registration, and call forwarding, one step at a time.",
-    "setup_complete": "You're set up. Make a test call to your RingBack number to confirm "
+    "setup_complete": "You're set up. Make a test call to your FirstBack number to confirm "
                       "forwarding works, then you're fully live.",
-    "live": "You're live. RingBack is catching your missed calls and texting them back.",
+    "live": "You're live. FirstBack is catching your missed calls and texting them back.",
 }
 
 
@@ -1807,7 +1807,7 @@ def _route_topic(message, business=None):
     falls back to a plain link card (e.g. direct unit calls without a tenant)."""
     t = message.lower()
     if any(k in t for k in ("go live", "make it live", "turn it on", "get connected",
-                            "connect my number", "set up my number", "set up ringback",
+                            "connect my number", "set up my number", "set up firstback",
                             "get a number", "get a phone number", "a2p", "10dlc", "carrier",
                             "call forwarding", "forward my calls", "deliverability",
                             "start texting", "not sending text", "texts aren't",
@@ -1823,7 +1823,7 @@ def _route_topic(message, business=None):
                          "hours.",
                 "cards": [_link("Open settings", "/settings", "Open settings")]}
     if any(k in t for k in ("demo", "simulator", "try it", "test it", "see it work", "show me how")):
-        return {"reply": "Run a live demo: fire a missed call and watch RingBack text the caller "
+        return {"reply": "Run a live demo: fire a missed call and watch FirstBack text the caller "
                          "and book the estimate.",
                 "cards": [_link("Open the simulator", "/simulator", "Open the demo")]}
     return None
@@ -1833,7 +1833,7 @@ def _chat_reply(message):
     provider = ai._active_provider()
     if provider in ("claude", "minimax"):
         try:
-            sys = (_VIC_PERSONA + " RingBack catches a contractor's missed calls and books "
+            sys = (_VIC_PERSONA + " FirstBack catches a contractor's missed calls and books "
                    "estimates. Answer in 1 to 3 sentences. If they seem to want an action you "
                    "can take (show stats, list leads or estimates, save a contact, connect an "
                    "account, text a lead, change scheduling), offer it. Never call something a "
@@ -2084,7 +2084,7 @@ def _tool_loop_stream(business, message, history, entities=None):
                         "entities": ents_out,
                         "meta": {"tool": "tools", "status": "ok" if cards else "chat"}})
     except Exception as e:
-        print(f"[ringback] stream tool loop failed, using keyword floor: {e}", flush=True)
+        print(f"[firstback] stream tool loop failed, using keyword floor: {e}", flush=True)
         yield ("fallback", None)
 
 

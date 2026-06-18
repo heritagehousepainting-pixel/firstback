@@ -1,4 +1,4 @@
-# RingBack Go-Live Runbook
+# FirstBack Go-Live Runbook
 
 How to ship the code now and flip tenants live the moment Twilio clears. Accurate
 to the code as of this build. See also `MIGRATION_NOTES.md` (A2P sync can
@@ -34,21 +34,21 @@ server.
 
 | Env var | Value / note |
 |---|---|
-| `RINGBACK_PUBLIC_URL` | `https://ringback-gixe.onrender.com` — **required**. (Code constant is `PUBLIC_BASE_URL`; the env var is `RINGBACK_PUBLIC_URL`.) |
-| `RINGBACK_VOICE_URL` | Only if AI voice is used. |
-| `RINGBACK_TASKS_SECRET` | Strong random. **Unset ⇒ `/tasks/run-due` always 403** (cron can't run). |
+| `FIRSTBACK_PUBLIC_URL` | `https://ringback-gixe.onrender.com` — **required**. (Code constant is `PUBLIC_BASE_URL`; the env var is `FIRSTBACK_PUBLIC_URL`.) |
+| `FIRSTBACK_VOICE_URL` | Only if AI voice is used. |
+| `FIRSTBACK_TASKS_SECRET` | Strong random. **Unset ⇒ `/tasks/run-due` always 403** (cron can't run). |
 | `TWILIO_ACCOUNT_SID` | From Twilio. |
 | `TWILIO_AUTH_TOKEN` | Paste in Render directly — **never** in the repo. |
 | `TWILIO_FROM_NUMBER` | `+12677562454` |
-| `RINGBACK_DB_PATH` | `/var/data/ringback.db` — must point at a **persistent disk** or the DB resets every deploy. |
-| `RINGBACK_SECRET` | App session secret. |
-| `RINGBACK_HTTPS` | `1` |
-| `RINGBACK_OPERATOR_EMAILS` | Operator allowlist for the A2P record action (being added this build). |
-| `ANTHROPIC_API_KEY` + `RINGBACK_PROVIDER=claude` | The real brain. |
-| `RINGBACK_OWNER_PASSWORD` | Change it off the `ringback123` seed. |
+| `FIRSTBACK_DB_PATH` | `/var/data/firstback.db` — must point at a **persistent disk** or the DB resets every deploy. |
+| `FIRSTBACK_SECRET` | App session secret. |
+| `FIRSTBACK_HTTPS` | `1` |
+| `FIRSTBACK_OPERATOR_EMAILS` | Operator allowlist for the A2P record action (being added this build). |
+| `ANTHROPIC_API_KEY` + `FIRSTBACK_PROVIDER=claude` | The real brain. |
+| `FIRSTBACK_OWNER_PASSWORD` | Change it off the `firstback123` seed. |
 
 > Note: `HANDOFF.md` previously listed the wrong name `PUBLIC_BASE_URL` for this
-> env var — fixed. The **env var** is `RINGBACK_PUBLIC_URL`; the **code constant**
+> env var — fixed. The **env var** is `FIRSTBACK_PUBLIC_URL`; the **code constant**
 > is named `PUBLIC_BASE_URL`.
 
 ---
@@ -57,7 +57,7 @@ server.
 
 1. **Set env + redeploy** (section B).
 2. **Get the number** — buy one (buying auto-wires the webhooks to
-   `RINGBACK_PUBLIC_URL`) or attach `+12677562454`.
+   `FIRSTBACK_PUBLIC_URL`) or attach `+12677562454`.
 3. **Wire webhooks:**
    - **VOICE webhook ON THE NUMBER** (POST) →
      `https://ringback-gixe.onrender.com/webhooks/twilio/voice/inbound`
@@ -87,4 +87,4 @@ once the A2P campaign is vetted and the SIDs are recorded (or on the cron's next
 
 **Recommended now:** add a Render cron that POSTs `/tasks/run-due` with header
 `X-Tasks-Secret`. It's a safe no-op pre-Twilio and auto-flips tenants live after
-approval. (Requires `RINGBACK_TASKS_SECRET` set, or the endpoint 403s.)
+approval. (Requires `FIRSTBACK_TASKS_SECRET` set, or the endpoint 403s.)

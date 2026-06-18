@@ -1,4 +1,4 @@
-# BRAIN — what the RingBack Command Center is becoming
+# BRAIN — what the FirstBack Command Center is becoming
 
 **Status:** vision, synthesized from a 20-agent deep recon (10 technical tracks + 10 domain/vision
 tracks), 2026-06-16. This doc is the **north star**. It elevates and supersedes the technical
@@ -34,7 +34,7 @@ What he wants is not a CRM. **He wants Tuesday to fill up.** Three truths that m
 - **Complexity is abandonment.** Tools fail him by optimizing completeness over immediacy. The
   morning that takes 45 seconds and names the 3 things to do beats the dashboard he'll never open.
 - **One concrete win erases months of AI skepticism.** He's seen gimmick chatbots. The first time
-  RingBack drafts the callback, sends it on his okay, and the reply lands — he's a believer.
+  FirstBack drafts the callback, sends it on his okay, and the reply lands — he's a believer.
 
 His verbatim, on why the incumbents burned him: *"At the end of the month you'll have no profits and
 just a big bill to pay them."* *"You're not getting a lead, you're getting a race to the bottom."*
@@ -101,9 +101,9 @@ a point of view, a memory, and initiative.**
 
 The old plan could *record* the business (CRUD over leads/bookings). Vic *grows* it. The recon found
 the missed call is just the top of a leaky bucket (D7): 65–80% of *quotes* die with zero follow-up;
-past customers cost 5–7× less than new leads. RingBack already holds the data to fix all of it.
+past customers cost 5–7× less than new leads. FirstBack already holds the data to fix all of it.
 
-**Tier 1 — Capture (the core, already RingBack's): speed-to-lead (D5/D2).**
+**Tier 1 — Capture (the core, already FirstBack's): speed-to-lead (D5/D2).**
 Sub-90-second missed-call → text-back, before they dial competitor #2. The numbers that justify the
 whole product: ~62% of contractor calls go unanswered, ~85% of voicemails get no callback, ~57% call
 a competitor within the hour; <5-min response is ~21× more likely to qualify. Vic keeps a
@@ -131,7 +131,7 @@ a competitor within the hour; <5-min response is ~21× more likely to qualify. V
 - **Financing prompt** on tickets over the trade's threshold (closes 30–40% more on big jobs).
 - **Before/after photo + GBP post** prompt at job close.
 
-Each of these is a *campaign a pro runs and an amateur forgets* — and RingBack already has the leads,
+Each of these is a *campaign a pro runs and an amateur forgets* — and FirstBack already has the leads,
 jobs, and timestamps to fire them.
 
 ---
@@ -151,7 +151,7 @@ avg response: 47 min; top contractors: under 5"), a **weekly recovered-revenue n
 
 Contractors don't distrust marketing; they distrust **being used by it** — the "promise, extraction,
 trap" of Angi/HomeAdvisor (FTC fined HomeAdvisor up to $7.2M for selling junk leads; one lead resold
-to up to 8 pros). RingBack is the inversion, and says so loudly:
+to up to 8 pros). FirstBack is the inversion, and says so loudly:
 
 - **Never sends a message he didn't approve.** Vic is a ghostwriter, not a loose cannon. Every
   outbound shows the **exact recipient + exact text + opt-out state + live/test**, editable, before
@@ -187,7 +187,7 @@ its own sake. Understatement is the power. Five signature moments to design:
 
 1. **The Morning Briefing** — 7:15am at the truck, one card, readable in 12 seconds: "3 estimates
    this week, $4,200 in play. Maria already replied; Carlos hasn't — tap to follow up."
-2. **"It Just Sent"** — "RingBack texted Danny 17 min ago. He replied 'Wednesday works.' I held your
+2. **"It Just Sent"** — "FirstBack texted Danny 17 min ago. He replied 'Wednesday works.' I held your
    2pm." He did nothing. The job booked itself. Stated flatly, like a good assistant reporting in.
 3. **The Win** — "Marcus signed. $1,850 booked." One line. Later: "Best month yet — 5 booked, $9,400
    in play." Just the number; he knows what it means.

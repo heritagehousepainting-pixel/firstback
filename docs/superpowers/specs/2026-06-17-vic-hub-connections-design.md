@@ -2,12 +2,12 @@
 
 **Date:** 2026-06-17 · **Branch:** `staging` · **Status:** approved, building.
 
-> Read `BRAIN.md` (north star), `HANDOFF.md` (state), and the `ringback-vic-hub-vision`
+> Read `BRAIN.md` (north star), `HANDOFF.md` (state), and the `firstback-vic-hub-vision`
 > memory first. This is the first slice of Phase 6 "Vic, the hub."
 
 ## Decisions made (the brainstorm)
 1. **Build order:** Phase 6 first, locally on the `staging` branch (the real Claude brain
-   works locally). Deploy `ringbackv2` *after*.
+   works locally). Deploy `firstbackv2` *after*.
 2. **First slice:** Pillar B (connections) — the biggest wall for a brand-new owner.
 3. **In-chat depth:** *initiate + inline card + confirm*. Vic surfaces a real action inline,
    pre-filled, explains why, and confirms status after — it does not rebuild write paths.

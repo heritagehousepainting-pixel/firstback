@@ -693,7 +693,7 @@
   (function () {
     var dock = document.querySelector(".command-dock");
     if (!dock) return;
-    var bar = el("div", "offline-banner", "You're offline — RingBack will catch up when you reconnect.");
+    var bar = el("div", "offline-banner", "You're offline — FirstBack will catch up when you reconnect.");
     bar.setAttribute("role", "status");
     bar.hidden = true;
     dock.insertBefore(bar, dock.firstChild);

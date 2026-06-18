@@ -1,8 +1,8 @@
-"""RingBack's conversational brain.
+"""FirstBack's conversational brain.
 
 Two modes:
   1. Claude mode -- when ANTHROPIC_API_KEY is set AND the `anthropic` package is
-     installed. RingBack texts leads using Claude.
+     installed. FirstBack texts leads using Claude.
   2. Demo mode   -- a built-in rule-based responder so the product works with
      ZERO setup. Good enough to demo the flow; replace/extend as you like.
 
@@ -17,7 +17,7 @@ from config import (
     ANTHROPIC_API_KEY, CLAUDE_MODEL,
 )
 # Provider plumbing (MiniMax/Claude/demo selection + the HTTP/SDK call) lives in the
-# trades_core kernel; this file keeps RingBack's conversation + booking logic.
+# trades_core kernel; this file keeps FirstBack's conversation + booking logic.
 from llm import active_provider as _active_provider, strip_think as _strip_think, complete as _complete
 
 # Marker the AI emits when it wants to book a slot. We parse it out so the
@@ -407,7 +407,7 @@ def generate_reply(business, history, exclude_slot_ids=None):
     except Exception as e:
         # Any API/network error -> log and fall back so the app never breaks.
         import sys
-        print(f"[ringback] {provider} brain failed, using demo fallback: {e}",
+        print(f"[firstback] {provider} brain failed, using demo fallback: {e}",
               file=sys.stderr, flush=True)
         raw = None
     if not raw:
@@ -424,7 +424,7 @@ def generate_reply(business, history, exclude_slot_ids=None):
     slot, conflict = _resolve_booking(history, slots, marker_text)
     if conflict:
         import sys
-        print(f"[ringback] booking conflict: marker={marker_text!r} -> honoring "
+        print(f"[firstback] booking conflict: marker={marker_text!r} -> honoring "
               f"caller's explicit choice {slot['label']!r}", file=sys.stderr, flush=True)
     booking = slot["label"] if slot else None
     raw = _clean_punct(raw)  # enforce dash-free, standard punctuation
@@ -540,14 +540,14 @@ def summarize_lead(business, messages):
                     return _normalize_notes(data)
             except Exception as e:
                 import sys
-                print(f"[ringback] summarize_lead ({provider}) attempt {attempt + 1} "
+                print(f"[firstback] summarize_lead ({provider}) attempt {attempt + 1} "
                       f"failed: {e}", file=sys.stderr, flush=True)
     return _notes_rule_based(messages)
 
 
 # --------------------------------------------------------------------------
 # CONTENT SCREEN  (Tier 3 of the phone screen: is this reply a real homeowner,
-# or a sales pitch / survey / wrong number / spam? RingBack's analog to iOS 26
+# or a sales pitch / survey / wrong number / spam? FirstBack's analog to iOS 26
 # "Ask Reason for Calling" -- the SMS exchange IS the reason-for-calling step.)
 # --------------------------------------------------------------------------
 _INTENT_SYSTEM = (
@@ -587,7 +587,7 @@ def classify_intent(business, messages):
         data = _parse_json(_llm_complete(provider, _INTENT_SYSTEM, transcript))
     except Exception as e:
         import sys
-        print(f"[ringback] classify_intent ({provider}) failed: {e}",
+        print(f"[firstback] classify_intent ({provider}) failed: {e}",
               file=sys.stderr, flush=True)
         data = None
     if not data:

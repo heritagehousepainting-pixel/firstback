@@ -1,4 +1,4 @@
-"""RingBack -- Flask app.
+"""FirstBack -- Flask app.
 
 Run:
     python app.py
@@ -47,7 +47,7 @@ app.secret_key = SECRET_KEY
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 # Cookie hardening: HttpOnly (Flask default) + SameSite=Lax stop the session cookie
 # from riding cross-site POSTs (CSRF on /settings, /login, etc.). Secure (HTTPS-only)
-# is gated on RINGBACK_HTTPS so local http dev / the preview keep working.
+# is gated on FIRSTBACK_HTTPS so local http dev / the preview keep working.
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = SESSION_COOKIE_SECURE
 db.init_db()
@@ -180,12 +180,12 @@ def inject_globals():
 # ---- Command-center hardening: CSRF, history sanitization, rate limiting ----
 # Per-tenant ceiling on assistant turns per minute. SameSite=Lax already blocks cross-site
 # POSTs; this caps runaway cost/abuse from an authenticated client hammering the LLM.
-ASSISTANT_RPM = int(os.environ.get("RINGBACK_ASSISTANT_RPM", "60") or "60")
+ASSISTANT_RPM = int(os.environ.get("FIRSTBACK_ASSISTANT_RPM", "60") or "60")
 # Per-tenant DAILY ceiling on LLM-backed assistant turns. The per-minute limiter above stops
 # bursts; this caps cumulative daily cost. Past it the assistant keeps working but degrades to
 # the deterministic keyword floor (allow_llm=False) -- booking, lists, and the confirm gate
 # all still function; only the fuzzy/chat LLM path is withheld until the window rolls over.
-ASSISTANT_DAILY = int(os.environ.get("RINGBACK_ASSISTANT_DAILY", "400") or "400")
+ASSISTANT_DAILY = int(os.environ.get("FIRSTBACK_ASSISTANT_DAILY", "400") or "400")
 
 
 def _assistant_budget(biz, message):
@@ -438,12 +438,12 @@ def _command_feed(biz):
     try:
         brief = assistant.briefing(biz)
     except Exception as e:
-        print(f"[ringback] briefing failed, hiding it: {e}", flush=True)
+        print(f"[firstback] briefing failed, hiding it: {e}", flush=True)
         brief = {"type": "briefing", "tone": "quiet", "headline": "", "sub": "", "items": []}
     try:
         chips = assistant.adaptive_suggestions(biz)
     except Exception as e:
-        print(f"[ringback] adaptive suggestions failed, using static: {e}", flush=True)
+        print(f"[firstback] adaptive suggestions failed, using static: {e}", flush=True)
         chips = assistant.suggestions()
     return brief, chips, assistant.briefing_signature(brief)
 
@@ -485,7 +485,7 @@ def pipeline():
 @login_required
 def assistant_chat():
     """One natural-language turn against the command center. Same-origin JSON/form POST
-    (RingBack's API auth is the SameSite session cookie). Returns reply, inline cards, and
+    (FirstBack's API auth is the SameSite session cookie). Returns reply, inline cards, and
     an optional pending_action that needs an explicit confirm before it runs."""
     biz = current_business()
     if not _csrf_ok():
@@ -554,7 +554,7 @@ def assistant_stream():
                         payload["coach"] = convos.coach_offer(biz["id"], cid, message)
                     yield _sse({"t": "done", "result": payload})
         except Exception as e:
-            print(f"[ringback] assistant stream failed: {e}", flush=True)
+            print(f"[firstback] assistant stream failed: {e}", flush=True)
             yield _sse({"t": "done", "result": {
                 "reply": "Something went wrong on my end. Try that again.", "cards": [],
                 "pending_action": None, "meta": {"tool": None, "status": "error"}}})
@@ -603,10 +603,10 @@ def assistant_confirm():
 
 
 # ---- Vic's Memory / Training: review conversations, call out issues, teach ----
-_ISSUE_LABEL = {"capability_gap": "RingBack had no tool for this",
+_ISSUE_LABEL = {"capability_gap": "FirstBack had no tool for this",
                 "empty": "A tool returned nothing", "repeat": "You had to re-ask",
                 "negative": "You pushed back on the answer",
-                "unhelpful": "RingBack's answer missed the mark"}
+                "unhelpful": "FirstBack's answer missed the mark"}
 
 
 @app.route("/training")
@@ -699,7 +699,7 @@ def analytics_page():
 @app.route("/callers")
 @login_required
 def callers_page():
-    """The caller-triage inbox: review RingBack's suggestions (To review / Sorted /
+    """The caller-triage inbox: review FirstBack's suggestions (To review / Sorted /
     Dismissed), import an address book, and manage the screened-numbers directory.
     JS-driven via /api/*."""
     return render_template("callers.html",
@@ -874,7 +874,7 @@ def setup_profile():
 @app.route("/setup/number", methods=["POST"])
 @login_required
 def setup_number():
-    """Give the business its RingBack number: buy a new local one (auto-wires the
+    """Give the business its FirstBack number: buy a new local one (auto-wires the
     Voice+SMS webhooks via provision_number) or attach a number already owned in the
     Twilio account (the manual path, now one click)."""
     biz = current_business()
@@ -925,7 +925,7 @@ def setup_a2p():
         return redirect("/setup?err=profile")
     db.set_a2p_registration(biz["id"], status="pending",
                             submitted_at=datetime.utcnow().isoformat(timespec="seconds"))
-    body = ("A2P 10DLC registration requested for a RingBack tenant.\n\n"
+    body = ("A2P 10DLC registration requested for a FirstBack tenant.\n\n"
             f"Business:    {biz.get('name')}\n"
             f"Legal name:  {biz.get('legal_business_name') or biz.get('name')}\n"
             f"EIN:         {biz.get('ein')}\n"
@@ -935,17 +935,17 @@ def setup_a2p():
             "Register the brand + campaign in Twilio, then paste the campaign SIDs on "
             "the tenant's Go-Live page to confirm.")
     mail.send_email(db.owner_email(biz["id"]),
-                    "RingBack: A2P registration requested", body)
+                    "FirstBack: A2P registration requested", body)
     return redirect("/setup?saved=a2p")
 
 
 @app.route("/setup/forwarding", methods=["POST"])
 @login_required
 def setup_forwarding():
-    """Confirm how missed calls reach RingBack. Default = the catcher model: the owner
+    """Confirm how missed calls reach FirstBack. Default = the catcher model: the owner
     sets carrier conditional-forwarding on their own phone (forward_to stays BLANK, so
     any inbound call is treated as already-missed -> instant text-back). Advanced =
-    dial-through: RingBack rings the owner's cell first, then texts if unanswered."""
+    dial-through: FirstBack rings the owner's cell first, then texts if unanswered."""
     biz = current_business()
     if biz is None:
         return redirect("/dashboard")
@@ -1051,7 +1051,7 @@ def _schedule_notes(lead_id):
                     _notes_inflight.discard(lead_id)
                     return
         except Exception as e:  # never let a background failure crash the thread
-            print(f"[ringback] notes precompute failed for lead {lead_id}: {e}",
+            print(f"[firstback] notes precompute failed for lead {lead_id}: {e}",
                   file=sys.stderr, flush=True)
             with _notes_lock:
                 _notes_dirty.discard(lead_id)
@@ -1124,7 +1124,7 @@ def handle_inbound(biz, lead, body):
             if gday and gtime:
                 google_cal.create_event_async(
                     biz["id"], f"Estimate: {lead['name']}",
-                    f"RingBack booked a free estimate for {lead['name']} ({lead['phone']}).",
+                    f"FirstBack booked a free estimate for {lead['name']} ({lead['phone']}).",
                     gday, gtime)
                 reminders.enqueue_reminder(biz, lead, gday, gtime)
     # Precompute notes off the hot path (after booking, so a booked lead is summed
@@ -1140,7 +1140,7 @@ def sim_incoming():
     biz = current_business()
     scenario = (data.get("scenario") or "prospect").strip().lower()
     # Spam / known-caller demos show the SCREEN in action: a representative verdict,
-    # no lead created and no text "sent" -- so contractors can watch RingBack skip a
+    # no lead created and no text "sent" -- so contractors can watch FirstBack skip a
     # robocaller or hand a saved contact back to them, exactly as it does live.
     if scenario in ("spam", "known"):
         if scenario == "spam":
@@ -1150,7 +1150,7 @@ def sim_incoming():
             return jsonify(screened=True, status="screened_spam", label="Spam",
                            score=score, reasons=reasons)
         return jsonify(screened=True, status="trusted", label="Known caller", score=0,
-                       reasons=["You’ve worked with this caller before — RingBack leaves "
+                       reasons=["You’ve worked with this caller before — FirstBack leaves "
                                 "them to you instead of sending an automated text."])
     lead_id = db.create_lead(biz["id"], data.get("name") or "New Caller",
                              data.get("phone") or "+1 (555) 000-0000")
@@ -1253,7 +1253,7 @@ def google_callback():
     try:
         google_cal.connect_with_code(current_business()["id"], request.args["code"])
     except Exception as e:
-        print(f"[ringback] google connect failed: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] google connect failed: {e}", file=sys.stderr, flush=True)
         return redirect("/settings?gerror=exchange")
     return redirect("/settings?gconnected=1")
 
@@ -1300,7 +1300,7 @@ def api_contacts():
 @app.route("/api/contacts", methods=["POST"])
 @login_required
 def api_contacts_add():
-    """Tag a number so RingBack never cold-texts it. Only the owner-set categories
+    """Tag a number so FirstBack never cold-texts it. Only the owner-set categories
     are accepted (customer/prospect are learned automatically, never set by hand)."""
     data, err = _get_json("number", "category")
     if err:
@@ -1378,7 +1378,7 @@ def api_flag_call_spam(call_id):
 @login_required
 def api_flag_lead_spam(lead_id):
     """'Mark spam' from the conversation panel: block the lead's number + feed the
-    cross-tenant ledger, so RingBack stops cold-pitching this caller. Tenant-scoped."""
+    cross-tenant ledger, so FirstBack stops cold-pitching this caller. Tenant-scoped."""
     biz = current_business()
     lead = db.get_lead(lead_id, biz["id"])   # ownership-scoped
     if not lead:
@@ -1501,7 +1501,7 @@ def api_contacts_import():
     try:
         contacts = contact_import.parse_file(f.filename, raw)
     except Exception as e:
-        print(f"[ringback] contact import parse failed: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] contact import parse failed: {e}", file=sys.stderr, flush=True)
         return jsonify(error="Could not read that file. Export a vCard (.vcf) or a CSV."), 400
     if not contacts:
         return jsonify(error="No contacts with phone numbers were found in that file."), 400
@@ -1531,7 +1531,7 @@ def google_contacts_callback():
     try:
         google_contacts.connect_with_code(current_business()["id"], request.args["code"])
     except Exception as e:
-        print(f"[ringback] google contacts connect failed: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] google contacts connect failed: {e}", file=sys.stderr, flush=True)
         return redirect("/callers?gcerror=exchange")
     return redirect("/callers?gcsync=1")   # the UI auto-runs a first sync on return
 
@@ -1545,7 +1545,7 @@ def google_contacts_sync():
     try:
         summary = google_contacts.sync(biz["id"])
     except Exception as e:
-        print(f"[ringback] google contacts sync failed: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] google contacts sync failed: {e}", file=sys.stderr, flush=True)
         return jsonify(error="Google Contacts sync failed. Please try again."), 502
     return jsonify(ok=True, **summary)
 
@@ -1701,7 +1701,7 @@ def _missed_call_textback(biz, caller, call_sid="", dial_status=""):
 @app.route("/webhooks/twilio/voice/inbound", methods=["POST"])
 @require_twilio_signature
 def twilio_voice_inbound():
-    """Inbound call to a RingBack number: ring the contractor's cell; if there is
+    """Inbound call to a FirstBack number: ring the contractor's cell; if there is
     no cell on file, treat it as missed right away and text the caller back."""
     biz = db.get_business_by_twilio_number(request.form.get("To", ""))
     if not biz:
@@ -1767,7 +1767,7 @@ def twilio_sms_inbound():
         return _twiml("<Response><Message>Understood, we will stop messaging you. "
                       "Reply HELP for help.</Message></Response>")
     if norm in _HELP_WORDS:
-        return _twiml(f"<Response><Message>{_xesc(biz.get('name') or 'RingBack')}: "
+        return _twiml(f"<Response><Message>{_xesc(biz.get('name') or 'FirstBack')}: "
                       "reply here about your free estimate. Reply STOP to "
                       "unsubscribe.</Message></Response>")
     contact = db.get_contact(biz["id"], caller)
@@ -1823,8 +1823,8 @@ def twilio_sms_status():
 # ---- Scheduler trigger for production (external cron) ----
 # The in-process ticker dies with the process; behind a real web server you can
 # instead (or also) hit this every minute from cron with the shared secret:
-#   curl -fsS -X POST -H "X-Tasks-Secret: $RINGBACK_TASKS_SECRET" URL/tasks/run-due
-# Disabled (always 403) until RINGBACK_TASKS_SECRET is set. Not login-required by
+#   curl -fsS -X POST -H "X-Tasks-Secret: $FIRSTBACK_TASKS_SECRET" URL/tasks/run-due
+# Disabled (always 403) until FIRSTBACK_TASKS_SECRET is set. Not login-required by
 # design, so it's locked behind the secret header and constant-time compared.
 @app.route("/tasks/run-due", methods=["POST"])
 def tasks_run_due():
@@ -1837,7 +1837,7 @@ def tasks_run_due():
     try:
         out["a2p_synced"] = connections.a2p_sync_all()
     except Exception as e:
-        print(f"[ringback] a2p_sync_all failed: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] a2p_sync_all failed: {e}", file=sys.stderr, flush=True)
     return jsonify(out)
 
 
@@ -1846,7 +1846,7 @@ def tasks_run_due():
 # so it relays each spoken turn here. The web app owns the DB and runs the SAME
 # handle_inbound the SMS/simulator paths use, so a voice turn books + alerts + queues
 # reminders identically and booking writes stay single-writer. Locked behind a shared
-# secret (constant-time compared); disabled (always 403) until RINGBACK_INTERNAL_SECRET
+# secret (constant-time compared); disabled (always 403) until FIRSTBACK_INTERNAL_SECRET
 # is set on both services.
 @app.route("/internal/voice/turn", methods=["POST"])
 def internal_voice_turn():
@@ -1867,15 +1867,15 @@ def internal_voice_turn():
 
 
 # Under a production WSGI server (gunicorn) the __main__ block below never runs, so
-# start the reminders/follow-ups scheduler here when RINGBACK_RUN_TICKER is set. Run
+# start the reminders/follow-ups scheduler here when FIRSTBACK_RUN_TICKER is set. Run
 # the web service with a SINGLE worker so exactly one ticker runs (sends are
 # idempotent regardless).
-if os.environ.get("RINGBACK_RUN_TICKER", "").strip().lower() in ("1", "true", "yes", "on"):
+if os.environ.get("FIRSTBACK_RUN_TICKER", "").strip().lower() in ("1", "true", "yes", "on"):
     reminders.start_ticker()
 
 
 if __name__ == "__main__":
     # use_reloader=False keeps it to a single process (simpler to manage).
-    # debug defaults OFF (no Werkzeug debugger in prod); set RINGBACK_DEBUG=1 to enable.
+    # debug defaults OFF (no Werkzeug debugger in prod); set FIRSTBACK_DEBUG=1 to enable.
     reminders.start_ticker()  # background reminders/follow-ups scheduler
     app.run(debug=DEBUG, port=8800, use_reloader=False)

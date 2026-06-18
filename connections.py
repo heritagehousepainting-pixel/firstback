@@ -1,4 +1,4 @@
-"""Go-Live connection wizard orchestration for RingBack.
+"""Go-Live connection wizard orchestration for FirstBack.
 
 Takes a contractor from signup to a live missed-call text-back: which setup steps
 are done, the A2P 10DLC registration status (synced from Twilio), and the carrier
@@ -10,7 +10,7 @@ Honest by construction: the live/ready signal is computed from
 compliance.launch_blockers(), so the wizard can never claim "live" before the number
 is bound, A2P is approved, and forwarding is confirmed. Gated + defensive like the
 rest of the telephony layer (mirrors messaging.py): the Twilio status sync is a safe
-no-op when unconfigured and swallows + logs any API error with the "[ringback]"
+no-op when unconfigured and swallows + logs any API error with the "[firstback]"
 prefix, never raising into a request.
 """
 import sys
@@ -23,7 +23,7 @@ import compliance
 STEPS = ("profile", "number", "a2p", "forwarding")
 _STEP_TITLES = {
     "profile": "Your business",
-    "number": "Your RingBack number",
+    "number": "Your FirstBack number",
     "a2p": "Carrier registration (A2P)",
     "forwarding": "Forward your missed calls",
 }
@@ -130,7 +130,7 @@ def golive_summary(business, sms_configured=None):
 
 
 # ---- "Fully set up" tier: recommended connections beyond go-live ----
-# Status-only aggregation for the wizard's checklist. These make RingBack better but
+# Status-only aggregation for the wizard's checklist. These make FirstBack better but
 # NEVER gate "live" -- golive_summary owns that, and is left untouched. The wizard
 # renders this as a deep-link checklist into the existing Settings forms (no new write
 # paths). Signals that need request/auth context (calendar/contacts connection, whether
@@ -246,7 +246,7 @@ def a2p_sync(business):
                                               biz.get("a2p_campaign_sid"))
     mapped = _A2P_STATUS_MAP.get((raw or "").upper())
     if raw and mapped is None:
-        print(f"[ringback] a2p unmapped campaign_status {raw!r} (biz {biz['id']}); leaving unchanged",
+        print(f"[firstback] a2p unmapped campaign_status {raw!r} (biz {biz['id']}); leaving unchanged",
               file=sys.stderr, flush=True)
     if mapped and mapped != current:
         db.set_a2p_status(biz["id"], mapped)
@@ -268,14 +268,14 @@ def a2p_sync_all():
 
 # ---- Carrier conditional call-forwarding codes (the missed-call catcher) ----
 # "Conditional" = forward only when the contractor doesn't answer / is busy, so they
-# keep taking calls normally and only the MISSED ones reach RingBack. {num} is the
-# RingBack number. These are dialed once on the contractor's own phone.
+# keep taking calls normally and only the MISSED ones reach FirstBack. {num} is the
+# FirstBack number. These are dialed once on the contractor's own phone.
 CARRIER_FORWARD_CODES = {
     "verizon": {"label": "Verizon", "activate": "*71{num}", "cancel": "*73",
                 "note": "Forwards calls you don't answer or when you're on another call."},
     "att": {"label": "AT&T", "activate": "*92{num}", "cancel": "*93",
             "note": "Forwards calls you don't answer. To also forward when you're busy, "
-                    "dial *90 then your RingBack number."},
+                    "dial *90 then your FirstBack number."},
     "tmobile": {"label": "T-Mobile", "activate": "**61*{num}#", "cancel": "##61#",
                 "note": "Forwards calls you don't answer. For every missed case at once, "
                         "use the universal code **004* instead."},
@@ -287,7 +287,7 @@ CARRIER_FORWARD_CODES = {
 
 
 def forwarding_code(carrier, number):
-    """The exact conditional-forwarding star code for a carrier, with the RingBack
+    """The exact conditional-forwarding star code for a carrier, with the FirstBack
     number baked in, plus the cancel code and a plain-English note. Falls back to the
     universal GSM code for an unknown carrier."""
     c = CARRIER_FORWARD_CODES.get(carrier) or CARRIER_FORWARD_CODES["other"]

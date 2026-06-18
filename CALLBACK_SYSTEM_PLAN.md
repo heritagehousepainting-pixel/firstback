@@ -1,4 +1,4 @@
-# RingBack — The Callback System: Course of Action
+# FirstBack — The Callback System: Course of Action
 
 How we turn the simulated missed-call loop into a **real, professional callback
 system**: an instant SMS text-back on every missed call, escalating to an AI
@@ -38,7 +38,7 @@ part of the feature, not afterthoughts.
 ## 2. The flow (what actually happens)
 
 ```
-  Customer calls the contractor's RingBack number
+  Customer calls the contractor's FirstBack number
         │
         ▼
   [Twilio Voice webhook] ── TwiML ──► <Dial answerOnBridge timeout=18
@@ -193,7 +193,7 @@ well**. The standard, Twilio-documented shape:
 sign off. Distinilled to what we must build:
 
 ### A2P 10DLC (required for US SMS from local numbers)
-- We are an **ISV**. Register **RingBack once** as the ISV/primary Trust Hub
+- We are an **ISV**. Register **FirstBack once** as the ISV/primary Trust Hub
   profile; register **each contractor** as its own **secondary profile + brand +
   campaign**, programmatically via Twilio's API.
 - Branch on **"do you have an EIN?"** at onboarding: EIN → **Low-Volume
@@ -242,7 +242,7 @@ sign off. Distinilled to what we must build:
   top cause of a number getting carrier-flagged) or at known/saved contacts. Auto-derives the
   "known" set from bookings (no import). Tiers: identity → STIR/SHAKEN + neighbor-spoof +
   behavior → optional paid reputation (`reputation.py`) → crowdsourced cross-tenant flags →
-  optional AI content screen. Rolls out via `RINGBACK_SCREEN_MODE` (monitor → enforce). The
+  optional AI content screen. Rolls out via `FIRSTBACK_SCREEN_MODE` (monitor → enforce). The
   same `StirVerstat` attestation read below feeds the screen.
 - **STIR/SHAKEN A-attestation** needs **Twilio-owned numbers** in a vetted Trust
   Hub product → another reason to **provision a Twilio number per business**
@@ -338,7 +338,7 @@ branded calling, AI-minute metering) is the fast-follow.
   `<Connect><ConversationRelay url=wss://… welcomeGreeting=…>`; `WS /ws` →
   Claude loop (token streaming for low latency, `interrupt` handling, `tool_use`
   for booking → calls Flask `/internal/book`).
-- Reuse `RINGBACK_PROVIDER`/Claude config; **Claude Haiku 4.5** for
+- Reuse `FIRSTBACK_PROVIDER`/Claude config; **Claude Haiku 4.5** for
   latency/cost; prompt-cache the system prompt + tools.
 - Consent gate: only place the call after an affirmative "CALL/YES"; outbound via
   `client.calls.create(url=voice-svc/twiml)`.

@@ -12,7 +12,7 @@ The compliance moat both products market (TCPA / CAN-SPAM / DNC), unified. Two c
   2. THE APPEND-ONLY CONSENT LEDGER (`ensure_ledger` / `record` / `current_status` /
      `is_suppressed`) — one auditable table both apps can adopt, keyed on the phone
      NUMBER (the identity both products share), per-channel, business_id-scoped. This
-     is the migration target; RingBack's mutable `contacts_consent` backfills into it.
+     is the migration target; FirstBack's mutable `contacts_consent` backfills into it.
      The ledger functions take a sqlite3 connection so each app reuses them against its
      own DB with no new dependency.
 

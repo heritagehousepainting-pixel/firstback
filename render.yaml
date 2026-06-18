@@ -1,19 +1,19 @@
-# Render Blueprint for RingBack.
+# Render Blueprint for FirstBack.
 #
 # To deploy: push this repo to GitHub, then in the Render dashboard choose
 # "New +" -> "Blueprint" and point it at the repo. Render reads this file and
 # provisions the service + disk + env vars below. Add the real SECRETS (AI brain
 # key, Twilio, SMTP, Google) in the dashboard afterward so they never enter git.
 #
-# Why not Vercel: RingBack needs an always-on process, a persistent database, and
+# Why not Vercel: FirstBack needs an always-on process, a persistent database, and
 # a background scheduler. Render gives all three; serverless hosts don't.
 
 services:
   # STAGING service (deployed from the `staging` branch). Named distinctly from the live
-  # `ringback` prod service so the Blueprint creates a SEPARATE service + disk and never
-  # touches production. When promoting staging -> prod, reconcile this name back to `ringback`.
+  # `firstback` prod service so the Blueprint creates a SEPARATE service + disk and never
+  # touches production. When promoting staging -> prod, reconcile this name back to `firstback`.
   - type: web
-    name: ringbackv2
+    name: firstbackv2
     runtime: python
     plan: starter                 # ~$7/mo, always-on (the free plan sleeps + has no disk)
     buildCommand: pip install -r requirements.txt
@@ -21,36 +21,36 @@ services:
     # writer; threads handle request concurrency. Ample for a single business.
     startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT
     disk:
-      name: ringbackv2-data       # separate disk from prod's ringback-data (isolated staging DB)
+      name: firstbackv2-data       # separate disk from prod's firstback-data (isolated staging DB)
       mountPath: /var/data        # durable disk: holds the DB BACKUP (plain file copies only)
       sizeGB: 1
     healthCheckPath: /login
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.7"
-      # RINGBACK_DB_PATH is the DURABLE at-rest location on the network disk. With
-      # RINGBACK_DB_LOCAL_MIRROR=1, SQLite actually runs on a fast LOCAL disk (/tmp) where it
+      # FIRSTBACK_DB_PATH is the DURABLE at-rest location on the network disk. With
+      # FIRSTBACK_DB_LOCAL_MIRROR=1, SQLite actually runs on a fast LOCAL disk (/tmp) where it
       # never hangs, and this /var/data file becomes the snapshot we restore-on-boot + back-up
       # (timer + shutdown). Only plain file copies touch /var/data -- never a SQLite open. This
-      # is the fix for the network-FS boot hang (see db.py + reference-ringback-wal-boot-hazard).
-      - key: RINGBACK_DB_PATH
-        value: /var/data/ringback.db
-      - key: RINGBACK_DB_LOCAL_MIRROR
+      # is the fix for the network-FS boot hang (see db.py + reference-firstback-wal-boot-hazard).
+      - key: FIRSTBACK_DB_PATH
+        value: /var/data/firstback.db
+      - key: FIRSTBACK_DB_LOCAL_MIRROR
         value: "1"
-      - key: RINGBACK_SECRET        # signs login cookies
+      - key: FIRSTBACK_SECRET        # signs login cookies
         generateValue: true
-      - key: RINGBACK_TASKS_SECRET  # guards the scheduler endpoint /tasks/run-due
+      - key: FIRSTBACK_TASKS_SECRET  # guards the scheduler endpoint /tasks/run-due
         generateValue: true
-      - key: RINGBACK_RUN_TICKER    # start the reminders/follow-ups scheduler in-process
+      - key: FIRSTBACK_RUN_TICKER    # start the reminders/follow-ups scheduler in-process
         value: "1"
-      - key: RINGBACK_HTTPS         # secure session cookies (Render serves HTTPS)
+      - key: FIRSTBACK_HTTPS         # secure session cookies (Render serves HTTPS)
         value: "1"
-      - key: RINGBACK_TZ            # <-- set to the business's timezone
+      - key: FIRSTBACK_TZ            # <-- set to the business's timezone
         value: America/New_York
       # ---- Add these as SECRETS in the Render dashboard (Environment tab) ----
       # The AI brain (pick one):
-      #   RINGBACK_PROVIDER = claude     and  ANTHROPIC_API_KEY = sk-ant-...
-      #   RINGBACK_PROVIDER = minimax    and  MINIMAX_API_KEY   = ...
+      #   FIRSTBACK_PROVIDER = claude     and  ANTHROPIC_API_KEY = sk-ant-...
+      #   FIRSTBACK_PROVIDER = minimax    and  MINIMAX_API_KEY   = ...
       # (No key set => safe demo responder, fine for a first smoke test.)
       #
       # Real texts/calls (later, see USER_TO_DO.md):
@@ -59,7 +59,7 @@ services:
       # Email alerts (optional):
       #   SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM
       # First-login owner (optional; defaults to the seeded creds you then change):
-      #   RINGBACK_OWNER_EMAIL / RINGBACK_OWNER_PASSWORD
+      #   FIRSTBACK_OWNER_EMAIL / FIRSTBACK_OWNER_PASSWORD
 
 # ---- OPTIONAL: the AI voice agent (Phase 3) as a second service. ----
 # Do NOT just uncomment: a separate Render service cannot share this one's SQLite
@@ -69,7 +69,7 @@ services:
 # voice leg stays off and an SMS "call me" simply keeps the text conversation going.
 #
 #  - type: web
-#    name: ringback-voice
+#    name: firstback-voice
 #    runtime: python
 #    plan: starter
 #    buildCommand: pip install -r requirements.txt
@@ -77,4 +77,4 @@ services:
 #    envVars:
 #      - key: PYTHON_VERSION
 #        value: "3.12.7"
-#      # + a SHARED database + RINGBACK_PROVIDER/ANTHROPIC_API_KEY
+#      # + a SHARED database + FIRSTBACK_PROVIDER/ANTHROPIC_API_KEY

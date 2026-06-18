@@ -1,6 +1,6 @@
 """Shared session-auth helpers for the trades_core kernel (vendored into each product).
 
-Identity + access control used byte-for-byte identically by JobMagnet and RingBack.
+Identity + access control used byte-for-byte identically by JobMagnet and FirstBack.
 Depends only on Flask request/session globals and the product's own `db` module — each
 repo supplies its own db.py exposing get_user()/get_business(), which live in the shared
 data-core. Do NOT edit the vendored copies; edit trades_core/auth.py and run

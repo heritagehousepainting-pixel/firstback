@@ -1,4 +1,4 @@
-"""Real Google Calendar sync for RingBack, scoped per business.
+"""Real Google Calendar sync for FirstBack, scoped per business.
 
 Design goals:
   * Gated: every entry point is a safe no-op unless Google is CONFIGURED
@@ -109,7 +109,7 @@ def _access_token(business_id):
                              _expiry_iso(tok), intg.get("calendar_id") or "primary")
         return tok.get("access_token")
     except Exception as e:
-        print(f"[ringback] google token refresh failed (biz {business_id}): {e}",
+        print(f"[firstback] google token refresh failed (biz {business_id}): {e}",
               file=sys.stderr, flush=True)
         return None
 
@@ -144,7 +144,7 @@ def busy_slot_ids(business_id):
         r.raise_for_status()
         intervals = r.json().get("calendars", {}).get(cal_id, {}).get("busy", [])
     except Exception as e:
-        print(f"[ringback] google freebusy failed (biz {business_id}): {e}",
+        print(f"[firstback] google freebusy failed (biz {business_id}): {e}",
               file=sys.stderr, flush=True)
         return set()
     return _slots_conflicting(intervals, today)
@@ -194,7 +194,7 @@ def create_event(business_id, summary, description, day_iso, time_key_str):
         r.raise_for_status()
         return r.json().get("id")
     except Exception as e:
-        print(f"[ringback] google event create failed (biz {business_id}): {e}",
+        print(f"[firstback] google event create failed (biz {business_id}): {e}",
               file=sys.stderr, flush=True)
         return None
 

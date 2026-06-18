@@ -23,7 +23,7 @@ without clobbering each other.
 The defining insight from the competitive scan (B1): every competitor is **AI-for-the-caller** (AI
 receptionists, call logs, lead inboxes). **Nobody has built AI-for-the-owner** — a surface where the
 contractor themselves drives the business by voice/tap/text over their own leads, bookings, and
-revenue. That white space is RingBack's to own.
+revenue. That white space is FirstBack's to own.
 
 Three pillars:
 

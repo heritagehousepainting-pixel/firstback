@@ -71,7 +71,7 @@ def lookup(number, max_age_hours=None):
         else:
             return {}
     except Exception as e:   # network, timeout, parse -- fail open, never raise
-        print(f"[ringback] reputation lookup failed ({REPUTATION_PROVIDER}): {e}",
+        print(f"[firstback] reputation lookup failed ({REPUTATION_PROVIDER}): {e}",
               file=sys.stderr, flush=True)
         return {}
     # Cache the verdict (even a clean one) so we don't re-pay for the same number.

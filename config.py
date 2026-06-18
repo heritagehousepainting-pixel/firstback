@@ -1,4 +1,4 @@
-"""RingBack — central configuration.
+"""FirstBack — central configuration.
 
 Everything you'll want to tweak early lives here. Change a value, restart the
 server, done.
@@ -18,7 +18,7 @@ if _ENV_FILE.exists():
             os.environ.setdefault(_key.strip(), _val.strip().strip('"').strip("'"))
 
 # --- Branding -------------------------------------------------------------
-APP_NAME = "RingBack"
+APP_NAME = "FirstBack"
 TAGLINE = "Never lose another job to a missed call."
 
 # --- AI brain / provider --------------------------------------------------
@@ -26,27 +26,27 @@ TAGLINE = "Never lose another job to a missed call."
 #   "minimax" -> MiniMax (what we run today)
 #   "claude"  -> Anthropic Claude (what we switch to for the public launch)
 #   "demo"    -> built-in rule-based script (zero setup, but no real understanding)
-# If the chosen provider has no API key, RingBack safely falls back to the demo
+# If the chosen provider has no API key, FirstBack safely falls back to the demo
 # brain so the app always runs.
 # Default is "claude": the recommended brain for the launch (richest multi-step agentic
 # writes + live token streaming on /assistant/stream). It engages only once ANTHROPIC_API_KEY
 # is set -- with no key it falls back to the demo brain, so this default is a safe no-op
-# locally. Set RINGBACK_PROVIDER=minimax to use MiniMax instead.
-PROVIDER = os.environ.get("RINGBACK_PROVIDER", "claude")
+# locally. Set FIRSTBACK_PROVIDER=minimax to use MiniMax instead.
+PROVIDER = os.environ.get("FIRSTBACK_PROVIDER", "claude")
 
 # MiniMax — OpenAI-compatible chat completions. Set MINIMAX_API_KEY to turn on.
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
 MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.5")
 MINIMAX_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io")
 
-# Claude — for the public launch. Set ANTHROPIC_API_KEY and RINGBACK_PROVIDER=claude.
+# Claude — for the public launch. Set ANTHROPIC_API_KEY and FIRSTBACK_PROVIDER=claude.
 # For high-volume SMS a faster/cheaper model (claude-sonnet-4-6 / claude-haiku-4-5)
 # may beat Opus on cost and latency.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
 
 # --- Call screening (the "phone screen") ----------------------------------
-# RingBack texts back every missed caller. Two callers should NOT get that bot
+# FirstBack texts back every missed caller. Two callers should NOT get that bot
 # text: known/saved people (handled by you personally) and spam/robocallers. The
 # screen is TIERED and PRECISION-FIRST: it only hard-suppresses on near-certainty
 # (a real homeowner silenced by mistake is the one failure the product exists to
@@ -61,9 +61,9 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
 #                watch the "would-have-screened" numbers before it can silence anyone.
 #                The safe default for a fresh cutover.
 #   "enforce" -> the verdict is acted on (spam/known callers are not texted).
-# RINGBACK_SCREENING is still honored as a legacy off-switch (=0 forces "off").
-_SCREEN_MODE_RAW = os.environ.get("RINGBACK_SCREEN_MODE", "monitor").strip().lower()
-if os.environ.get("RINGBACK_SCREENING", "1").strip().lower() not in ("1", "true", "yes", "on"):
+# FIRSTBACK_SCREENING is still honored as a legacy off-switch (=0 forces "off").
+_SCREEN_MODE_RAW = os.environ.get("FIRSTBACK_SCREEN_MODE", "monitor").strip().lower()
+if os.environ.get("FIRSTBACK_SCREENING", "1").strip().lower() not in ("1", "true", "yes", "on"):
     _SCREEN_MODE_RAW = "off"
 SCREEN_MODE = _SCREEN_MODE_RAW if _SCREEN_MODE_RAW in ("off", "monitor", "enforce") else "monitor"
 # Back-compat: truthy whenever the screen runs at all (monitor or enforce).
@@ -79,16 +79,16 @@ def _int_env(key, default):
 
 # Spam score (0-100) thresholds. >= HARD -> screened (no text). MID..HARD -> engage
 # but flag for review. < MID -> a clean prospect, engaged normally.
-SCREEN_SCORE_HARD = _int_env("RINGBACK_SCREEN_HARD", 80)
-SCREEN_SCORE_MID = _int_env("RINGBACK_SCREEN_MID", 45)
+SCREEN_SCORE_HARD = _int_env("FIRSTBACK_SCREEN_HARD", 80)
+SCREEN_SCORE_MID = _int_env("FIRSTBACK_SCREEN_MID", 45)
 # How many DISTINCT other businesses must have flagged a number as spam before the
 # crowdsourced cross-tenant signal counts (privacy-safe: only a COUNT is ever read).
-SCREEN_CROWD_MIN = _int_env("RINGBACK_SCREEN_CROWD_MIN", 2)
+SCREEN_CROWD_MIN = _int_env("FIRSTBACK_SCREEN_CROWD_MIN", 2)
 # AI content screen (Tier 3): classify the caller's FIRST reply (real homeowner vs.
 # sales pitch / survey / wrong number) and bail mid-conversation on spam. Uses the
 # same brain as the conversation engine; OFF unless explicitly enabled AND a real
 # provider key is present (the demo brain always returns "prospect" -> fail open).
-SCREEN_AI_CONTENT = os.environ.get("RINGBACK_SCREEN_AI", "").strip().lower() in ("1", "true", "yes", "on")
+SCREEN_AI_CONTENT = os.environ.get("FIRSTBACK_SCREEN_AI", "").strip().lower() in ("1", "true", "yes", "on")
 
 # --- Number reputation (optional paid robocall lookup) --------------------
 # Tier 2 of the screen: a per-number spam/line-type lookup, consulted ONLY for
@@ -99,18 +99,18 @@ SCREEN_AI_CONTENT = os.environ.get("RINGBACK_SCREEN_AI", "").strip().lower() in 
 #   "twilio_nomorobo"-> Twilio Lookup v2 line-type + the Nomorobo Spam Score add-on
 #                       (reuses TWILIO_ACCOUNT_SID/AUTH_TOKEN; no new account)
 #   "hiya"           -> Hiya number-reputation API (needs HIYA_API_KEY)
-REPUTATION_PROVIDER = os.environ.get("RINGBACK_REPUTATION_PROVIDER", "off").strip().lower()
+REPUTATION_PROVIDER = os.environ.get("FIRSTBACK_REPUTATION_PROVIDER", "off").strip().lower()
 HIYA_API_KEY = os.environ.get("HIYA_API_KEY", "")
 HIYA_BASE_URL = os.environ.get("HIYA_BASE_URL", "https://api.hiya.com")
 # How long a cached reputation row stays fresh (hours). Reputation is sticky, so a
 # day keeps cost/latency down without going stale.
 try:
-    REPUTATION_TTL_HOURS = float(os.environ.get("RINGBACK_REPUTATION_TTL_HOURS", "") or 24)
+    REPUTATION_TTL_HOURS = float(os.environ.get("FIRSTBACK_REPUTATION_TTL_HOURS", "") or 24)
 except (TypeError, ValueError):
     REPUTATION_TTL_HOURS = 24.0
 # Hard ceiling on the outbound lookup so the Twilio voice webhook always answers fast.
 try:
-    REPUTATION_TIMEOUT_SECONDS = float(os.environ.get("RINGBACK_REPUTATION_TIMEOUT", "") or 2.5)
+    REPUTATION_TIMEOUT_SECONDS = float(os.environ.get("FIRSTBACK_REPUTATION_TIMEOUT", "") or 2.5)
 except (TypeError, ValueError):
     REPUTATION_TIMEOUT_SECONDS = 2.5
 
@@ -145,7 +145,7 @@ TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "")
 # Public base URL where Twilio can reach this app's webhooks (an ngrok https URL
 # in dev, your real domain in prod). Used when provisioning a number's Voice/SMS
 # webhooks; leave empty until you have a public URL.
-PUBLIC_BASE_URL = os.environ.get("RINGBACK_PUBLIC_URL", "")
+PUBLIC_BASE_URL = os.environ.get("FIRSTBACK_PUBLIC_URL", "")
 
 # --- Voice callback (AI voice agent via Twilio ConversationRelay) ----------
 # The AI voice callback runs as a SEPARATE async service (voice_service.py) because
@@ -153,12 +153,12 @@ PUBLIC_BASE_URL = os.environ.get("RINGBACK_PUBLIC_URL", "")
 # service's public https base (its wss URL is the same with https -> wss). Empty
 # disables the voice leg, so an SMS "call me" simply continues by text.
 # CONVERSATIONRELAY_VOICE optionally overrides the TTS voice id.
-VOICE_PUBLIC_URL = os.environ.get("RINGBACK_VOICE_URL", "")
+VOICE_PUBLIC_URL = os.environ.get("FIRSTBACK_VOICE_URL", "")
 try:
-    VOICE_SERVICE_PORT = int(os.environ.get("RINGBACK_VOICE_PORT", "8810") or "8810")
+    VOICE_SERVICE_PORT = int(os.environ.get("FIRSTBACK_VOICE_PORT", "8810") or "8810")
 except ValueError:
     VOICE_SERVICE_PORT = 8810
-CONVERSATIONRELAY_VOICE = os.environ.get("RINGBACK_VOICE_TTS", "")
+CONVERSATIONRELAY_VOICE = os.environ.get("FIRSTBACK_VOICE_TTS", "")
 
 # The voice service runs as a SEPARATE process/Render service and cannot share the
 # web app's SQLite disk, so it relays each spoken turn to the web app's
@@ -167,11 +167,11 @@ CONVERSATIONRELAY_VOICE = os.environ.get("RINGBACK_VOICE_TTS", "")
 # service); INTERNAL_SECRET is the shared secret both sides check (constant-time).
 # When WEB_INTERNAL_URL is empty (local/tests), the voice service runs the shared
 # engine in-process instead, so nothing extra is needed to develop or test.
-WEB_INTERNAL_URL = os.environ.get("RINGBACK_WEB_URL", "")
-INTERNAL_SECRET = os.environ.get("RINGBACK_INTERNAL_SECRET", "")
+WEB_INTERNAL_URL = os.environ.get("FIRSTBACK_WEB_URL", "")
+INTERNAL_SECRET = os.environ.get("FIRSTBACK_INTERNAL_SECRET", "")
 
 # --- Email / SMTP (optional — owner alerts by email) ----------------------
-# Lets RingBack email the owner when a lead arrives or an estimate books. Until
+# Lets FirstBack email the owner when a lead arrives or an estimate books. Until
 # SMTP_HOST and SMTP_FROM are set, mail.configured() is False and email alerts
 # are skipped (SMS + in-app still work). For Gmail: host smtp.gmail.com, port
 # 587, and use an App Password as SMTP_PASS.
@@ -187,12 +187,12 @@ SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "1").strip().lower() in ("1", "tru
 
 # --- Runtime --------------------------------------------------------------
 # The Werkzeug interactive debugger is a remote-code-execution risk, so it stays
-# OFF unless you explicitly opt in for local debugging (RINGBACK_DEBUG=1).
-DEBUG = os.environ.get("RINGBACK_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+# OFF unless you explicitly opt in for local debugging (FIRSTBACK_DEBUG=1).
+DEBUG = os.environ.get("FIRSTBACK_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
 # Signs the login session cookie. MUST be set to a long random value in
-# production (RINGBACK_SECRET); the fallback is for local dev only.
-SECRET_KEY = os.environ.get("RINGBACK_SECRET", "dev-insecure-secret-change-me")
+# production (FIRSTBACK_SECRET); the fallback is for local dev only.
+SECRET_KEY = os.environ.get("FIRSTBACK_SECRET", "dev-insecure-secret-change-me")
 
 # Encrypts stored OAuth tokens (Google access/refresh) at rest in SQLite. A single
 # symmetric key; any non-empty string works (it's run through HKDF, see
@@ -200,25 +200,25 @@ SECRET_KEY = os.environ.get("RINGBACK_SECRET", "dev-insecure-secret-change-me")
 # working and existing plaintext rows still read. Set it in production to protect
 # the refresh tokens in the database file. Rotating it makes existing encrypted
 # tokens unreadable -- affected businesses simply reconnect (see SETUP_NEEDED.md).
-TOKEN_ENC_KEY = os.environ.get("RINGBACK_TOKEN_KEY", "").strip()
+TOKEN_ENC_KEY = os.environ.get("FIRSTBACK_TOKEN_KEY", "").strip()
 
 # Cookie hardening. SameSite=Lax (applied in app.py) keeps the session cookie off
 # cross-site POSTs (CSRF). Secure = HTTPS-only; it stays OFF so local http dev and
 # the preview still work, and you turn it on in production (behind TLS) by setting
-# RINGBACK_HTTPS=1 so the session cookie is never sent over plain http.
-SESSION_COOKIE_SECURE = os.environ.get("RINGBACK_HTTPS", "").strip().lower() in ("1", "true", "yes", "on")
+# FIRSTBACK_HTTPS=1 so the session cookie is never sent over plain http.
+SESSION_COOKIE_SECURE = os.environ.get("FIRSTBACK_HTTPS", "").strip().lower() in ("1", "true", "yes", "on")
 
 # The single timezone the whole app reasons in. Timestamps are STORED in UTC, but
 # every date/time the user sees (calendar, slots, clocks) is rendered in this
-# zone, so dates never drift by a day. Set RINGBACK_TZ to an IANA name like
+# zone, so dates never drift by a day. Set FIRSTBACK_TZ to an IANA name like
 # "America/New_York"; empty falls back to the server's local zone.
 # (A per-business timezone for true multi-tenant is a later feature.)
-TIMEZONE = os.environ.get("RINGBACK_TZ", "").strip()
+TIMEZONE = os.environ.get("FIRSTBACK_TZ", "").strip()
 
 
 def app_tz():
     """Resolve TIMEZONE to a tzinfo (cached-free; cheap). Falls back to the
-    server's local zone if RINGBACK_TZ is unset or invalid."""
+    server's local zone if FIRSTBACK_TZ is unset or invalid."""
     if TIMEZONE:
         try:
             from zoneinfo import ZoneInfo
@@ -229,32 +229,32 @@ def app_tz():
 
 # Starter owner login seeded for "client zero" (business 1) so the existing demo
 # data is reachable immediately. Change the password after first login.
-SEED_OWNER_EMAIL = os.environ.get("RINGBACK_OWNER_EMAIL", "heritagehousepainting@gmail.com")
-SEED_OWNER_PASSWORD = os.environ.get("RINGBACK_OWNER_PASSWORD", "ringback123")
+SEED_OWNER_EMAIL = os.environ.get("FIRSTBACK_OWNER_EMAIL", "heritagehousepainting@gmail.com")
+SEED_OWNER_PASSWORD = os.environ.get("FIRSTBACK_OWNER_PASSWORD", "firstback123")
 
 # --- Storage --------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-# Defaults to a file beside the code. On a host (e.g. Render) point RINGBACK_DB_PATH
-# at a PERSISTENT disk (e.g. /var/data/ringback.db) so leads/bookings survive a
+# Defaults to a file beside the code. On a host (e.g. Render) point FIRSTBACK_DB_PATH
+# at a PERSISTENT disk (e.g. /var/data/firstback.db) so leads/bookings survive a
 # redeploy; without it the database resets on every deploy.
-# RINGBACK_DB_PATH is the durable at-rest location (e.g. Render's network-attached /var/data).
-_db_at_rest = os.environ.get("RINGBACK_DB_PATH", "").strip() or str(BASE_DIR / "ringback.db")
-# Durable local-disk mode (the fix for the network-FS boot hang): when RINGBACK_DB_LOCAL_MIRROR
-# is truthy, SQLite runs on a fast LOCAL disk (RINGBACK_DB_LOCAL_PATH, default /tmp/ringback.db)
+# FIRSTBACK_DB_PATH is the durable at-rest location (e.g. Render's network-attached /var/data).
+_db_at_rest = os.environ.get("FIRSTBACK_DB_PATH", "").strip() or str(BASE_DIR / "firstback.db")
+# Durable local-disk mode (the fix for the network-FS boot hang): when FIRSTBACK_DB_LOCAL_MIRROR
+# is truthy, SQLite runs on a fast LOCAL disk (FIRSTBACK_DB_LOCAL_PATH, default /tmp/firstback.db)
 # where it never hangs, and the at-rest path becomes the durable backup we snapshot to on a timer
 # + at shutdown and restore from on boot. Only plain file copies ever touch the (network) at-rest
 # disk -- never a SQLite open. A build that doesn't know this flag just keeps using
-# RINGBACK_DB_PATH, so flipping it on/off is a safe no-op for old code (no dangerous transition).
-# See db.py restore_from_backup_if_needed / backup_to_durable + [[reference-ringback-wal-boot-hazard]].
-if os.environ.get("RINGBACK_DB_LOCAL_MIRROR", "").strip().lower() in ("1", "true", "yes", "on"):
+# FIRSTBACK_DB_PATH, so flipping it on/off is a safe no-op for old code (no dangerous transition).
+# See db.py restore_from_backup_if_needed / backup_to_durable + [[reference-firstback-wal-boot-hazard]].
+if os.environ.get("FIRSTBACK_DB_LOCAL_MIRROR", "").strip().lower() in ("1", "true", "yes", "on"):
     DB_BACKUP_PATH = _db_at_rest
-    DB_PATH = os.environ.get("RINGBACK_DB_LOCAL_PATH", "").strip() or "/tmp/ringback.db"
+    DB_PATH = os.environ.get("FIRSTBACK_DB_LOCAL_PATH", "").strip() or "/tmp/firstback.db"
 else:
     DB_PATH = _db_at_rest
-    DB_BACKUP_PATH = os.environ.get("RINGBACK_DB_BACKUP_PATH", "").strip()
+    DB_BACKUP_PATH = os.environ.get("FIRSTBACK_DB_BACKUP_PATH", "").strip()
 
 # --- Scheduling -----------------------------------------------------------
-# The estimate windows RingBack offers on each OPEN day. The in-house calendar
+# The estimate windows FirstBack offers on each OPEN day. The in-house calendar
 # fills open days with these times; the AI offers the soonest two. (Later these
 # can come from a connected Google/Outlook/Apple calendar.)
 ESTIMATE_TIMES = ["9:00 AM", "2:00 PM"]
@@ -270,7 +270,7 @@ DEFAULT_BUFFER_MINUTES = 0
 # --- Reminders & follow-ups (Feature 1) -----------------------------------
 # A background ticker (started in app.py) texts a reminder before each booked
 # estimate and one gentle nudge to a warm lead that went cold. All hours are
-# business-local (see RINGBACK_TZ); texts only go out within quiet hours.
+# business-local (see FIRSTBACK_TZ); texts only go out within quiet hours.
 def _num_env(key, default, cast=float):
     try:
         return cast(os.environ.get(key, "") or default)
@@ -285,7 +285,7 @@ QUIET_END = _num_env("QUIET_END", 21, int)                      # business-local
 # Optional shared secret protecting POST /tasks/run-due, so an external cron can
 # drive the scheduler in production (where an in-process ticker would die with the
 # process). Unset => the endpoint is disabled (always 403).
-TASKS_SECRET = os.environ.get("RINGBACK_TASKS_SECRET", "")
+TASKS_SECRET = os.environ.get("FIRSTBACK_TASKS_SECRET", "")
 
 # --- Operator (concierge admin) allowlist -------------------------------------
 # A2P brand/campaign SIDs are recorded by the OPERATOR (us), never the contractor,
@@ -294,7 +294,7 @@ TASKS_SECRET = os.environ.get("RINGBACK_TASKS_SECRET", "")
 # Empty => no operator exists and the record action is closed to everyone.
 OPERATOR_EMAILS = frozenset(
     e.strip().lower()
-    for e in os.environ.get("RINGBACK_OPERATOR_EMAILS", "").split(",")
+    for e in os.environ.get("FIRSTBACK_OPERATOR_EMAILS", "").split(",")
     if e.strip()
 )
 
@@ -307,7 +307,7 @@ DEFAULT_BUSINESS = {
     "service_area": "Greater metro area (30-mile radius)",
     "hours": "Mon-Sat, 7am-6pm",
     "owner_name": "Jonathan",
-    # The business's RingBack texting number (shown in the simulator header).
+    # The business's FirstBack texting number (shown in the simulator header).
     "phone": "(555) 314-2270",
     # The AI uses this to sound like YOUR business and to know what to ask.
     # >>> THIS IS WHERE YOU ADD YOUR LOGIC AND FLOW <<<

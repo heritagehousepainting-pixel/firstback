@@ -12,11 +12,11 @@ import json
 import os
 import tempfile
 
-os.environ["RINGBACK_PROVIDER"] = "demo"           # deterministic, no network
+os.environ["FIRSTBACK_PROVIDER"] = "demo"           # deterministic, no network
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()
 config.DB_PATH = _TMP.name
-config.VOICE_PUBLIC_URL = "https://voice.ringback.test"   # enable the voice leg
+config.VOICE_PUBLIC_URL = "https://voice.firstback.test"   # enable the voice leg
 
 import db
 db.DB_PATH = _TMP.name
@@ -27,7 +27,7 @@ messaging.TWILIO_ACCOUNT_SID = ""     # unconfigured -> place_call/send_sms simu
 
 import voice_service                   # imports app (Flask) -> init_db()+seed on temp DB
 import app as flask_app
-flask_app.VOICE_PUBLIC_URL = "https://voice.ringback.test"  # CALL trigger reads app's copy
+flask_app.VOICE_PUBLIC_URL = "https://voice.firstback.test"  # CALL trigger reads app's copy
 import compliance
 compliance.QUIET_START, compliance.QUIET_END = 0, 24  # deterministic: allow the test CALL any hour
 
@@ -55,7 +55,7 @@ lead_id = db.create_lead(1, "Voice Caller", CALLER)
 xml = vclient.get(f"/twiml?biz=1&lead={lead_id}").text
 check("/twiml returns ConversationRelay TwiML", "<ConversationRelay" in xml)
 check("/twiml welcomeGreeting includes the recording disclosure", "may be recorded" in xml)
-check("/twiml points the relay at our wss /ws", "wss://voice.ringback.test/ws" in xml)
+check("/twiml points the relay at our wss /ws", "wss://voice.firstback.test/ws" in xml)
 check("/twiml passes biz + lead as parameters",
       'name="biz"' in xml and f'value="{lead_id}"' in xml)
 

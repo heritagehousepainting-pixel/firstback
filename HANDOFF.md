@@ -1,83 +1,133 @@
-# HANDOFF — RingBack Command Center (read this first)
+# HANDOFF — FirstBack Command Center / "Vic" (read this FIRST)
 
-You're taking over an in-flight build of RingBack's **Command Center** (`/dashboard`). Context from
-the prior chat is exhausted; everything you need is in the repo + auto-memory. **Read the docs in §0,
-run the suite, then continue WITH the user — deliver a slice, check in, take the redirect.**
+You're taking over an in-flight upgrade of FirstBack's **command center** (`/dashboard`). The prior
+chat's context ran low; everything you need is in this file, the repo docs, and auto-memory. **Read
+§0, run the suite, confirm reality, then continue WITH the user — small slices, check in, take the
+redirect.**
 
-> **Status @ 2026-06-17:** **Phases 0, 1, 2, and 3 are ALL built, audited, and green.**
-> **656 checks across 14 standalone test files, 0 failing.** Nothing committed — all in the working
-> tree on `main`. **Next: Phase 4 ("polish & soul")**, or the clean commit when the user asks.
+> **Status @ 2026-06-17:** Phases **0–5 built, audited, green** (15 standalone test files / **682
+> checks**, 0 failing). All committed + pushed to a **`staging` branch** (`origin/staging`).
+> **`main`/prod untouched.** The **Claude brain is LIVE** (key in `.env`). **Not deployed yet.**
+> **Next: Phase 6 "Vic, the hub"** (defined below, NOT built), then the staging deploy.
 
 ## 0. Read these, in order
-1. **`BRAIN.md`** — the north star. Persona "Vic" (the AI marketing employee), the growth engine, the
-   trust moat, the non-negotiables (§10), the 5 unforgettable moments. Internalize the soul.
-2. **`COMMAND_CENTER_MASTER_PLAN.md`** — the technical *how*: architecture, the **file-ownership map**
-   (serialize on `assistant.py`/`db.py`/`app.py`; parallelize leaf JS/CSS/template/tests), and the
-   **preserve-these contracts**.
-3. **`ROADMAP_PHASE3.md`** — the growth-engine design (the "plays" engine).
-4. **`SETUP_NEEDED.md`** — what's live vs. gated/simulated per phase, env knobs, deferred items, and
-   the **`./run_local.sh`** local instance.
-   Also load auto-memory `command-center-master-plan` + `ringback-working-style` + `ringback-test-harness`.
+1. **This file.**
+2. **`BRAIN.md`** — the north star: Vic (the AI marketing employee), the trust moat, the
+   non-negotiables (§10), the 5 delight moments.
+3. **`COMMAND_CENTER_MASTER_PLAN.md`** — the *how*: architecture, the **file-ownership map**
+   (serialize `assistant.py`/`db.py`/`app.py`; parallelize leaf JS/CSS/template/tests), and the
+   **preserve-these contracts** (§6).
+4. **`ROADMAP_PHASE3.md`** — the growth "plays" engine design.
+5. **`SETUP_NEEDED.md`** — what's live vs gated/simulated per phase, env knobs, and the
+   **"## Phase 5" pre-live punch-list**.
+6. Auto-memory: `command-center-master-plan`, `firstback-vic-hub-vision`, `firstback-working-style`,
+   `firstback-test-harness`, `firstback-token-encryption`, `firstback-brand-tokens`.
 
-## 1. Operational facts (don't relearn the hard way)
-- **Tests are standalone scripts**, NOT pytest. Run with the venv python (system python lacks Flask):
-  `for t in test_*.py; do .venv/bin/python "$t"; done`. **656 checks, 14 files — keep it green.**
-- **Local:** `./run_local.sh` → `http://localhost:8800`, login `owner@ringback.local` / `test1234`,
-  isolated `local_test.db`, keyless `demo` brain. `.env` is NOT auto-loaded (export by hand for a real LLM).
-- Two repo paths are the same tree (symlink): `~/apps/ringback` == `~/apps/design_hub/projects/ringback`.
-- **DO NOT deploy to Render. DO NOT commit** unless the user asks (branch off `main` first if so).
-- An unrelated **`DESIGN.md`** edit sits in the working tree (UI "signature moment" PROTECTED note) —
-  **exclude it from a phases-0–3 commit.**
+## 1. The relationship (don't misread this)
+**FirstBack is an ESTABLISHED, already-deployed product** (live Render service **`firstback`**, deploys
+from **`main`** — the marketing site, login, pipeline, go-live wizard, etc.). The command center is an
+**existing feature**; phases 0–5 **upgrade that feature IN PLACE** into "Vic." Not a new product, not
+a rewrite. This local repo (`~/apps/design_hub/projects/firstback`, symlinked `~/apps/firstback`) is the
+source of truth for prod.
 
-## 2. What's BUILT (all green)
-- **Phase 0 "honest hands":** multi-step tool-calling loop (`llm.tool_complete` + `assistant._tool_loop`,
-  keyword floor + confirm gate preserved), server-side memory + anaphora, security (CSRF, per-tenant rate
-  limit `RINGBACK_ASSISTANT_RPM`, history sanitization, args allow-list, audit_log), the **honest confirm**
-  (recipient + editable body + opt-out + live/test via `messaging.outbound_mode`).
-- **Phase 1 "first win loop":** booking tools (list_slots / book_estimate / cancel_estimate / flag_urgent,
-  slot+lead pinned at confirm, `_resolve_lead_target`, shared `_gated`), search (`db.search_leads`),
-  money-framed lead card.
-- **Phase 2 "Vic shows up":** server-rendered money-ranked **Morning Briefing**; **tappable ambient feed**
-  (one tap → gated text confirm); the **Vic persona** (`assistant._VIC_PERSONA`, in both LLM paths + the
-  keyword floor); **real-time** poll baseline (`GET /api/feed` + content signature + 25s in-place refresh
-  that never wipes the chat). SSE + web push DEFERRED (need a streaming worker + VAPID) — in SETUP_NEEDED.
-- **Phase 3 "growth engine":** `growth.py` — a unified declarative **plays engine** riding the existing
-  `scheduled_messages` + `reminders.run_due_once` + gated `messaging.send_sms` spine (NO new table; new
-  `kind`s + the `uniq_growth_touch_per_lead` partial index). Plays: compliant **review request** (asks
-  every completed-job customer; trigger references NO sentiment — gating is illegal), **quote follow-up**,
-  **reactivation**, **win-back**, **referral**, **membership**, **seasonal**, **density**, **financing**,
-  + **Money Left Behind**. Chat tools `growth_plays` / `money_left_behind` reuse the briefing + stat cards.
-  Owner one-tap sends reuse gated `text_lead`. Opt-in auto-scheduler `growth.scan` behind `growth_on`
-  (default OFF; simulated until Twilio+A2P live; skips placeholder bodies + holds when A2P not ready);
-  auto-pause on booking (command-center + SMS self-book). New settable cols `review_link`, `growth_on`
-  (+ `db.set_growth_on`). DEFERRED (need a Google Business Profile connector): negative-review response
-  drafting + before/after GBP post — surfaced honestly, not faked.
+## 2. Operational facts (don't relearn the hard way)
+- **Tests are standalone scripts**, NOT pytest. Run with the venv python:
+  `for t in test_*.py; do .venv/bin/python "$t"; done`. **15 files / 682 checks — keep it green.**
+  (Each test file pins `FIRSTBACK_PROVIDER=demo`, so the suite is free + deterministic regardless of
+  `.env`.)
+- **Local app:** `./run_local.sh` → `http://localhost:8800`, login `owner@firstback.local` /
+  `test1234`, isolated `local_test.db`. **It now honors `.env`** → with the Claude key set it runs the
+  **real Claude brain locally and SPENDS API credit** on each chat turn. Force the free demo brain
+  with `FIRSTBACK_PROVIDER=demo ./run_local.sh`.
+- **`.env` is set up:** `ANTHROPIC_API_KEY` (uncommented) + `FIRSTBACK_PROVIDER=claude`; the `anthropic`
+  SDK is installed in `.venv` (install via `.venv/bin/python -m pip …` — the venv's bare `pip` has a
+  stale shebang). `.env` + `*.db` are gitignored.
+- **Git:** you are on branch **`staging`** (`1404c0a` phases 0–5, `4c436fa` render.yaml), synced with
+  `origin/staging`. Committing/pushing to **staging is authorized**; **`main`/prod is hands-off.**
+  DESIGN.md + screenshots/ + .playwright-mcp/ are intentionally excluded.
+- **Deploy (NOT done yet):** `render.yaml` on `staging` names the service **`firstbackv2`** (+ disk
+  `firstbackv2-data`) so a Render **Blueprint from the `staging` branch** stands up a SEPARATE staging
+  service that never touches prod `firstback`. User's steps: Render → New+ → Blueprint → repo → **Branch
+  = staging** → Apply; then add `ANTHROPIC_API_KEY` + `FIRSTBACK_PROVIDER=claude` in the `firstbackv2`
+  Environment. Twilio stays off on staging (texts simulate — correct for "stage-ready, not live").
+- **Claude path:** verified **live-fired** end-to-end (real reply + multi-step tool chaining + SSE).
+  Model `claude-opus-4-8`. **Invoke the `claude-api` skill before touching any Claude/llm.py code.**
 
-## 3. The brain (so you don't break it)
-`MiniMax-M2.5` (base `https://api.minimax.io`) chains READ tools well but declines WRITE tools regardless
-of the thinking flag — so `run()` routes clear confirm-gated WRITES (text/book/cancel/scheduling) through
-the deterministic keyword router even when an LLM is keyed (reliable gate); the LLM loop handles
-reads/chat/fuzzy. **The confirm gate is never bypassed on either path.** Claude `tool_complete` branch is
-code-verified vs the official API ref but never live-fired (no `ANTHROPIC_API_KEY`). `run()` →
-`{reply, cards, pending_action, meta}`; cards may accompany a `pending_action` only in a multi-step chain.
+## 3. What's BUILT (phases 0–5, all green)
+- **P0 honest hands:** multi-step tool-calling loop (`llm.tool_complete` + `assistant._tool_loop`,
+  keyword floor + confirm gate), server-side memory + anaphora, security (CSRF, per-tenant RPM,
+  history sanitization, args allow-list, audit log), the **honest confirm** (recipient + editable body
+  + opt-out + live/test).
+- **P1 first win:** booking tools (list_slots/book/cancel/flag_urgent, slot+lead pinned at confirm),
+  search, money-framed lead card.
+- **P2 Vic shows up:** money-ranked **Morning Briefing**, tappable ambient feed, the **Vic persona**,
+  real-time poll (`GET /api/feed`).
+- **P3 growth engine:** `growth.py` plays (compliant reviews — NO sentiment gating; quote follow-up,
+  reactivation, win-back, referral, membership, seasonal, density, financing) + Money Left Behind;
+  opt-in auto-scheduler (`growth_on`, default OFF, simulated until Twilio+A2P).
+- **P4 polish & soul:** **real SSE streaming** (`POST /assistant/stream`, live Claude tokens / chunked
+  for demo+MiniMax; `run_stream`/`_tool_loop_stream`; non-stream `/assistant` kept as fallback),
+  **daily LLM cap** (`FIRSTBACK_ASSISTANT_DAILY`, degrades to keyword floor), honest/gated orb
+  (speaking→responding; reduced-motion+Save-Data+battery), mobile/field (no autofocus on touch, ≥48px
+  targets, sunlight contrast, offline banner), a11y, push-to-talk voice (Web Speech API only, never
+  auto-sends), the trust headline, delight-moment tuning.
+- **P5 deep audit:** 5 parallel Sonnet lanes; **0 P0 regressions**; fixed review-request ≤90d,
+  simulated-send no-green-tint, execute() contract, defense-in-depth tenant scoping, a11y contrast/tap
+  targets/403 handling, + 2 pre-existing marketing-copy honesty carryovers. Remaining minor items are
+  the **SETUP_NEEDED "## Phase 5"** pre-live punch-list (none bite in the current simulated state).
 
-## 4. Two open decisions (user dismissed when asked — revisit when ready)
-1. Add a daily/cumulative "rate memory" cap (`db.incr_rate(biz,"daily",86400)` + a number) — per-minute
-   burst limiter exists; no daily quota yet.
-2. Keep MiniMax (writes deterministic, works today) vs. switch the brain to Claude for richest multi-step
-   agentic writes.
+## 4. Vic's ACTUAL tools today (the gap Phase 6 closes)
+- **DOES in chat** (gated where it touches a customer): briefing, get_stats, growth_plays,
+  money_left_behind, list_leads, list_appointments, find_lead, list_slots, add_contact,
+  import_contacts, connect; **text_lead, book_estimate, cancel_estimate, flag_urgent, set_scheduling**.
+- **Only GUIDES (links out, doesn't do in chat):** connecting calendar/email/number, changing
+  profile/business info, hours, alerts, AI instructions, screening mode, growth_on, voice-vs-text →
+  `_route_topic` points to `/settings` or `/setup`.
+- **No first-run chaperone** yet.
 
-## 5. How the user drives the work
-- Hands a phase off as **`/goal`**, then asks for **heavy parallel-Sonnet-4.6 subagent audit-and-fix
-  loops** ("use N subagents"). Spawn Sonnet agents for design specs, leaf work, and **read-only multi-lane
-  audits** (compliance/security/tenant/correctness/honesty/tests/UI/voice/contract → each returns
-  P0/P1/P2 + GREEN/NOT-GREEN); the orchestrator owns the **serial hot-file** build/fixes. Loop until green.
-- Verify-don't-assume (real runs for anything the suite can't exercise; report verified vs assumed).
-  Honesty ethos: lead with money, talk like a foreman, never claim "live" when simulated.
+## 5. NEXT — Phase 6 "Vic, the hub" (defined by the owner, NOT built)
+The end goal: a **premium AI service where Vic works just as well INSIDE the app as OUTSIDE.**
+- **Outside:** autonomous missed-call catch (quick answering/text-back), qualify, book estimates in a
+  *strategized* way.
+- **Inside:** Vic is your assistant — run/configure the WHOLE product by talking to it (profile,
+  every settings toggle, connect calendar/email/number, voice-vs-text immediate-response, turn things
+  on/off) — a hand in **every pocket**.
+- **Friction → near zero:** pre-fill + do everything possible; hand the owner only the **final approve
+  tap** (the confirm gate is the deliberate "press go").
+- **Honest seam (owner accepts):** Google OAuth consent, the carrier call-forwarding star-code, A2P
+  submission, pasting a secret key **stay the user's tap** — Vic *initiates, pre-fills, explains,
+  confirms*, and fully does anything server-side. "Leave the app, do it, come back" is fine.
+- **First-run chaperone:** proactively walk a brand-new user through setup end to end; recede as they
+  get comfortable.
+Full detail: auto-memory `firstback-vic-hub-vision`. **Brainstorm/scope with the user before building**
+(it's a big, multi-tool phase touching the hot files + settings/connection flows + onboarding).
 
-## 6. Your first moves
-1. Read §0 docs. 2. Run the suite (expect 14 files / 656 green). 3. Boot `./run_local.sh` and click the
-command center (try: "what should I focus on?", "what plays do I have", "money left behind", tap a play
-→ honest confirm). 4. Confirm reality matches this doc, then plan **Phase 4** (streaming, mobile/field,
-a11y + honest orb, push-to-talk voice, trust headline, signature delight moments) with the user — or do
-the clean commit. Keep the suite green, honor the file-ownership map, don't deploy, don't commit unless asked.
+## 6. Ground rules & contracts (non-negotiable)
+- **Don't deploy or commit to `main`/prod.** Staging commits/pushes are OK. Confirm outward-facing
+  actions; the auto-mode classifier WILL block an un-greenlit commit.
+- **The confirm gate is sacred:** every customer outbound shows exact recipient + editable body +
+  opt-out + live/test before sending; `execute()` is the only run path for gated tools; new gated
+  tools register `confirm: True`. Streaming must NOT bypass it.
+- **Preserve contracts (§6 of the master plan):** `run()`/`run_stream()`/`execute()` →
+  `{reply,cards,pending_action,meta}`; `golive_summary` shape; `_route_topic` keyword contract;
+  `send_sms` A2P gate; the standalone test harness (no pytest).
+- **Honesty ethos:** lead with money, talk like a foreman, never claim "live" when simulated, never
+  invent a customer detail, review-gating is illegal (ask every customer). Compliance is the product.
+- **Build discipline:** serialize the hot files (`assistant.py`/`db.py`/`app.py` — one writer),
+  parallelize leaf JS/CSS/template/tests; user likes heavy **parallel Sonnet 4.6 read-only audit
+  loops** then orchestrator-owned serial fixes; keep the suite green after each slice; verify on the
+  real running app.
+- **Invoke the `claude-api` skill** before any Claude/Anthropic/`llm.py` work.
+
+## 7. Your first moves
+1. Read §0. 2. Run the suite (expect 15 files / 682 green). 3. `./run_local.sh` (Claude is live — costs
+a little) or `FIRSTBACK_PROVIDER=demo ./run_local.sh` for free; click the command center, confirm
+reality matches this doc. 4. Pick up the conversation: **scope Phase 6 "Vic, the hub" with the user**
+(and/or help them finish the `firstbackv2` staging deploy). Don't touch `main`/prod; keep the suite
+green; honor the confirm gate.
+
+## 8. Open decisions (ask the user)
+- **Build order:** Phase 6 before the staging deploy, vs deploy `firstbackv2` now and build Phase 6 on
+  staging (user: no preference yet).
+- **In-chat limits:** which connection steps stay guided vs are forced into the chat where technically
+  possible (user wanted to "discuss" — that discussion is the start of Phase 6 scoping).

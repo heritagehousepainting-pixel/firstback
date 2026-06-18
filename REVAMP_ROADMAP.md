@@ -1,6 +1,6 @@
-# RingBack UI/UX Revamp — Roadmap
+# FirstBack UI/UX Revamp — Roadmap
 
-**Goal:** Make RingBack look and feel like it can beat the national competition (Podium, Housecall Pro, Jobber,
+**Goal:** Make FirstBack look and feel like it can beat the national competition (Podium, Housecall Pro, Jobber,
 Thumbtack) — by revamping **UI/UX only**. Structure, routes, copy intent, and backend stay as-is.
 **Run mode:** autonomous (design_hub loop). **Done bar:** all gates pass (ui-audit clean, zero P0/P1).
 
@@ -34,7 +34,7 @@ zero CLS; reduced-motion respected.
 - Each phase: page renders, no console errors, no CLS, contrast passes.
 
 ## Status
-- [x] Project nested into design_hub/projects/ringback (compat symlink at ~/ringback)
+- [x] Project nested into design_hub/projects/firstback (compat symlink at ~/firstback)
 - [x] **Recon / split-brain mapped.** Front door `/` renders `onboarding.html` (NOT `landing.html`, which is
   DEAD/unrouted). Three CSS layers: `onboarding.css` (home), `marketing.css` (14 marketing pages),
   `app.css` (product). Legacy `style.css`/`base.html` only used by the dead `landing.html`.

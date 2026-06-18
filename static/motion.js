@@ -1,5 +1,5 @@
 /* ============================================================================
-   RingBack — motion.js  (Firecrawl-inspired)
+   FirstBack — motion.js  (Firecrawl-inspired)
    1) Scroll reveals: fade-up + stagger as elements enter the viewport.
    2) Nav mega-menu dropdowns: hover + click + keyboard, with a page scrim.
    Honors prefers-reduced-motion (no reveals, instant menus).

@@ -1,4 +1,4 @@
-# RingBack — Next Feature Specs
+# FirstBack — Next Feature Specs
 
 A build brief for the next four features, in enough detail to implement without
 re-deriving the architecture. Written for the dev agent that will pick these up
@@ -38,7 +38,7 @@ like the old code.
    per-business `is_connected(business_id)` (does this tenant have it linked?).
    **Every entry point is a safe no-op when not configured/connected.** All
    network/API calls are wrapped in try/except that swallows + logs to stderr
-   with the `[ringback]` prefix and never breaks a reply or a booking. Use lazy
+   with the `[firstback]` prefix and never breaks a reply or a booking. Use lazy
    `import requests` / `import smtplib` inside the function, not at module top.
 
 2. **Never block the hot path.** Anything that sends a message, calls an LLM, or
@@ -118,7 +118,7 @@ like the old code.
 
 ### Goal / Why
 Two of the biggest revenue leaks for a contractor are **no-show estimates** and
-**warm leads that go cold**. RingBack already books the estimate; this closes the
+**warm leads that go cold**. FirstBack already books the estimate; this closes the
 loop:
 - **Reminder:** auto-text the customer before their booked estimate.
 - **Follow-up:** if a lead replied but never booked and then went quiet,
@@ -233,7 +233,7 @@ I work" feature.
 ### Data model
 - On `businesses`, add alert preferences:
   `alert_email` (default to the owner's login `users.email`),
-  `alert_sms` (a real cell number, distinct from the RingBack `phone`),
+  `alert_sms` (a real cell number, distinct from the FirstBack `phone`),
   and booleans `alert_on_lead`, `alert_on_booking`, `alert_on_urgent`.
 - Optional `alerts` log table (`id, business_id, kind, channel, target, status,
   created_at`) for an audit trail and de-dupe. Recommended but not required for v1.
@@ -264,7 +264,7 @@ I work" feature.
   the three toggles. Show channel readiness honestly: if SMTP/Twilio isn't
   configured, the toggle explains alerts are simulated/disabled.
 - Message copy: short and actionable, e.g.
-  `New lead: Marcus Bell (555) 314-2270 — "kitchen repaint". Open RingBack →`.
+  `New lead: Marcus Bell (555) 314-2270 — "kitchen repaint". Open FirstBack →`.
 
 ### Gating & honesty
 - Email channel needs SMTP config; SMS needs Twilio. If neither is configured,
@@ -296,7 +296,7 @@ alert routing.
 ### Goal / Why
 Everything today is simulated. This wires the existing **TWILIO SEAM**
 (see the comment above the API section in [app.py](app.py)) to a real phone
-number so RingBack handles **actual missed calls and real SMS**. This is the leap
+number so FirstBack handles **actual missed calls and real SMS**. This is the leap
 from demo to live product. Build in phases so value lands incrementally.
 
 ### Phase A — outbound abstraction (build first, no Twilio account needed)
@@ -306,7 +306,7 @@ Create `messaging.py` mirroring `google_cal.py`'s structure:
 - `send_sms(business, to, body)`:
   - If configured: `POST https://api.twilio.com/2010-04-01/Accounts/{SID}/
     Messages.json` with basic auth (`SID`/`AUTH_TOKEN`), form fields
-    `From` (the business's RingBack number), `To`, `Body`. Lazy `import
+    `From` (the business's FirstBack number), `To`, `Body`. Lazy `import
     requests`, 20s timeout, swallow+log errors, return a status dict.
   - If **not** configured: record the message as an `out` row via
     `db.add_message(lead_id, "out", body)` when a lead context exists, and
@@ -379,7 +379,7 @@ MMS/photos, voicemail transcription, multiple numbers per business, WhatsApp.
 ### Goal / Why
 Make the product **visibly pay for itself**: leads captured, estimates booked,
 conversion rate, and an estimate of **revenue recovered** over time. This is the
-retention and launch-story feature ("RingBack booked you 9 estimates worth ~$X
+retention and launch-story feature ("FirstBack booked you 9 estimates worth ~$X
 this month").
 
 ### Data model

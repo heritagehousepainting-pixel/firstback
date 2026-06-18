@@ -1,7 +1,7 @@
 """Caller triage: the "phone screen" -- decide whether a missed caller gets the
 automated text-back, modeled on how Apple screens calls.
 
-RingBack's promise is "never lose a job to a missed call," which makes the costs
+FirstBack's promise is "never lose a job to a missed call," which makes the costs
 ASYMMETRIC: texting a non-prospect by mistake is cheap (a cent and a dead thread),
 but NOT texting a real customer is the one failure the product exists to prevent.
 So this layer is PRECISION-FIRST -- it only stays silent for callers we're nearly
@@ -11,7 +11,7 @@ caller.
 
 Two callers should NOT get the cold bot text:
   * KNOWN / saved people -- the owner handles them personally (Apple passes anyone
-    in your Contacts straight through). RingBack's "known" set is AUTO-DERIVED with
+    in your Contacts straight through). FirstBack's "known" set is AUTO-DERIVED with
     zero setup (db.is_known_caller: a booked estimate or any directory entry), so
     the owner never has to import or hand-categorize an address book.
   * SPAM / robocallers -- scored from layered signals (below).
@@ -239,5 +239,5 @@ def scan_all_suggestions():
             scan_suggestions(biz["id"])
         except Exception as e:
             import sys
-            print(f"[ringback] suggestion scan failed (biz {biz.get('id')}): {e}",
+            print(f"[firstback] suggestion scan failed (biz {biz.get('id')}): {e}",
                   file=sys.stderr, flush=True)

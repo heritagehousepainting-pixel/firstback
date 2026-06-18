@@ -4,7 +4,7 @@ Proves a contractor can get themselves live without a shell or the Twilio consol
   * step_state walks profile -> number -> a2p -> forwarding, exposing the current step,
   * the wizard is honest -- never "live" until launch_blockers is empty,
   * a2p_sync maps Twilio's campaign status onto our state and persists it,
-  * carrier forwarding codes resolve (with the RingBack number baked in),
+  * carrier forwarding codes resolve (with the FirstBack number baked in),
   * the /setup routes save the profile, buy/attach a number, submit A2P, and set
     forwarding -- all auth-gated and tenant-isolated, with Twilio HTTP mocked.
 Throwaway temp DB + the deterministic demo brain; no network.
@@ -12,13 +12,13 @@ Throwaway temp DB + the deterministic demo brain; no network.
 import os
 import tempfile
 
-os.environ["RINGBACK_PROVIDER"] = "demo"
+os.environ["FIRSTBACK_PROVIDER"] = "demo"
 # A from-number so messaging.configured()-style checks behave; real sends are mocked.
 os.environ.setdefault("TWILIO_ACCOUNT_SID", "ACtest")
 os.environ.setdefault("TWILIO_AUTH_TOKEN", "tok_test")
 os.environ.setdefault("TWILIO_FROM_NUMBER", "+12677562454")
-os.environ.setdefault("RINGBACK_PUBLIC_URL", "https://ringback-gixe.onrender.com")
-os.environ.setdefault("RINGBACK_TASKS_SECRET", "tasks_secret_test")
+os.environ.setdefault("FIRSTBACK_PUBLIC_URL", "https://ringback-gixe.onrender.com")
+os.environ.setdefault("FIRSTBACK_TASKS_SECRET", "tasks_secret_test")
 
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()

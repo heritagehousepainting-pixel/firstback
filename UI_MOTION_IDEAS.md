@@ -1,6 +1,6 @@
 # UI / Motion Ideas — Compiled References
 
-A running log of motion & interaction ideas pulled from reference recordings, to consider for Ringback.
+A running log of motion & interaction ideas pulled from reference recordings, to consider for Firstback.
 Each entry = one source video. Captured during the 2026-06-14 idea-gathering session.
 
 ---
@@ -21,8 +21,8 @@ Each entry = one source video. Captured during the 2026-06-14 idea-gathering ses
    - Right: a **structured output panel** where JSON/markdown/screenshot fields stream in (`url`, `markdown`, `json`, `screenshot`).
    - Then it resets and loops. It literally shows "messy page → clean structured data" — the whole value prop in one silent loop.
 
-### Worth stealing for Ringback
-- The **looping "before → after" product-story animation** is the big idea: show a *missed call → Ringback texts back → call booked* sequence as a silent, looping hero diagram. Same pattern, our story.
+### Worth stealing for Firstback
+- The **looping "before → after" product-story animation** is the big idea: show a *missed call → Firstback texts back → call booked* sequence as a silent, looping hero diagram. Same pattern, our story.
 - **Living-but-quiet background** (fading grid dots + sparse accent marks) — adds polish without distraction; works with our Safety Orange.
 - **Put the product in the hero** — an interactive element instead of a static screenshot.
 - Two-tone headline with the orange highlight on the value words.
@@ -42,7 +42,7 @@ Each entry = one source video. Captured during the 2026-06-14 idea-gathering ses
 3. **★ Morph-in-place between items.** Sweeping from one nav item to another keeps the single panel open and **swaps its contents while the panel resizes its height to fit** (Resources is taller than Integrations). A smooth morph + crossfade, not a close-then-reopen. This is the premium touch.
 4. **Close.** Moving away retracts the panel upward + fades it, the page un-dims, and the hero re-emerges behind it.
 
-### Worth stealing for Ringback
+### Worth stealing for Firstback
 - The **icon + title + subtitle row** structure is a clean way to present features/sections on a marketing nav or in-app menu — scannable, one-line benefit per item.
 - A **featured promo column** on the right of a dropdown is a great spot for a CTA ("Book a demo" / "See it live").
 - The **morph-in-place** transition between menu items is worth replicating if our nav grows beyond a couple items.
@@ -82,13 +82,13 @@ Each entry = one source video. Captured during the 2026-06-14 idea-gathering ses
 - **Layout system:** sections **numbered `[ 0X / 07 ]`** + category label → rhythm + wayfinding on a long page. Generous whitespace, centered blocks, hairline dividers.
 - **Motion vocabulary (all subtle, none competes with reading):** (1) looping product-story demo, (2) ambient living background, (3) hover mega-menu morphing in place, (4) branded particle flames, (5) animated price toggle, (6) auto-scrolling social-proof wall.
 
-## Top ideas to bring into Ringback
+## Top ideas to bring into Firstback
 1. **Looping hero demo** of *missed call → auto-text → booked* (their scrape-demo pattern, our story).
 2. **One disciplined accent** (Safety Orange) used exactly like theirs — highlight word, primary button, badges, toggles; everything else neutral.
 3. **Numbered section system** `[ 01 / 0X ]` on the marketing page — cheap polish + wayfinding.
 4. **Two-tone headlines** (one orange word) as a repeating device.
 5. **Pill badges** (icon + label) for section intros, plus "NEW"/"Most popular" tags.
-6. **Ambient living background** — a Ringback motif (subtle phone / sound-wave dots) in place of flames.
+6. **Ambient living background** — a Firstback motif (subtle phone / sound-wave dots) in place of flames.
 7. **Wall-of-love** auto-scroll for reviews, customer words highlighted.
 8. **Pricing**: recommended plan highlighted in orange + animated billing toggle.
 9. **Button system**: solid-orange primary / light-outline secondary, rounded, consistent everywhere.

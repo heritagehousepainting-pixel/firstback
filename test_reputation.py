@@ -9,7 +9,7 @@ any failure.
 import os
 import tempfile
 
-os.environ["RINGBACK_PROVIDER"] = "demo"
+os.environ["FIRSTBACK_PROVIDER"] = "demo"
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()
 config.DB_PATH = _TMP.name

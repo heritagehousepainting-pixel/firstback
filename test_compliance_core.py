@@ -1,7 +1,7 @@
 """Shared compliance test suite for the trades_core spine.
 
 Runs identically (a) standalone from trades_core/ and (b) vendored inside JobMagnet
-and RingBack, so BOTH products exercise the exact same consent + messaging logic.
+and FirstBack, so BOTH products exercise the exact same consent + messaging logic.
 Framework-free (matches the apps' test_*.py style): run with any python, exit 0 = pass.
 
   python3 trades_core/test_compliance_core.py

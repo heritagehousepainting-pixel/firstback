@@ -1,5 +1,5 @@
 /* ============================================================================
-   RingBack — Product app shell & screen layout.
+   FirstBack — Product app shell & screen layout.
    Chrome only (sidebar, page header, screen grids). All CONTENT uses the kit
    components in ui.css. Loads after ui.css. Token-driven — no arbitrary values.
    ============================================================================ */

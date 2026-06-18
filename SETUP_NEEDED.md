@@ -14,7 +14,7 @@ needs **no new external accounts**; it works keyless in the demo brain. Notes:
   sent for real yet."** Nothing new to configure for the safety itself.
 - **Conversation memory + "text her back":** server-side, no setup. Works in `demo`.
 - **Multi-step tool-calling brain:** engages when a real LLM key is set (`ANTHROPIC_API_KEY` +
-  `RINGBACK_PROVIDER=claude`, or `MINIMAX_API_KEY` + `RINGBACK_PROVIDER=minimax`); with no key the
+  `FIRSTBACK_PROVIDER=claude`, or `MINIMAX_API_KEY` + `FIRSTBACK_PROVIDER=minimax`); with no key the
   deterministic keyword router runs everything (honest, single-step). **Verified live against
   MiniMax** (multi-step reads work end-to-end); the Claude path is verified against the official
   tool-use API reference. **Reliability note:** MiniMax does not reliably *invoke* write tools
@@ -23,7 +23,7 @@ needs **no new external accounts**; it works keyless in the demo brain. Notes:
   is keyed** — they gate reliably. Reads, chat, and fuzzy phrasing use the LLM loop. The confirm
   gate is never bypassed on either path. For the richest LLM behavior (multi-step writes like
   "book John then text him"), use Claude (`ANTHROPIC_API_KEY`).
-- **Rate limit (new knob):** `RINGBACK_ASSISTANT_RPM` (default **60** assistant turns/min per
+- **Rate limit (new knob):** `FIRSTBACK_ASSISTANT_RPM` (default **60** assistant turns/min per
   tenant) caps runaway LLM cost/abuse. Raise/lower in env; no action needed for normal use.
 - **CSRF:** the assistant POSTs now require the per-session token (auto-wired in the page). No
   setup; just don't strip the hidden `csrfToken` field from `command.html`.
@@ -104,8 +104,8 @@ approves before anything sends (same confirm as everywhere else). Live, keyless:
 
 ### Local testing (no Render, no keys): `./run_local.sh`
 Spins up an **isolated** instance at `http://localhost:8800` on its own `local_test.db` (your
-real `ringback.db` is never touched), keyless demo brain, seeded with a login
-(`owner@ringback.local` / `test1234`) and 3 sample leads. Try: *"show my leads"* →
+real `firstback.db` is never touched), keyless demo brain, seeded with a login
+(`owner@firstback.local` / `test1234`) and 3 sample leads. Try: *"show my leads"* →
 *"text the second lead saying running 10 minutes late"* to see the honest confirm + anaphora.
 
 ## Phase 4 — Polish & soul (streaming, brain, mobile/field, a11y, voice, trust)
@@ -114,8 +114,8 @@ honest live-vs-deferred status:
 
 - **Brain → Claude (recommended default).** `config.PROVIDER` now defaults to **`claude`**.
   It only engages once **`ANTHROPIC_API_KEY`** is set; with no key it falls back to the demo
-  brain (safe no-op locally) — set `RINGBACK_PROVIDER=minimax` to use MiniMax instead. To run
-  Claude for real, set `ANTHROPIC_API_KEY` + `RINGBACK_PROVIDER=claude` (`CLAUDE_MODEL`
+  brain (safe no-op locally) — set `FIRSTBACK_PROVIDER=minimax` to use MiniMax instead. To run
+  Claude for real, set `ANTHROPIC_API_KEY` + `FIRSTBACK_PROVIDER=claude` (`CLAUDE_MODEL`
   defaults to `claude-opus-4-8`). **Status: the Claude path — including the new streaming
   branch — is code-verified against the official Messages API reference but NOT live-fired
   (no key in this environment).** The demo + MiniMax paths are exercised.
@@ -132,8 +132,8 @@ honest live-vs-deferred status:
   `X-Accel-Buffering: no`, already set on the response) — the same requirement the Phase 2 SSE
   note tracks. On a single-threaded sync worker the stream still works but ties up the worker
   for the turn.
-- **Daily LLM budget (new knob).** `RINGBACK_ASSISTANT_DAILY` (default **400** LLM-backed
-  turns/tenant/day) caps cumulative cost on top of the per-minute `RINGBACK_ASSISTANT_RPM`.
+- **Daily LLM budget (new knob).** `FIRSTBACK_ASSISTANT_DAILY` (default **400** LLM-backed
+  turns/tenant/day) caps cumulative cost on top of the per-minute `FIRSTBACK_ASSISTANT_RPM`.
   Past it the assistant **degrades to the keyword floor** (booking, lists, and the confirm
   gate all still work; only the fuzzy/chat LLM path is withheld until the window rolls over) —
   it does not hard-block. No action needed for normal use.
@@ -141,7 +141,7 @@ honest live-vs-deferred status:
   dictates into the bar so the owner can read/edit before sending (**never auto-sends**). It
   is hidden automatically when the browser has no `SpeechRecognition` (e.g. most desktop
   Firefox). Nothing to configure; no server-side voice service involved (that's the separate,
-  still-deferred `ringback-voice` beta below).
+  still-deferred `firstback-voice` beta below).
 - **Honest/gated orb + a11y + mobile/field.** The orb's old "speaking" state is renamed
   **"responding"** (there is no audio); the WebGL orb is gated off (static glow) for
   reduced-motion, **Save-Data**, and a **low/unplugged battery**. Mobile: autofocus dropped on
@@ -187,7 +187,7 @@ customer sends / prod cron:
   reset the next window's counter, letting a few extra turns through. It's a cost guard, not a
   security control; impact is negligible. Optional: wrap `incr_rate` in `BEGIN IMMEDIATE`.
 - **Cron secret required in prod.** `/tasks/run-due` (reminders + growth scan) returns 403 unless
-  `RINGBACK_TASKS_SECRET` (and `RINGBACK_INTERNAL_SECRET` for internal calls) are set in the prod
+  `FIRSTBACK_TASKS_SECRET` (and `FIRSTBACK_INTERNAL_SECRET` for internal calls) are set in the prod
   env. Code fails closed when unset — so set them, or the scheduler silently never runs.
 
 ## Go-Live wizard (`/setup`) — contractor self-serve connection
@@ -203,7 +203,7 @@ and forwarding is confirmed).
 
 **Still operator/concierge (v1 — by design):**
 - **Server Twilio credentials** (`TWILIO_ACCOUNT_SID/AUTH_TOKEN`, `TWILIO_FROM_NUMBER`,
-  `RINGBACK_PUBLIC_URL`) are set once in Render env by the operator (one shared account).
+  `FIRSTBACK_PUBLIC_URL`) are set once in Render env by the operator (one shared account).
 - **A2P brand + campaign submission** is concierge: "Submit for registration" marks the tenant
   `pending` and emails the operator (gated `mail` seam) the packet; the operator registers the
   brand+campaign in Twilio, then pastes the **campaign SIDs** into the wizard's *Installer*
@@ -213,24 +213,24 @@ and forwarding is confirmed).
   wizard gives the exact code + tap-to-dial + a test-call check, but can't be set server-side.
 
 ## To drop the "beta" label on AI voice callback
-- Deploy the voice service and set `VOICE_PUBLIC_URL` (re-add the `ringback-voice` service
-  to `render.yaml` once it has a shared DB / write-relay — see `ringback-render-deploy`).
+- Deploy the voice service and set `VOICE_PUBLIC_URL` (re-add the `firstback-voice` service
+  to `render.yaml` once it has a shared DB / write-relay — see `firstback-render-deploy`).
 - Until then the copy correctly says **"in beta / rolling out on Pro and Crew"** and the
   product falls back to text. Don't sell it as fully included until it's deployed in prod.
 
 ## To roll out & tune call screening (the "phone screen")
-- **Rollout mode** — `RINGBACK_SCREEN_MODE` (`off` | `monitor` | `enforce`, default `monitor`)
+- **Rollout mode** — `FIRSTBACK_SCREEN_MODE` (`off` | `monitor` | `enforce`, default `monitor`)
   is the **app-wide default**. It ships in **monitor**: it logs what it *would* screen (see the
   "Would screen" list + banner on the dashboard) but still texts everyone, so nothing real is
   silenced. Each business can also pick its own mode in **Settings → Call screening** (which
   overrides the env default; "Use the default" inherits it). When the monitor numbers look
   right, switch to **Enforce**. `off` is the instant rollback. Thresholds:
-  `RINGBACK_SCREEN_HARD` (default 80) / `RINGBACK_SCREEN_MID` (45).
-- **Optional paid robocall reputation (Tier 2)** — `RINGBACK_REPUTATION_PROVIDER`
+  `FIRSTBACK_SCREEN_HARD` (default 80) / `FIRSTBACK_SCREEN_MID` (45).
+- **Optional paid robocall reputation (Tier 2)** — `FIRSTBACK_REPUTATION_PROVIDER`
   (`off` | `twilio_nomorobo` | `hiya`). `twilio_nomorobo` reuses your Twilio creds (Lookup +
   Nomorobo Spam Score add-on); `hiya` needs `HIYA_API_KEY`. Cached, fail-open. The free tiers
   screen spam without it.
-- **Optional AI message screening (Tier 3)** — `RINGBACK_SCREEN_AI=1` reads a caller's first
+- **Optional AI message screening (Tier 3)** — `FIRSTBACK_SCREEN_AI=1` reads a caller's first
   reply to bail on an obvious sales/robocall message (needs a real AI provider key; the demo
   brain always passes — fail-open).
 
@@ -240,7 +240,7 @@ and forwarding is confirmed).
   already says so honestly.
 
 ## To encrypt stored Google tokens at rest (recommended before prod)
-- Set **`RINGBACK_TOKEN_KEY`** (any long random string, different from `RINGBACK_SECRET`).
+- Set **`FIRSTBACK_TOKEN_KEY`** (any long random string, different from `FIRSTBACK_SECRET`).
   With it set, every Google access/refresh token is encrypted in the SQLite file
   (`token_crypto.py`: stdlib HKDF + SHA-256 keystream + HMAC, encrypt-then-MAC, marked
   `enc:v1:`). **Unset = safe no-op** so local dev and the current DB keep working.

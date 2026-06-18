@@ -1,7 +1,7 @@
 """Phase 0 callback-system checks. Run: python3 test_callback.py
 
 No framework: prints each check and a summary, exits non-zero on any failure. DB
-tests run against a throwaway temp database so the real ringback.db is untouched.
+tests run against a throwaway temp database so the real firstback.db is untouched.
 """
 import base64
 import hashlib
@@ -10,7 +10,7 @@ import os
 import sys
 import tempfile
 
-# Point storage at a temp DB BEFORE importing db so nothing touches ringback.db.
+# Point storage at a temp DB BEFORE importing db so nothing touches firstback.db.
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _TMP.close()
@@ -44,7 +44,7 @@ def _reference_sig(token, url, params):
 
 # ---- valid_signature -------------------------------------------------------
 TOKEN = "test-auth-token-12345"
-URL = "https://app.ringback.test/webhooks/twilio/sms/inbound"
+URL = "https://app.firstback.test/webhooks/twilio/sms/inbound"
 PARAMS = {"From": "+14155551212", "To": "+18005550100", "Body": "hi there",
           "MessageSid": "SM0123456789abcdef"}
 good = _reference_sig(TOKEN, URL, PARAMS)

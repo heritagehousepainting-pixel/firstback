@@ -1,6 +1,6 @@
 /* ============================================================================
-   RingBack — Design System  (canonical token + component layer)
-   Spec: ringback-design-system.md.   Accent: Safety Orange (#EA580C).
+   FirstBack — Design System  (canonical token + component layer)
+   Spec: firstback-design-system.md.   Accent: Safety Orange (#EA580C).
    This is the file product screens migrate ONTO. It is intentionally separate
    from the legacy marketing stylesheet (style.css) so app screens stay untouched
    until we deliberately port them.

@@ -1,13 +1,13 @@
-# RingBack
+# FirstBack
 
 Instant missed-call text-back + AI booking for home-services contractors.
-When a call goes unanswered, RingBack texts the caller within seconds, answers
+When a call goes unanswered, FirstBack texts the caller within seconds, answers
 their questions, and books an estimate -- automatically.
 
 ## Run it
 
 ```bash
-cd ~/ringback
+cd ~/firstback
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -19,7 +19,7 @@ one-time setup steps live in [USER_TO_DO.md](USER_TO_DO.md).
 
 ## The AI brain
 
-Pluggable, chosen by `RINGBACK_PROVIDER` in `.env`:
+Pluggable, chosen by `FIRSTBACK_PROVIDER` in `.env`:
 
 - **`minimax`** -- MiniMax (the default today; key already in `.env`).
 - **`claude`** -- Anthropic Claude, for the public launch (`ANTHROPIC_API_KEY`).
@@ -67,10 +67,10 @@ honestly. Setup steps for each are in [USER_TO_DO.md](USER_TO_DO.md).
 - **Call screening ("knows who to text")** -- a tiered, precision-first screen
   (`triage.screen_caller`) texts back real prospects, skips spam/robocalls, and leaves
   known callers (auto-derived from bookings -- no import) to the owner. Rolls out
-  **safely** via `RINGBACK_SCREEN_MODE` (`off` | `monitor` | `enforce`, default
+  **safely** via `FIRSTBACK_SCREEN_MODE` (`off` | `monitor` | `enforce`, default
   `monitor`: log what it *would* screen without silencing anyone). Optional paid robocall
-  reputation (`RINGBACK_REPUTATION_PROVIDER`) and AI message screening
-  (`RINGBACK_SCREEN_AI`) are gated add-ons; the free tiers screen spam without them.
+  reputation (`FIRSTBACK_REPUTATION_PROVIDER`) and AI message screening
+  (`FIRSTBACK_SCREEN_AI`) are gated add-ons; the free tiers screen spam without them.
 - **Reminders & follow-ups** -- a background scheduler texts a reminder before each
   estimate and one nudge to a cold lead; simulated onto the thread until Twilio is set.
 - **Real phone/SMS (Twilio)** -- `messaging.send_sms` is the outbound seam; the
@@ -83,12 +83,12 @@ A2P status sync can downgrade. `connections.a2p_sync` reflects Twilio's current
 `campaign_status` exactly, including the bad direction: an `approved` business is
 moved back to `failed`/`pending` if Twilio later reports SUSPENDED, DELETED,
 EXPIRED, or FAILED. This is intentional — it re-blocks go-live (`is_live` becomes
-False) so RingBack never claims "live" for a campaign that died at the
+False) so FirstBack never claims "live" for a campaign that died at the
 carrier/registry. Terminal-bad upstream states map to `failed`; in-flight (incl.
 REGISTERED) maps to `pending`; only VERIFIED/APPROVED grant `approved`.
 
 ## Reset the data
 
-Deleting `ringback.db` reseeds the default business + owner login -- it wipes all
+Deleting `firstback.db` reseeds the default business + owner login -- it wipes all
 leads and appointments, so don't do it casually. Migrations run automatically on
 boot; the DB and `.env` are gitignored.

@@ -9,7 +9,7 @@ code agent; this brief documents the contract so the design agent codes against 
 
 ## Ready-to-paste prompt
 
-> You are implementing UI fixes to RingBack's Go-Live wizard. Files in scope:
+> You are implementing UI fixes to FirstBack's Go-Live wizard. Files in scope:
 > `templates/setup.html` and `static/setup.css` (plus `templates/app_shell.html`
 > for nav icons). **Do not touch any `.py` file.**
 >

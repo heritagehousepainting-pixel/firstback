@@ -96,7 +96,7 @@ _GRADED_STATUSES = ("ok", "chat", "learned")
 def _complete(provider, system, user):
     """One completion call, portable across both apps' ai modules."""
     import ai
-    if hasattr(ai, "_llm_complete"):           # RingBack-style ai
+    if hasattr(ai, "_llm_complete"):           # FirstBack-style ai
         return ai._llm_complete(provider, system, user)
     fn = ai._claude_complete if provider == "claude" else ai._minimax_complete
     return fn(system, user)

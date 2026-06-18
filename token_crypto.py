@@ -1,6 +1,6 @@
 """Encryption-at-rest for stored OAuth tokens -- stdlib only, no extra deps.
 
-RingBack ships dependency-light (requests + stdlib), so we can't reach for
+FirstBack ships dependency-light (requests + stdlib), so we can't reach for
 `cryptography`/Fernet. Instead we compose well-vetted stdlib primitives into a
 standard authenticated-encryption scheme:
 
@@ -23,7 +23,7 @@ NOT start with the marker is treated as legacy plaintext and returned as-is. So 
 account connected before encryption was switched on keeps working, and the first
 refresh re-stores its tokens encrypted.
 
-Key source: config.TOKEN_ENC_KEY (RINGBACK_TOKEN_KEY env). When it's empty,
+Key source: config.TOKEN_ENC_KEY (FIRSTBACK_TOKEN_KEY env). When it's empty,
 encryption is a SAFE NO-OP -- encrypt() returns the plaintext unchanged -- so local
 dev and a first boot without the key still work. decrypt() always handles both
 forms regardless of whether a key is set.
@@ -38,8 +38,8 @@ from config import TOKEN_ENC_KEY
 _MARKER = "enc:v1:"
 _NONCE_LEN = 16
 _MAC_LEN = 32
-_INFO_ENC = b"ringback-token-enc/v1"
-_INFO_MAC = b"ringback-token-mac/v1"
+_INFO_ENC = b"firstback-token-enc/v1"
+_INFO_MAC = b"firstback-token-mac/v1"
 
 
 def enabled():

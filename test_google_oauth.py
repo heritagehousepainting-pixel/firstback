@@ -21,8 +21,8 @@ import tempfile
 from datetime import datetime, timezone, timedelta
 
 # A key MUST be set before importing config/token_crypto so encryption is active.
-os.environ["RINGBACK_TOKEN_KEY"] = "unit-test-token-key-please-rotate"
-os.environ.setdefault("RINGBACK_PROVIDER", "demo")    # no network from the app brain
+os.environ["FIRSTBACK_TOKEN_KEY"] = "unit-test-token-key-please-rotate"
+os.environ.setdefault("FIRSTBACK_PROVIDER", "demo")    # no network from the app brain
 
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()

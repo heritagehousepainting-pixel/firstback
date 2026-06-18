@@ -34,20 +34,20 @@
       {{ field('Service area', name='service_area', value=business.service_area) }}
       {{ field('Hours', name='hours', value=business.hours) }}
       {{ field('Owner name', name='owner_name', value=business.owner_name) }}
-      {{ field('Phone (your RingBack number)', name='phone', value=business.phone, type='tel') }}
+      {{ field('Phone (your FirstBack number)', name='phone', value=business.phone, type='tel') }}
       {{ field('Average job value (for ROI)', name='avg_job_value', value=(business.avg_job_value|int if business.avg_job_value else ''), type='number', placeholder='e.g. 4500', help='Powers the estimated revenue on the ROI page. Optional.') }}
     </div>
   {% endcall %}
 
   {% call card(anchor='set-voice', title='Phone & AI voice callback', subtitle='Ring your own cell first, and let a caller ask the AI to call them back — out loud.') %}
     <div class="field-grid">
-      {{ field('Ring my cell first (optional)', name='forward_to', value=business.forward_to or '', type='tel', placeholder='+1 555 123 4567', help='An inbound call rings this number first. If you don’t pick up, RingBack takes over and texts the caller back.') }}
+      {{ field('Ring my cell first (optional)', name='forward_to', value=business.forward_to or '', type='tel', placeholder='+1 555 123 4567', help='An inbound call rings this number first. If you don’t pick up, FirstBack takes over and texts the caller back.') }}
     </div>
     <div class="toggle-list">
       {{ alert_toggle('voice_callback_enabled', 'Let a caller reply “CALL” to get an AI phone callback', business.voice_callback_enabled) }}
     </div>
     {% if voice_configured and sms_configured %}
-    <p class="provider-note provider-note-ok">Voice callback is <strong>live</strong>. When a caller replies CALL, RingBack phones them, talks through the job, and books the estimate — within quiet hours only.</p>
+    <p class="provider-note provider-note-ok">Voice callback is <strong>live</strong>. When a caller replies CALL, FirstBack phones them, talks through the job, and books the estimate — within quiet hours only.</p>
     {% else %}
     <p class="provider-note provider-note-soft">The AI voice callback goes live once you connect <strong>Twilio</strong> and deploy the voice service. Until then, a caller who replies CALL simply keeps chatting by <strong>text</strong> — nothing breaks.</p>
     {% endif %}
@@ -84,7 +84,7 @@
     </div>
   {% endcall %}
 
-  {% call card(anchor='set-screening', title='Call screening', subtitle='Like your phone’s screen: RingBack only texts back real prospects — it skips people you already know (they’re yours to handle) and suspected spam/robocallers. No setup, no contact import required.') %}
+  {% call card(anchor='set-screening', title='Call screening', subtitle='Like your phone’s screen: FirstBack only texts back real prospects — it skips people you already know (they’re yours to handle) and suspected spam/robocallers. No setup, no contact import required.') %}
     <div class="field">
       <label class="field-label" for="screen_mode">Screening mode</label>
       <select id="screen_mode" name="screen_mode" class="field-control">
@@ -97,7 +97,7 @@
     {% if screen_mode == 'enforce' %}
       <p class="provider-note provider-note-ok"><strong>Enforcing.</strong> Known callers (anyone you’ve booked or saved) are passed straight to you, and suspected spam is screened out. Spam is scored from caller-ID verification, neighbor-spoofing, repeat-call behavior, and other businesses’ spam reports. It’s <strong>precision-first</strong>: anything uncertain is still texted and flagged for review, so a real customer is never silenced by mistake.</p>
     {% elif screen_mode == 'monitor' %}
-      <p class="provider-note provider-note-soft"><strong>Monitoring (safe rollout).</strong> RingBack is logging what it <em>would</em> screen — see the “Would screen” list on your dashboard — but still texting everyone, so nothing real gets silenced while you build trust. When the numbers look right, switch to <strong>Enforce</strong> above.</p>
+      <p class="provider-note provider-note-soft"><strong>Monitoring (safe rollout).</strong> FirstBack is logging what it <em>would</em> screen — see the “Would screen” list on your dashboard — but still texting everyone, so nothing real gets silenced while you build trust. When the numbers look right, switch to <strong>Enforce</strong> above.</p>
     {% else %}
       <p class="provider-note provider-note-soft">Screening is <strong>off</strong> — every missed caller gets the text-back. Choose <strong>Monitor</strong> to start observing safely, or <strong>Enforce</strong> to turn it on.</p>
     {% endif %}
@@ -110,7 +110,7 @@
         {% if reputation_configured %}
           <span class="btn btn-secondary btn-sm provider-btn" aria-disabled="true">Active</span>
         {% else %}
-          <button type="button" class="btn btn-secondary btn-sm provider-btn" disabled title="Set RINGBACK_REPUTATION_PROVIDER (twilio_nomorobo or hiya) to enable a paid per-number spam lookup">Optional add-on</button>
+          <button type="button" class="btn btn-secondary btn-sm provider-btn" disabled title="Set FIRSTBACK_REPUTATION_PROVIDER (twilio_nomorobo or hiya) to enable a paid per-number spam lookup">Optional add-on</button>
         {% endif %}
       </div>
       <div class="provider-card{{ ' is-connected' if ai_screen_enabled else ' is-soon' }}" data-provider="ai-screen">
@@ -121,14 +121,14 @@
         {% if ai_screen_enabled %}
           <span class="btn btn-secondary btn-sm provider-btn" aria-disabled="true">Active</span>
         {% else %}
-          <button type="button" class="btn btn-secondary btn-sm provider-btn" disabled title="Set RINGBACK_SCREEN_AI=1 to read a caller’s first reply and stop cold-pitching an obvious sales/robocall message">Optional add-on</button>
+          <button type="button" class="btn btn-secondary btn-sm provider-btn" disabled title="Set FIRSTBACK_SCREEN_AI=1 to read a caller’s first reply and stop cold-pitching an obvious sales/robocall message">Optional add-on</button>
         {% endif %}
       </div>
     </div>
     <p class="provider-note provider-note-soft">The free tiers above are always on. The two add-ons are extra layers you can switch on later — the screen works without them.</p>
   {% endcall %}
 
-  {% call card(title='RingBack calendar', subtitle='Open days fill with booked estimates. Block the days you’re already busy and the AI won’t offer them.', flush=true) %}
+  {% call card(title='FirstBack calendar', subtitle='Open days fill with booked estimates. Block the days you’re already busy and the AI won’t offer them.', flush=true) %}
     <div class="cal" id="calendar" data-endpoint="/api/calendar">
       <div class="cal-head">
         <div class="cal-nav">
@@ -151,7 +151,7 @@
     </div>
   {% endcall %}
 
-  {% call card(anchor='set-alerts', title='Owner alerts', subtitle='Get notified the moment a lead comes in or an estimate books, so you can trust RingBack while you’re on the job.') %}
+  {% call card(anchor='set-alerts', title='Owner alerts', subtitle='Get notified the moment a lead comes in or an estimate books, so you can trust FirstBack while you’re on the job.') %}
     <div class="field-grid">
       {{ field('Alert email', name='alert_email', value=business.alert_email or '', type='email', placeholder=owner_email or 'you@email.com', help=('Email alerts send via SMTP.' if email_configured else 'Email is simulated until SMTP is set up (see your to-do list).')) }}
       {{ field('Alert text (your cell)', name='alert_sms', value=business.alert_sms or '', type='tel', placeholder='+1 555 123 4567', help=('Texts send via Twilio.' if sms_configured else 'Texts are simulated until Twilio is set up.')) }}
@@ -166,7 +166,7 @@
     {% endif %}
   {% endcall %}
 
-  {% call card(anchor='set-reminders', title='Reminders & follow-ups', subtitle='Cut no-shows and revive cold leads — RingBack texts a reminder before each estimate and one nudge to a warm lead that goes quiet.') %}
+  {% call card(anchor='set-reminders', title='Reminders & follow-ups', subtitle='Cut no-shows and revive cold leads — FirstBack texts a reminder before each estimate and one nudge to a warm lead that goes quiet.') %}
     <div class="toggle-list">
       {{ alert_toggle('reminders_enabled', 'Text a reminder before each booked estimate', business.reminders_enabled) }}
       {{ alert_toggle('followups_enabled', 'Send one nudge to a warm lead that goes quiet', business.followups_enabled) }}
@@ -210,7 +210,7 @@
 </form>
 
 <form method="post" action="/settings/password" class="settings-col" style="margin-top:var(--space-5)">
-  {% call card(anchor='set-password', title='Password', subtitle='Change the password you use to sign in to RingBack.') %}
+  {% call card(anchor='set-password', title='Password', subtitle='Change the password you use to sign in to FirstBack.') %}
     {% if pw %}<p class="provider-note provider-note-ok">Your password has been updated.</p>{% endif %}
     {% if pwerror %}<p class="provider-note provider-note-err">{{ {'current':'Your current password is incorrect.', 'short':'New password must be at least 8 characters.'}.get(pwerror, 'Could not update your password.') }}</p>{% endif %}
     <div class="field-grid">

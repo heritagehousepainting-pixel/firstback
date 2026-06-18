@@ -42,7 +42,7 @@
 {% if review_count and review_count > 0 %}
 <a class="review-nudge" href="/callers">
   <span class="review-nudge-badge">{{ review_count }}</span>
-  <span class="review-nudge-text">{{ review_count }} caller{{ 's' if review_count != 1 else '' }} to review — RingBack suggested how to sort {{ 'them' if review_count != 1 else 'it' }}.</span>
+  <span class="review-nudge-text">{{ review_count }} caller{{ 's' if review_count != 1 else '' }} to review — FirstBack suggested how to sort {{ 'them' if review_count != 1 else 'it' }}.</span>
   <span class="review-nudge-cta">Review callers →</span>
 </a>
 {% endif %}
@@ -66,7 +66,7 @@
         {% endfor %}
       {% endcall %}
     {% else %}
-      {{ empty_state('No leads yet', 'When a missed call comes in, RingBack texts the caller and the new lead lands right here.', action_label='Try the live demo', action_href='/simulator') }}
+      {{ empty_state('No leads yet', 'When a missed call comes in, FirstBack texts the caller and the new lead lands right here.', action_label='Try the live demo', action_href='/simulator') }}
     {% endif %}
   {% endcall %}
 
@@ -97,7 +97,7 @@
 {% endcall %}
 
 {% if screened %}
-{% set screened_subtitle = ('In monitor mode RingBack still texts these callers — this is what it WOULD screen: a contact you’d handle yourself, or a suspected spam/robocaller. Wrong about one? Mark it spam to confirm.' if monitoring else 'Callers RingBack didn’t text back — a known contact you handle yourself, or a suspected spam/robocaller. Was one actually a customer? Text them back.') %}
+{% set screened_subtitle = ('In monitor mode FirstBack still texts these callers — this is what it WOULD screen: a contact you’d handle yourself, or a suspected spam/robocaller. Wrong about one? Mark it spam to confirm.' if monitoring else 'Callers FirstBack didn’t text back — a known contact you handle yourself, or a suspected spam/robocaller. Was one actually a customer? Text them back.') %}
 {% call card(title=('Would screen' if monitoring else 'Screened calls'), subtitle=screened_subtitle, flush=true) %}
   {% call data_table(['Caller','Why','When','']) %}
     {% for c in screened %}
@@ -141,7 +141,7 @@
       {% endfor %}
     {% endcall %}
   {% else %}
-    {{ empty_state('No alerts yet', 'When a lead comes in or an estimate books, RingBack notes it here — and texts or emails you if you’ve set that up in Settings.') }}
+    {{ empty_state('No alerts yet', 'When a lead comes in or an estimate books, FirstBack notes it here — and texts or emails you if you’ve set that up in Settings.') }}
   {% endif %}
 {% endcall %}
 {% endblock %}

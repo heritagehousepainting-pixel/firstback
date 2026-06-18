@@ -1,6 +1,6 @@
-# Ringback Homepage Redesign — Plan & Designer Prompts
+# Firstback Homepage Redesign — Plan & Designer Prompts
 
-Goal: turn Ringback's marketing front door into a Firecrawl-caliber experience — a **3D/WebGL hero centerpiece** plus tasteful lightweight motion across the page — built natively in the **Safety Orange** marketing system.
+Goal: turn Firstback's marketing front door into a Firecrawl-caliber experience — a **3D/WebGL hero centerpiece** plus tasteful lightweight motion across the page — built natively in the **Safety Orange** marketing system.
 
 Reference teardown: [UI_MOTION_IDEAS.md](UI_MOTION_IDEAS.md) (full Firecrawl analysis: motion vocabulary + design language).
 
@@ -18,8 +18,8 @@ Reference teardown: [UI_MOTION_IDEAS.md](UI_MOTION_IDEAS.md) (full Firecrawl ana
 - `marketing.css` already has the right primitives: two-tone headline (`.mk-h1 .dot`), featured pricing card (`.mk-price.featured`), gradient CTA band (`.mk-cta`), numbered steps (`.mk-step .n`). `app.js` already does scroll-reveal via IntersectionObserver.
 - Route `/` → `onboarding.html` (the front door; carries the signup path). `landing.html` is unrouted reference.
 
-## The 3D hero concept — "Ringback Signal"
-A floating **3D phone** (the hero device) showing the missed-call→booked **SMS conversation that types in message-by-message and loops**, set in a depth field of **orange particles / point-cloud grid** with subtle **mouse + scroll parallax**, and concentric **"ringback" ripple rings** that pulse outward from the phone each time a message lands — the visual metaphor for a missed call ringing back and converting to a booked job. Ends on **"Booked."**, pauses, resets.
+## The 3D hero concept — "Firstback Signal"
+A floating **3D phone** (the hero device) showing the missed-call→booked **SMS conversation that types in message-by-message and loops**, set in a depth field of **orange particles / point-cloud grid** with subtle **mouse + scroll parallax**, and concentric **"firstback" ripple rings** that pulse outward from the phone each time a message lands — the visual metaphor for a missed call ringing back and converting to a booked job. Ends on **"Booked."**, pauses, resets.
 
 Brand mapping: phone = the product · ripples = the callback · typing thread = the AI replying · "Booked." = the outcome. Static fallback = the existing CSS `.phone` mockup from `landing.html`.
 
@@ -121,7 +121,7 @@ including reduced-motion.
 
 ## Prompt 2 — The three.js / WebGL hero
 ```
-Build the hero centerpiece — the "Ringback Signal" concept in HOMEPAGE_REDESIGN_PLAN.md.
+Build the hero centerpiece — the "Firstback Signal" concept in HOMEPAGE_REDESIGN_PLAN.md.
 
 Task:
 1. Vendor three.js locally: place a pinned build at static/vendor/three.module.js (record the version
@@ -161,7 +161,7 @@ Task:
    vertically (CSS/JS marquee), columns at different speeds/directions, pause on hover, seamless loop.
    Highlight the brand name/keyword in orange inside quotes. Use placeholder reviews now, structured so
    real ones drop in later. Under reduced-motion, render a static grid.
-2. Add a Canvas2D ripple/soundwave motif behind the existing .mk-cta orange band — a subtle "ringback"
+2. Add a Canvas2D ripple/soundwave motif behind the existing .mk-cta orange band — a subtle "firstback"
    ripple tied to the brand. Off under reduced-motion.
 
 Acceptance: lively but tasteful social proof + CTA, perf fine, reduced-motion safe. Verify in preview.

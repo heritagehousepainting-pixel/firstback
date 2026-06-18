@@ -10,7 +10,7 @@
 {% call card() %}
   {% for t in turns %}
   <div class="card" style="margin-bottom:var(--space-3);padding:var(--space-3)">
-    {{ pill(('You' if t.role == 'user' else 'RingBack') ~ (' · ' ~ t.tool if t.tool else '') ~ (' · ' ~ t.status if t.status and t.status != 'ok' else ''), ('neutral' if t.role == 'user' else 'new'), dot=true) }}
+    {{ pill(('You' if t.role == 'user' else 'FirstBack') ~ (' · ' ~ t.tool if t.tool else '') ~ (' · ' ~ t.status if t.status and t.status != 'ok' else ''), ('neutral' if t.role == 'user' else 'new'), dot=true) }}
     <p style="margin:var(--space-2) 0 0;color:var(--ink)">{{ t.content }}</p>
   </div>
   {% endfor %}

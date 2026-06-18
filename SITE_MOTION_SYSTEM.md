@@ -1,4 +1,4 @@
-# Ringback — Site-Wide Motion & Interaction System
+# Firstback — Site-Wide Motion & Interaction System
 
 The umbrella plan: turn the whole site (marketing + conversion + product) into a single, consistent motion language tuned for **"minimal but optimal — looks basic until you see it live."**
 
@@ -101,7 +101,7 @@ A small, reusable set. Each is a single GPU-cheap layer, paused offscreen, **off
 | Background | Where | Tech |
 |---|---|---|
 | **Living dot-grid** | marketing section bands (light) | Canvas2D — faint dots fade at intersections + sparse orange "+" sparkles |
-| **3D "Ringback Signal" hero** | home only | three.js (lazy, vendored) — see Phase C |
+| **3D "Firstback Signal" hero** | home only | three.js (lazy, vendored) — see Phase C |
 | **Ripple / soundwave** | CTA bands (`.mk-cta`), final CTAs | Canvas2D — concentric "callback" rings |
 | **Gradient-mesh drift** | onboarding `.ob-bg`, auth `.au-art` | CSS — animate the *existing* static gradients with a slow 20–30s breathing drift |
 | **Particle flames** (optional) | a single brand moment | Canvas2D — Firecrawl-style, used sparingly if at all |
@@ -199,7 +199,7 @@ Because this is a **server-rendered multi-page** app (not an SPA), use the **Vie
 
 ### Prompt A — Motion foundation (do this first; everything depends on it)
 ```
-Establish Ringback's motion foundation. No page redesigns yet — build the language and prove it in /ui.
+Establish Firstback's motion foundation. No page redesigns yet — build the language and prove it in /ui.
 
 1. Add the motion token layer to static/ui.css :root exactly as specified in SITE_MOTION_SYSTEM.md §3
    (--dur-*, --ease-*, --stagger, --reveal-rise). Keep the existing prefers-reduced-motion rule.
@@ -244,7 +244,7 @@ Verify desktop + mobile + reduced-motion across 2–3 marketing pages and 2 prod
 
 ### Prompt C — Home (3D hero + full homepage)
 ```
-Execute HOMEPAGE_REDESIGN_PLAN.md (Prompts 0–5) — the flagship home page with the three.js "Ringback Signal"
+Execute HOMEPAGE_REDESIGN_PLAN.md (Prompts 0–5) — the flagship home page with the three.js "Firstback Signal"
 hero — now built ON TOP of the motion foundation from Prompt A (reuse its tokens, reveal engine, and primitives
 instead of re-inventing them). Follow that doc's acceptance criteria and the GLOBAL RULES here.
 ```

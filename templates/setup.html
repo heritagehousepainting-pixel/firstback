@@ -190,7 +190,7 @@
           <summary>Advanced: ring my cell first instead</summary>
           <form method="post" action="/setup/forwarding" class="step-form">
             <input type="hidden" name="mode" value="dial">
-            <p class="setup-note">{{ app_name }} rings this number first; if you don't pick up, it texts the caller back. (Use this only if customers will call your RingBack number directly.)</p>
+            <p class="setup-note">{{ app_name }} rings this number first; if you don't pick up, it texts the caller back. (Use this only if customers will call your FirstBack number directly.)</p>
             <div class="field-grid">
               {{ field('Ring this cell first', name='forward_to', value=business.forward_to or '', type='tel', placeholder='+1 555 123 4567') }}
             </div>

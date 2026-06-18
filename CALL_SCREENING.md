@@ -1,6 +1,6 @@
 # Call Screening — the "Phone Screen"
 
-RingBack texts back every missed caller. Two callers should **not** get that automated
+FirstBack texts back every missed caller. Two callers should **not** get that automated
 text: **spam/robocalls** (wastes texts and gets the business number carrier-flagged) and
 **people you already know** (an automated "want a free estimate?" to a returning customer
 or the owner's mom is embarrassing). The screen decides — modeled on how a phone screens
@@ -42,7 +42,7 @@ costly mistake.
 
 ## Rollout modes (safe cutover)
 
-`RINGBACK_SCREEN_MODE` = `off | monitor | enforce` — the **app-wide default** (default
+`FIRSTBACK_SCREEN_MODE` = `off | monitor | enforce` — the **app-wide default** (default
 `monitor`). Each business can override it in **Settings → Call screening** ("Use the
 default" inherits; stored in `businesses.screen_mode`, resolved by
 `app._effective_screen_mode`).
@@ -54,7 +54,7 @@ default" inherits; stored in `businesses.screen_mode`, resolved by
 - **enforce** — acts on the verdict (spam/known callers are not texted).
 
 To go from observing to blocking: review the "Would screen" numbers on the dashboard, then
-set **Enforce** (per-business in Settings, or `RINGBACK_SCREEN_MODE=enforce` app-wide).
+set **Enforce** (per-business in Settings, or `FIRSTBACK_SCREEN_MODE=enforce` app-wide).
 
 ---
 
@@ -97,10 +97,10 @@ set **Enforce** (per-business in Settings, or `RINGBACK_SCREEN_MODE=enforce` app
 
 ## Operating knobs (env; see SETUP_NEEDED.md)
 
-- `RINGBACK_SCREEN_MODE` (off|monitor|enforce, default monitor) · `RINGBACK_SCREEN_HARD` (80) ·
-  `RINGBACK_SCREEN_MID` (45) · `RINGBACK_SCREEN_CROWD_MIN` (2).
-- `RINGBACK_REPUTATION_PROVIDER` (off|twilio_nomorobo|hiya) + `HIYA_API_KEY` — optional paid tier.
-- `RINGBACK_SCREEN_AI` (1 to enable the Tier-3 AI content screen; needs a real brain key).
+- `FIRSTBACK_SCREEN_MODE` (off|monitor|enforce, default monitor) · `FIRSTBACK_SCREEN_HARD` (80) ·
+  `FIRSTBACK_SCREEN_MID` (45) · `FIRSTBACK_SCREEN_CROWD_MIN` (2).
+- `FIRSTBACK_REPUTATION_PROVIDER` (off|twilio_nomorobo|hiya) + `HIYA_API_KEY` — optional paid tier.
+- `FIRSTBACK_SCREEN_AI` (1 to enable the Tier-3 AI content screen; needs a real brain key).
 
 ## Tests
 

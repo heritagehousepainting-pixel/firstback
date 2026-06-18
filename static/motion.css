@@ -1,5 +1,5 @@
 /* ============================================================================
-   RingBack — Motion layer (Firecrawl-inspired).
+   FirstBack — Motion layer (Firecrawl-inspired).
    Scroll reveals (driven by motion.js inline styles), nav mega-menu dropdowns,
    and micro-interactions. Loads after ui.css. Honors prefers-reduced-motion
    (ui.css already neutralises transitions globally under that setting).

@@ -1,6 +1,6 @@
 /* ============================================================================
    trades_core — shared design tokens (vendored into each product's static/).
-   Identical across JobMagnet & RingBack. Each product keeps ONLY its accent
+   Identical across JobMagnet & FirstBack. Each product keeps ONLY its accent
    family (and RB its --mono) in its own ui.css :root, loaded AFTER this file via
    `@import url("tokens.css");`. The two :root blocks union (disjoint properties).
    Edit trades_core/static/tokens.css, then run `python3 trades_core/sync.py`.

@@ -10,7 +10,7 @@ import hmac
 import os
 import tempfile
 
-os.environ["RINGBACK_PROVIDER"] = "demo"          # deterministic, no network
+os.environ["FIRSTBACK_PROVIDER"] = "demo"          # deterministic, no network
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()
 config.DB_PATH = _TMP.name
@@ -25,7 +25,7 @@ messaging.TWILIO_ACCOUNT_SID = ""     # configured() False -> send_sms simulates
 import app
 client = app.app.test_client()
 
-# A tenant with a RingBack number and a forward-to cell.
+# A tenant with a FirstBack number and a forward-to cell.
 BIZ_NUM, CELL, CALLER = "+15553140000", "+15559990000", "+14155551212"
 db.set_business_twilio(1, BIZ_NUM, "PN1", forward_to=CELL)
 
@@ -108,7 +108,7 @@ check("status webhook records delivery status", bool(row) and row["delivery_stat
 
 
 # 8. H1 A2P GATE on the real webhook path (audit-coverage close): a tenant that owns
-# a RingBack number but is NOT a2p-approved must, when configured, record the outbound
+# a FirstBack number but is NOT a2p-approved must, when configured, record the outbound
 # text-back on the thread for PARITY yet send NOTHING to the network (the gate blocks
 # it). Once approved, the same path performs a real send. We spy on requests.post so a
 # "blocked" result is provably one that never touched the wire (the tripwire stays in

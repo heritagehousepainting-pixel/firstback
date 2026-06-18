@@ -24,12 +24,12 @@
     </a>
     <div class="au-art-body">
       <h2 class="au-art-title">Never miss another job.</h2>
-      <p class="au-art-sub">RingBack texts every missed caller in seconds, answers their questions, and books the estimate — so the job doesn’t go to the next contractor.</p>
+      <p class="au-art-sub">FirstBack texts every missed caller in seconds, answers their questions, and books the estimate — so the job doesn’t go to the next contractor.</p>
     </div>
     <div class="au-proof">
       <span class="au-stars" aria-label="5 out of 5">{{ star }}{{ star }}{{ star }}{{ star }}{{ star }}</span>
       <p class=”au-quote”>Catch every missed call, book the job, and never chase a lead by hand again.</p>
-      <p class=”au-by”>— RingBack</p>
+      <p class=”au-by”>— FirstBack</p>
     </div>
     <p class="au-foot">© {{ app_name }}</p>
   </aside>
@@ -42,7 +42,7 @@
       </div>
 
       <h1 class="au-title">{{ 'Create your account' if is_signup else 'Welcome back' }}</h1>
-      <p class="au-sub">{{ 'Start turning missed calls into booked jobs.' if is_signup else 'Sign in to your RingBack cockpit.' }}</p>
+      <p class="au-sub">{{ 'Start turning missed calls into booked jobs.' if is_signup else 'Sign in to your FirstBack cockpit.' }}</p>
 
       {% if error %}<p class="au-error" role="alert">{{ error }}</p>{% endif %}
 
@@ -56,7 +56,7 @@
       </form>
 
       <p class="au-alt">
-        {{ 'Already have an account?' if is_signup else 'New to RingBack?' }}
+        {{ 'Already have an account?' if is_signup else 'New to FirstBack?' }}
         <a href="{{ '/login' if is_signup else '/signup' }}">{{ 'Log in' if is_signup else 'Sign up' }}</a>
       </p>
       <p class="au-terms">By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>

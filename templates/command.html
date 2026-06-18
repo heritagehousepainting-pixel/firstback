@@ -85,7 +85,7 @@
     <form class="command-bar" id="commandBar" autocomplete="off">
       <span class="command-spark" aria-hidden="true"></span>
       <input class="command-input" id="commandInput" name="message" type="text"
-             placeholder="Ask RingBack to do something..." aria-label="Command RingBack">
+             placeholder="Ask FirstBack to do something..." aria-label="Command FirstBack">
       {# Push-to-talk: Web Speech API only, no new infra. Hidden until JS confirms support;
          dictates into the bar so the owner can review before it ever sends (no blind send). #}
       <button class="command-mic" id="commandMic" type="button" aria-pressed="false"
@@ -98,7 +98,7 @@
              stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
       </button>
     </form>
-    <p class="command-foot">RingBack confirms before it texts anyone. Nothing is sent without your okay.</p>
+    <p class="command-foot">FirstBack confirms before it texts anyone. Nothing is sent without your okay.</p>
   </div>
 
   <input type="hidden" id="csrfToken" value="{{ csrf_token }}">

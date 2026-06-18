@@ -4,7 +4,7 @@ Proves the directory-based screen: known non-prospects (the owner's mom, the pow
 company, a blocked number) and opted-out callers are logged but never texted, while
 unknown callers and returning customers are engaged -- plus auto-learn on booking.
 No framework, no network: a throwaway temp DB + the deterministic demo brain, so
-the real ringback.db is untouched. Exits non-zero on any failure.
+the real firstback.db is untouched. Exits non-zero on any failure.
 """
 import base64
 import hashlib
@@ -12,8 +12,8 @@ import hmac
 import os
 import tempfile
 
-os.environ["RINGBACK_PROVIDER"] = "demo"          # deterministic, no network
-os.environ["RINGBACK_SCREEN_MODE"] = "enforce"    # these checks assert the screen ACTS on its verdict
+os.environ["FIRSTBACK_PROVIDER"] = "demo"          # deterministic, no network
+os.environ["FIRSTBACK_SCREEN_MODE"] = "enforce"    # these checks assert the screen ACTS on its verdict
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()
 config.DB_PATH = _TMP.name
@@ -29,7 +29,7 @@ import triage
 import app
 client = app.app.test_client()
 
-# Business 1 has a RingBack number but NO forward-to cell, so an inbound call goes
+# Business 1 has a FirstBack number but NO forward-to cell, so an inbound call goes
 # straight to the missed-call text-back path (where triage runs).
 BIZ_NUM = "+15553140000"
 db.set_business_twilio(1, BIZ_NUM, "PN1")

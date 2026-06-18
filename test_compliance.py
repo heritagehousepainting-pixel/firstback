@@ -58,7 +58,7 @@ check("a numbered but unwired business is flagged 'not wired'",
       any("isn't wired to receive calls and texts" in b
           for b in compliance.launch_blockers(unwired, True)))
 check("the unwired number does not double-flag 'no number provisioned'",
-      not any("No RingBack phone number" in b
+      not any("No FirstBack phone number" in b
               for b in compliance.launch_blockers(unwired, True)))
 wired = dict(unwired, webhooks_wired=1)
 check("wiring the webhooks clears the 'not wired' blocker",

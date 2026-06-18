@@ -1,4 +1,4 @@
-// RingBack front-end glue. Vanilla JS — no build step.
+// FirstBack front-end glue. Vanilla JS — no build step.
 // Chat bubbles are built to match templates/components/ui/chat_bubble.html.
 
 const AGENT_SVG =
@@ -83,7 +83,7 @@ function addMeta(container, text) {
   const sendBtn = form.querySelector("button");
   const status = document.getElementById("sim-status");
   const CUSTOMER = "Homeowner";
-  // A demo homeowner's number (distinct from the business's own RingBack number,
+  // A demo homeowner's number (distinct from the business's own FirstBack number,
   // which is shown in the device header from the business profile).
   const DEMO_CALLER = "+1 (415) 555-0142";
   let leadId = null;
@@ -99,7 +99,7 @@ function addMeta(container, text) {
   }
 
   // A screened outcome (spam / known caller): no thread, just a status card showing
-  // what RingBack did and why — the "knows who to text" story, made visible.
+  // what FirstBack did and why — the "knows who to text" story, made visible.
   function screenedCard(data) {
     const spam = data.status === "screened_spam";
     const el = document.createElement("div");
@@ -111,8 +111,8 @@ function addMeta(container, text) {
     const sub = document.createElement("p");
     sub.className = "sim-screened-sub";
     sub.textContent = spam
-      ? "No text sent. RingBack won’t cold-pitch a robocaller — that protects your number."
-      : "No automated text. You’ve dealt with this caller before, so RingBack leaves them to you.";
+      ? "No text sent. FirstBack won’t cold-pitch a robocaller — that protects your number."
+      : "No automated text. You’ve dealt with this caller before, so FirstBack leaves them to you.";
     el.appendChild(sub);
     (data.reasons || []).forEach((r) => {
       const li = document.createElement("div");
@@ -623,7 +623,7 @@ function addMeta(container, text) {
     const rows = filtered();
     if (!rows.length) {
       inboxEl.innerHTML = '<p class="cl-empty">' + (tab === "pending"
-        ? "Nothing to review. RingBack flags a caller here whenever they start to look like a client, a vendor, or spam."
+        ? "Nothing to review. FirstBack flags a caller here whenever they start to look like a client, a vendor, or spam."
         : tab === "accepted" ? "Nothing sorted yet." : "Nothing dismissed.") + "</p>";
       syncBulk();
       return;
@@ -745,7 +745,7 @@ function addMeta(container, text) {
     const managed = (d && d.managed) || [];
     if (!managed.length) {
       listEl.innerHTML = '<p class="screen-empty">No numbers screened yet. Add the owner’s '
-        + 'personal contacts, your suppliers, or a known spammer so RingBack never texts them.</p>';
+        + 'personal contacts, your suppliers, or a known spammer so FirstBack never texts them.</p>';
     } else {
       listEl.innerHTML = managed.map((c) =>
         `<div class="screen-row"><div class="screen-row-id">`
@@ -760,7 +760,7 @@ function addMeta(container, text) {
     }
     const n = (d && d.customers) || 0;
     custEl.textContent = n
-      ? `RingBack also recognizes ${n} past client${n === 1 ? "" : "s"} automatically, so their calls always get answered.`
+      ? `FirstBack also recognizes ${n} past client${n === 1 ? "" : "s"} automatically, so their calls always get answered.`
       : "";
   }
   async function loadDirectory() {

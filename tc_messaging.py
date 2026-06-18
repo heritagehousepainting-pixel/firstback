@@ -1,14 +1,14 @@
 """Shared outbound-policy + provider primitives for the trades_core kernel (vendored).
 
 The two products log sends into DIFFERENT tables (JobMagnet's business-scoped `messages`
-vs RingBack's lead threads — "false friends" the audit says NOT to merge), so this module
+vs FirstBack's lead threads — "false friends" the audit says NOT to merge), so this module
 does NOT own logging. It owns the parts that ARE the compliance moat and were duplicated /
 divergent:
 
   * `in_quiet_hours` — the wrap-midnight quiet-hours window (start/end passed in, since the
     two apps name their config keys differently). The basis for closing hole #1.
   * `quiet_blocked` — should THIS send be held for quiet hours? Transactional sends (an
-    immediate reply to someone who just contacted the business — RingBack's missed-call
+    immediate reply to someone who just contacted the business — FirstBack's missed-call
     text-back) are EXEMPT; marketing/reminder sends are not. See the carve-out note.
   * `twilio_send_sms` — the one Twilio REST call (no SDK), unified from both apps.
   * `valid_signature` — Twilio webhook authenticity, fail-closed when unconfigured.

@@ -1,4 +1,4 @@
-"""Reminders & follow-ups for RingBack (Feature 1).
+"""Reminders & follow-ups for FirstBack (Feature 1).
 
 Two revenue-savers, both delivered as a single outbound text through the messaging
 seam (real Twilio if configured, otherwise simulated onto the lead's thread):
@@ -13,7 +13,7 @@ defensive wrapper (mirrors app._schedule_notes). For production, where an
 in-process ticker dies with the process, POST /tasks/run-due drives the same
 tick_once from an external cron (see USER_TO_DO).
 
-Times are business-local (config.app_tz / RINGBACK_TZ); stored send_at is UTC ISO.
+Times are business-local (config.app_tz / FIRSTBACK_TZ); stored send_at is UTC ISO.
 Idempotent: a row is claimed (pending -> sent) atomically before the send, so a
 second tick or a restart mid-send can't double-send. One follow-up per lead, ever.
 Honest: when Twilio isn't configured the text is simulated onto the lead's thread,
@@ -204,7 +204,7 @@ def run_due_once(now=None):
                 db.mark_scheduled(row["id"], "failed")
         except Exception as e:
             db.mark_scheduled(row["id"], "failed")
-            print(f"[ringback] scheduled send failed (id {row['id']}): {e}",
+            print(f"[firstback] scheduled send failed (id {row['id']}): {e}",
                   file=sys.stderr, flush=True)
     return sent
 
@@ -230,7 +230,7 @@ def scan_followups(now=None):
                                          send_at, body)
                 queued += 1
             except Exception as e:
-                print(f"[ringback] followup enqueue failed (lead {lead.get('id')}): {e}",
+                print(f"[firstback] followup enqueue failed (lead {lead.get('id')}): {e}",
                       file=sys.stderr, flush=True)
     return queued
 
@@ -243,7 +243,7 @@ def tick_once(now=None):
         import triage
         triage.scan_all_suggestions()  # observe callers -> refresh the review queue
     except Exception as e:
-        print(f"[ringback] suggestion scan failed: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] suggestion scan failed: {e}", file=sys.stderr, flush=True)
     queued = scan_followups(now)
     # Phase 3: enqueue due growth touches (opt-in per business; sent by run_due_once below
     # through the same gate, simulated until Twilio + A2P are live).
@@ -252,7 +252,7 @@ def tick_once(now=None):
         import growth
         growth_queued = growth.scan(now).get("queued", 0)
     except Exception as e:
-        print(f"[ringback] growth scan failed: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] growth scan failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
     return {"queued": queued, "growth_queued": growth_queued, "sent": sent}
 
@@ -279,14 +279,14 @@ def start_ticker():
         # at boot can block the web worker's first request (the /login health check reads
         # the DB via inject_globals), so Render's port scan never sees the worker and the
         # deploy fails ("No open HTTP ports"). Delaying the first tick lets the worker
-        # become ready and answer the health check first. See reference-ringback-wal-boot-hazard.
+        # become ready and answer the health check first. See reference-firstback-wal-boot-hazard.
         while True:
             time.sleep(interval)
             try:
                 tick_once()
             except Exception as e:  # never let the scheduler thread die
-                print(f"[ringback] scheduler tick failed: {e}", file=sys.stderr, flush=True)
+                print(f"[firstback] scheduler tick failed: {e}", file=sys.stderr, flush=True)
 
-    threading.Thread(target=_loop, daemon=True, name="ringback-ticker").start()
-    print(f"[ringback] reminder scheduler started (every {interval}s)",
+    threading.Thread(target=_loop, daemon=True, name="firstback-ticker").start()
+    print(f"[firstback] reminder scheduler started (every {interval}s)",
           file=sys.stderr, flush=True)

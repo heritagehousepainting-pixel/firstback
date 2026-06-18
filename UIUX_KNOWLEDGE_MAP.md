@@ -1,6 +1,6 @@
-# RingBack + design_hub — UI/UX Knowledge Map
+# FirstBack + design_hub — UI/UX Knowledge Map
 
-> Built 2026-06-16 from a 10-agent parallel read of RingBack and `design_hub`.
+> Built 2026-06-16 from a 10-agent parallel read of FirstBack and `design_hub`.
 > Purpose: the working brief for the **Mobbin-driven UI/UX upgrade**. Read this
 > first; it tells you the current state, the constraints, and the tools.
 
@@ -12,7 +12,7 @@
    `#EA580C` (CTA / active-nav / links / logo mark ONLY — "orange is a scalpel"),
    ink `#0B0E14`, off-white `#FAFAF8` (never pure #fff/#000), **Archivo** everywhere,
    hairline borders, **no drop shadows / no glow**, sharp ease-out motion. The
-   authoritative source is `CANVA/brands/ringback.md`. `DESIGN.md` is **stale**
+   authoritative source is `CANVA/brands/firstback.md`. `DESIGN.md` is **stale**
    (documents the dead "Field Blue" blue era) — don't trust its color.
 2. **Two competing roadmaps target the same surface.** `REVAMP_ROADMAP.md` = a
    visual reskin that *freezes* IA/routes/`/dashboard`. `BRAIN.md` +
@@ -41,9 +41,9 @@ guardrails) + `*_TECHNIQUES.md` (knowledge base) + `skills/` + `install.sh`
 6-phase build loop (INTAKE → UX → FRONTEND → BACKEND → AUDIT → DIAGNOSE/ROUTE/FIX),
 a **router table** (symptom → owning skill) that drives self-correction, and the
 rule "narrow asks bypass the loop" (go straight to the owning sub-skill).
-`projects/ringback/` is the only product; `~/apps/ringback` symlinks to it.
+`projects/firstback/` is the only product; `~/apps/firstback` symlinks to it.
 
-### RingBack — the product (`~/apps/design_hub/projects/ringback`)
+### FirstBack — the product (`~/apps/design_hub/projects/firstback`)
 Flask monolith (`app.py` ~1700 lines, no blueprints), SQLite, multi-tenant by
 `business_id` but **effectively single-tenant** (everything defaults to business 1
 = Heritage House Painting). Missed-call → instant text-back → AI books an estimate.
@@ -53,7 +53,7 @@ gated** — they simulate honestly in-app until credentials exist.
 
 ---
 
-## 2. RingBack UI/UX — current state (the upgrade target)
+## 2. FirstBack UI/UX — current state (the upgrade target)
 
 ### 2.1 Two front doors (marketing)
 - **Live homepage `/` = `onboarding.html`** — a **standalone** template (its own
@@ -92,8 +92,8 @@ onboarding/maintenance hazard):
 Token-driven, **no build step**. Two layers:
 - **`tokens.css`** — shared `trades_core` tokens (synced from upstream
   `trades_core/static/tokens.css` via `sync.py` — **edit upstream, not in place**).
-  Identical across RingBack + JobMagnet.
-- **`ui.css`** — RingBack's canonical component layer; imports tokens, adds the only
+  Identical across FirstBack + JobMagnet.
+- **`ui.css`** — FirstBack's canonical component layer; imports tokens, adds the only
   divergent family (Safety Orange accent) + `--mono`. Rule: *no arbitrary hex/px in
   components*.
 - `app.css` (product shell/screens), `app.js` (vanilla glue), `marketing.css`,
@@ -121,7 +121,7 @@ neutral), card (head/body/foot, `:target` ring for deep-links), data-table, stat
 **Motion (built):** scroll reveals (IntersectionObserver, reduced-motion aware),
 Firecrawl-style mega-menu dropdown, count-ups. **Strong a11y baseline**: focus-visible
 rings, keyboard-operable rows, `prefers-reduced-motion` honored in CSS *and* JS.
-**Not built** (from the docs): the 3D "Ringback Signal" hero, the animated/looping
+**Not built** (from the docs): the 3D "Firstback Signal" hero, the animated/looping
 SMS→Booked thread, Canvas dot-grid (it's a flat CSS texture), wall-of-love marquee,
 View Transitions, tokenized motion.
 
@@ -142,7 +142,7 @@ View Transitions, tokenized motion.
   time-bankrupt." He doesn't want a CRM — "he wants Tuesday to fill up."
 - **Positioning:** the inverse of Angi/HomeAdvisor — *"We don't sell your leads. We
   don't share your customers. We don't text anyone you haven't approved."* Category
-  white space: everyone builds AI-for-the-caller; RingBack builds **AI-for-the-owner**.
+  white space: everyone builds AI-for-the-caller; FirstBack builds **AI-for-the-owner**.
 - **Voice = "Vic":** blue-collar fluent, short sentences, leads with money ("Missed
   call, burst-pipe lady — could be $2k"). Banned: leverage/optimize/utilize, emoji,
   streaks, "Great question!".
@@ -182,11 +182,11 @@ bring splashy motion in**), anti-AI-look, `ui-audit` is the hard ship gate.
 | Skill | Use it to… |
 |---|---|
 | **ui-build** | Orchestrate the whole marketing-site upgrade / any "make this premium" page. Entry point. |
-| **ui-foundations** | Formalize/audit RingBack's Safety-Orange tokens as the single source of truth (ships `tokens.css` + `contrast.py`). Do first. |
+| **ui-foundations** | Formalize/audit FirstBack's Safety-Orange tokens as the single source of truth (ships `tokens.css` + `contrast.py`). Do first. |
 | **ui-references** | **Mobbin integration point.** Curate 2–4 consistent premium refs per section; works even before the library fills. |
 | **ui-layout** | Build/restructure the static skeleton of the hollow homepage sections + marketing pages. |
 | **ui-hero** | Upgrade hero composition/hierarchy/media; owns the static-vs-ambient-vs-WebGL escalation call. |
-| **ui-hero-3d** | Only if RingBack commits to the cinematic textured-phone/particle hero (marketing tier only). |
+| **ui-hero-3d** | Only if FirstBack commits to the cinematic textured-phone/particle hero (marketing tier only). |
 | **ui-card** | Feature/pricing/stat cards so they don't read as bordered divs. |
 | **ui-background** | Settle the particle layer so it frames rather than competes; quiet section atmosphere. |
 | **ui-motion** | Cohesive reveal cadence + micro-interactions after the skeleton is solid. |
@@ -206,10 +206,10 @@ audit**, not a cold start from research.
 |---|---|
 | **ux-design** | Orchestrate the redesign loop, scale rigor, hand off to `ui-build`. |
 | **ux-research** | Pick KPIs (drop-off, conversion, time-on-task) to measure the redesign against. |
-| **ux-personas** | Map who RingBack serves + emotional journey + current pain points. |
+| **ux-personas** | Map who FirstBack serves + emotional journey + current pain points. |
 | **ux-define** | Lock the single problem the redesign solves + success benchmark. |
 | **ux-ideate** | **Competitive audit — the other Mobbin seam.** Generate IA/flow options. |
-| **ux-flows** | Validate RingBack IA/navigation/flows (happy + edge paths) before visuals. |
+| **ux-flows** | Validate FirstBack IA/navigation/flows (happy + edge paths) before visuals. |
 | **ux-wireframes** | Rough screens structurally (no color) so layout is right first. |
 | **ux-prototypes** | Wire flows into a testable prototype; state motion intent for UI. |
 | **ux-usability** | Test current app, prioritize fixes P0/P1/P2. **Best first step.** |
@@ -224,8 +224,8 @@ Parallel marketing/client-artwork pipeline (Higgsfield makes imagery → Canva
 composes; `content-design` supplies copy). Skills: `canva-build`, `canva-brand-setup`,
 `canva-social-post`, `canva-ad`, `canva-carousel`, `canva-client-doc` (Heritage only),
 `canva-export` (ship gate). **Relevance to the web upgrade:** it holds the
-authoritative RingBack brand kit (`brands/ringback.md`) and the locked "Firecrawl-style
-AI-tech, no people" visual direction (`reference-library/ringback-imagery/firecrawl-style/`).
+authoritative FirstBack brand kit (`brands/firstback.md`) and the locked "Firecrawl-style
+AI-tech, no people" visual direction (`reference-library/firstback-imagery/firecrawl-style/`).
 Hard limits: Canva API **can't set font family** (brand font needs a UI-built master);
 `generate-design` is draft-only. Nothing is live in Canva yet (kit not configured).
 
@@ -234,7 +234,7 @@ Python-first (FastAPI/Django + Postgres). Creed: *"a backend's first job is to n
 lie and never lose data."* Skills: `be-build`, `be-data-model`, `be-api`, `be-auth`,
 `be-data-layer`, `be-integrations`, **`be-state`** (the UX↔backend seam — owns the
 loading/empty/error/success state matrix, hands it to `ui-build`), `be-audit` (ship
-gate, P0/P1/P2). Not yet exercised on RingBack (RingBack is its own pre-existing Flask
+gate, P0/P1/P2). Not yet exercised on FirstBack (FirstBack is its own pre-existing Flask
 app, not built through this system). `be-state` is the most upgrade-relevant — it's
 the formal owner of the missing-states gap the UI agents flagged.
 
@@ -283,6 +283,6 @@ invoked.
   system or it will mislead any redesign. Same stale-blue references linger in
   `CANVA/README.md`, `CANVA_TECHNIQUES.md §3`, `canva-ad/ad-anatomy.md`.
 - **Delete dead `landing.html` / `base.html` / `style.css`** (carry false claims).
-- **Reconcile the two RingBack visual directions** (Firecrawl "no people" vs. the
+- **Reconcile the two FirstBack visual directions** (Firecrawl "no people" vs. the
   contractor-photo post-pack master).
 - **Two roadmaps** (REVAMP vs. BRAIN/Command-Center) — clarify which governs `/dashboard`.

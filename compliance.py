@@ -18,7 +18,7 @@ import consent  # trades_core kernel: the ONE shared opt-out brain (both product
 def detect_revocation(text):
     """True if the message is a plain-language request to stop contact, even when it
     isn't the exact keyword STOP. Delegates to the shared trades_core opt-out detector
-    so JobMagnet and RingBack honor opt-outs identically (one auditable implementation)."""
+    so JobMagnet and FirstBack honor opt-outs identically (one auditable implementation)."""
     return consent.opt_out_nlu(text)
 
 
@@ -27,7 +27,7 @@ def voice_allowed_now(now=None, quiet_start=None, quiet_end=None):
     [QUIET_START, QUIET_END). The TCPA bars automated calls/texts outside it; we
     gate the AI VOICE callback hard. (An immediate text reply to a call the consumer
     just placed is consumer-initiated, so it is not gated here.) Operators who want
-    the stricter 8am-8pm state rule can set RINGBACK_QUIET_END=20."""
+    the stricter 8am-8pm state rule can set FIRSTBACK_QUIET_END=20."""
     qs = QUIET_START if quiet_start is None else quiet_start
     qe = QUIET_END if quiet_end is None else quiet_end
     hour = (now or datetime.now(app_tz())).hour
@@ -55,13 +55,13 @@ def launch_blockers(business, sms_configured):
     if not sms_configured:
         out.append("Twilio credentials are not set on the server.")
     if not b.get("twilio_number"):
-        out.append("No RingBack phone number is provisioned yet.")
+        out.append("No FirstBack phone number is provisioned yet.")
     elif not b.get("webhooks_wired"):
-        out.append("Your RingBack number isn't wired to receive calls and texts yet.")
+        out.append("Your FirstBack number isn't wired to receive calls and texts yet.")
     if not a2p_ready(b):
         out.append(f"A2P 10DLC registration is not approved yet (status: {a2p_status(b)}).")
     # Forwarding is set up either way: the catcher model (owner confirmed carrier
     # conditional-forwarding; forward_to stays blank) OR dial-through (forward_to set).
     if not (b.get("forward_to") or b.get("forwarding_confirmed")):
-        out.append("Call forwarding to your RingBack number isn't set up yet.")
+        out.append("Call forwarding to your FirstBack number isn't set up yet.")
     return out

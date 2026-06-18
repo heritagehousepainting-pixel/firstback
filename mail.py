@@ -1,7 +1,7 @@
-"""Optional email sending for RingBack (owner alerts), via stdlib smtplib.
+"""Optional email sending for FirstBack (owner alerts), via stdlib smtplib.
 
 Gated and defensive like google_cal/messaging: a safe no-op unless SMTP is
-configured, and any send error is swallowed + logged with the "[ringback]"
+configured, and any send error is swallowed + logged with the "[firstback]"
 prefix, never breaking an alert. No vendor SDK -- just smtplib + email.message.
 """
 import sys
@@ -45,6 +45,6 @@ def send_email(to, subject, body):
                 server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
     except Exception as e:
-        print(f"[ringback] smtp send failed (-> {to}): {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] smtp send failed (-> {to}): {e}", file=sys.stderr, flush=True)
         return {"status": "error", "error": str(e)}
     return {"status": "sent"}

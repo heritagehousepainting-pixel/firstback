@@ -110,7 +110,7 @@ def _access_token(business_id):
                             _expiry_iso(tok))
         return tok.get("access_token")
     except Exception as e:
-        print(f"[ringback] google contacts token refresh failed (biz {business_id}): {e}",
+        print(f"[firstback] google contacts token refresh failed (biz {business_id}): {e}",
               file=sys.stderr, flush=True)
         return None
 
@@ -134,7 +134,7 @@ def fetch_contacts(business_id):
             r.raise_for_status()
             data = r.json()
         except Exception as e:
-            print(f"[ringback] google contacts fetch failed (biz {business_id}): {e}",
+            print(f"[firstback] google contacts fetch failed (biz {business_id}): {e}",
                   file=sys.stderr, flush=True)
             break
         for person in data.get("connections", []):

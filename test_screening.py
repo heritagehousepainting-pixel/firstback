@@ -14,8 +14,8 @@ import hmac
 import os
 import tempfile
 
-os.environ["RINGBACK_PROVIDER"] = "demo"           # deterministic, no network
-os.environ["RINGBACK_SCREEN_MODE"] = "enforce"     # act on verdicts (monitor is tested below)
+os.environ["FIRSTBACK_PROVIDER"] = "demo"           # deterministic, no network
+os.environ["FIRSTBACK_SCREEN_MODE"] = "enforce"     # act on verdicts (monitor is tested below)
 import config
 _TMP = tempfile.NamedTemporaryFile(suffix=".db", delete=False); _TMP.close()
 config.DB_PATH = _TMP.name

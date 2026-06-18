@@ -1,4 +1,4 @@
-"""Outbound SMS + Twilio plumbing for RingBack, scoped per business.
+"""Outbound SMS + Twilio plumbing for FirstBack, scoped per business.
 
 This is the single seam every outbound text routes through: reminders, owner
 alerts, and the callback system's replies. It mirrors google_cal.py's shape:
@@ -6,7 +6,7 @@ alerts, and the callback system's replies. It mirrors google_cal.py's shape:
   * Gated: `configured()` is False unless Twilio credentials are set, and every
     entry point is a safe no-op / simulated send when they aren't.
   * Defensive: any network/API error is swallowed and logged with the
-    "[ringback]" prefix, never breaking a reminder, an alert, or a reply.
+    "[firstback]" prefix, never breaking a reminder, an alert, or a reply.
   * Light: uses `requests` against Twilio's REST endpoints (no Twilio SDK). The
     X-Twilio-Signature check is implemented with the stdlib.
 
@@ -120,7 +120,7 @@ def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True):
         r.raise_for_status()
         sid = r.json().get("sid")
     except Exception as e:
-        print(f"[ringback] twilio send failed (biz {biz_id} -> {to}): {e}",
+        print(f"[firstback] twilio send failed (biz {biz_id} -> {to}): {e}",
               file=sys.stderr, flush=True)
         return {"status": "error", "error": str(e)}
     # Mirror the sent text onto the thread (with its provider id for delivery
@@ -173,7 +173,7 @@ def place_call(business, to, twiml_url, status_callback=None):
         return {"status": "placed", "sid": r.json().get("sid")}
     except Exception as e:
         bid = business.get("id") if isinstance(business, dict) else None
-        print(f"[ringback] twilio place_call failed (biz {bid} -> {to}): {e}",
+        print(f"[firstback] twilio place_call failed (biz {bid} -> {to}): {e}",
               file=sys.stderr, flush=True)
         return {"status": "error", "error": str(e)}
 
@@ -198,7 +198,7 @@ def search_numbers(area_code=None, contains=None, limit=10):
         return [n.get("phone_number")
                 for n in r.json().get("available_phone_numbers", [])]
     except Exception as e:
-        print(f"[ringback] twilio search_numbers failed: {e}",
+        print(f"[firstback] twilio search_numbers failed: {e}",
               file=sys.stderr, flush=True)
         return []
 
@@ -238,7 +238,7 @@ def account_owns_number(e164):
         rows = [n for n in r.json().get("incoming_phone_numbers", []) if n.get("phone_number") == e164]
         return len(rows) == 1
     except Exception as e:
-        print(f"[ringback] account_owns_number failed ({e164}): {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] account_owns_number failed ({e164}): {e}", file=sys.stderr, flush=True)
         return False
 
 
@@ -273,7 +273,7 @@ def attach_owned_number(e164, business_id, base_url=None):
         db.set_business_twilio(business_id, e164, sid, webhooks_wired=True)
         return True
     except Exception as e:
-        print(f"[ringback] attach_owned_number failed (biz {business_id}, {e164}): {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] attach_owned_number failed (biz {business_id}, {e164}): {e}", file=sys.stderr, flush=True)
         return False
 
 
@@ -293,7 +293,7 @@ def fetch_a2p_campaign_status(service_sid, campaign_sid):
         items = r.json().get("compliance") or []
         return items[0].get("campaign_status") if items else None
     except Exception as e:
-        print(f"[ringback] a2p status fetch failed ({campaign_sid}): {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] a2p status fetch failed ({campaign_sid}): {e}", file=sys.stderr, flush=True)
         return None
 
 
@@ -312,7 +312,7 @@ def provision_number(business_id, phone=None, area_code=None, base_url=None,
         return None
     base = (base_url or PUBLIC_BASE_URL or "").rstrip("/")
     if not base and not allow_no_webhooks:
-        print(f"[ringback] provision_number refused (biz {business_id}): "
+        print(f"[firstback] provision_number refused (biz {business_id}): "
               f"no PUBLIC_BASE_URL, would buy a number with no webhooks",
               file=sys.stderr, flush=True)
         return None
@@ -338,7 +338,7 @@ def provision_number(business_id, phone=None, area_code=None, base_url=None,
             db.set_business_twilio(business_id, num, sid or "", webhooks_wired=bool(base))
         return num
     except Exception as e:
-        print(f"[ringback] twilio provision_number failed (biz {business_id}): {e}",
+        print(f"[firstback] twilio provision_number failed (biz {business_id}): {e}",
               file=sys.stderr, flush=True)
         return None
 

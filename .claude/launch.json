@@ -2,8 +2,8 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "ringback",
-      "runtimeExecutable": "/Users/jonathanmorris/ringback/.venv/bin/python",
+      "name": "firstback",
+      "runtimeExecutable": "/Users/jonathanmorris/firstback/.venv/bin/python",
       "runtimeArgs": ["app.py"],
       "port": 8800,
       "autoPort": false

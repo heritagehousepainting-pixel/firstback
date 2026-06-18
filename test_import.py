@@ -5,14 +5,14 @@ Proves the bulk address-book import: the pure vCard/CSV parsers, the pre-sort
 route + ingest drop PENDING suggestions into the same review inbox while skipping
 numbers already in the directory and never resurrecting a dismissed one. Also covers
 the gated Google Contacts connection (a no-op until configured). No framework, no
-network: a throwaway temp DB + the demo brain, so the real ringback.db is untouched.
+network: a throwaway temp DB + the demo brain, so the real firstback.db is untouched.
 Exits non-zero on any failure.
 """
 import os
 import tempfile
 from io import BytesIO
 
-os.environ["RINGBACK_PROVIDER"] = "demo"          # deterministic, no network
+os.environ["FIRSTBACK_PROVIDER"] = "demo"          # deterministic, no network
 # Make sure no stray Google creds leak in from the environment -- import must stay a
 # gated no-op in this test.
 os.environ.pop("GOOGLE_CLIENT_ID", None)

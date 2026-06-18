@@ -1,7 +1,7 @@
 Flask
 gunicorn        # production WSGI server (Render/host); the dev server is local-only
 requests        # MiniMax brain (HTTPS + certifi) + Twilio REST (SMS/voice)
-# The Claude brain (RINGBACK_PROVIDER=claude + ANTHROPIC_API_KEY). Safe to ship even on
+# The Claude brain (FIRSTBACK_PROVIDER=claude + ANTHROPIC_API_KEY). Safe to ship even on
 # MiniMax/demo: it's only imported when the Claude path actually runs.
 anthropic>=0.40
 

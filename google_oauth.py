@@ -1,4 +1,4 @@
-"""Shared helpers for RingBack's Google OAuth connections.
+"""Shared helpers for FirstBack's Google OAuth connections.
 
 google_cal.py (Calendar) and google_contacts.py (Contacts) are deliberately two
 independent OAuth connections, but they share the same token lifecycle. This module

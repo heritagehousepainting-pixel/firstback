@@ -31,7 +31,7 @@
       <summary>Developer</summary>
       <div class="dev-body">
         <p>Conversation engine: <strong>{% if brain == 'claude' %}Claude (live){% elif brain == 'minimax' %}MiniMax (live){% else %}Built-in demo responder{% endif %}</strong>.</p>
-        {% if brain == 'demo' %}<p>Set <code>MINIMAX_API_KEY</code> to run the MiniMax brain, or <code>RINGBACK_PROVIDER=claude</code> with <code>ANTHROPIC_API_KEY</code> for Claude.</p>{% endif %}
+        {% if brain == 'demo' %}<p>Set <code>MINIMAX_API_KEY</code> to run the MiniMax brain, or <code>FIRSTBACK_PROVIDER=claude</code> with <code>ANTHROPIC_API_KEY</code> for Claude.</p>{% endif %}
       </div>
     </details>
   </div>

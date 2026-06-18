@@ -1,5 +1,5 @@
 #!/bin/zsh
-DEST_DIR="/Users/jonathanmorris/ringback/refs/motion"
+DEST_DIR="/Users/jonathanmorris/firstback/refs/motion"
 LOG="$DEST_DIR/_watcher.log"
 SEEN="$DEST_DIR/.seen_list"
 CUR="$DEST_DIR/.cur_list"

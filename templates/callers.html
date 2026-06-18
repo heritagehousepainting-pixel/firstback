@@ -4,11 +4,11 @@
 
 {% block title %}Callers{% endblock %}
 {% block page_title %}Callers{% endblock %}
-{% block page_sub %}<p class="page-sub">RingBack sorts every caller so it never cold-texts the wrong person. Review its suggestions, or set your own.</p>{% endblock %}
+{% block page_sub %}<p class="page-sub">FirstBack sorts every caller so it never cold-texts the wrong person. Review its suggestions, or set your own.</p>{% endblock %}
 
 {% block content %}
 <div id="callers">
-  {% call card(title='Import your contacts', subtitle='Bring your whole address book in at once, then sort it below. RingBack adds each contact to the review queue as a suggestion — it never screens anyone automatically.') %}
+  {% call card(title='Import your contacts', subtitle='Bring your whole address book in at once, then sort it below. FirstBack adds each contact to the review queue as a suggestion — it never screens anyone automatically.') %}
     <div class="cl-import">
       <form id="cl-import-form" class="cl-import-row">
         <label class="cl-file">
@@ -36,7 +36,7 @@
     </div>
   {% endcall %}
 
-  {% call card(title='For review', subtitle='RingBack watched these callers and guessed where they belong. Confirm it, change it, or dismiss it — one at a time or in bulk.', flush=true) %}
+  {% call card(title='For review', subtitle='FirstBack watched these callers and guessed where they belong. Confirm it, change it, or dismiss it — one at a time or in bulk.', flush=true) %}
     <div class="cl-toolbar">
       <div class="cl-tabs" role="tablist" aria-label="Caller review">
         <button type="button" class="cl-tab is-active" data-tab="pending" role="tab" aria-selected="true">To review <span class="cl-tab-count" data-count="pending">0</span></button>
@@ -52,7 +52,7 @@
     <div class="cl-inbox" id="cl-inbox"></div>
   {% endcall %}
 
-  {% call card(title='Screened numbers', subtitle='Numbers RingBack should never cold-text — the owner’s family, your suppliers, known spam. Your booked clients are recognized automatically.') %}
+  {% call card(title='Screened numbers', subtitle='Numbers FirstBack should never cold-text — the owner’s family, your suppliers, known spam. Your booked clients are recognized automatically.') %}
     <div class="screen-add-row">
       <input class="field-control" id="screen-number" type="tel" placeholder="Phone number" aria-label="Phone number to screen" autocomplete="off">
       <select class="field-control" id="screen-category" aria-label="Why this number is screened">

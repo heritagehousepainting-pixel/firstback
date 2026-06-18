@@ -1,4 +1,4 @@
-"""SQLite storage for RingBack. File-based, zero-config.
+"""SQLite storage for FirstBack. File-based, zero-config.
 
 Multi-tenant: every business (tenant) owns its own leads, appointments, busy
 days, and integrations, all scoped by `business_id`. `users` log in and map to
@@ -45,7 +45,7 @@ from db_core import (now_iso, get_user, get_user_by_email, create_user,  # noqa:
 # When DB_BACKUP_PATH is set, SQLite runs on DB_PATH (a fast LOCAL disk where it never
 # hangs) and we keep a durable single-file snapshot at DB_BACKUP_PATH (e.g. Render's
 # /var/data). Only PLAIN file copies ever touch the network disk -- never a SQLite open --
-# so the lock/mmap hang can't happen. See [[reference-ringback-wal-boot-hazard]].
+# so the lock/mmap hang can't happen. See [[reference-firstback-wal-boot-hazard]].
 def _backup_enabled():
     import os
     return bool(DB_BACKUP_PATH) and os.fspath(DB_BACKUP_PATH) != os.fspath(DB_PATH)
@@ -66,10 +66,10 @@ def restore_from_backup_if_needed(live=None, backup=None):
         if d:
             os.makedirs(d, exist_ok=True)
         shutil.copy2(backup, live)
-        print(f"[ringback] restored DB from durable backup: {backup} -> {live}",
+        print(f"[firstback] restored DB from durable backup: {backup} -> {live}",
               file=sys.stderr, flush=True)
     except OSError as e:
-        print(f"[ringback] DB restore failed ({e}); starting from a fresh local DB",
+        print(f"[firstback] DB restore failed ({e}); starting from a fresh local DB",
               file=sys.stderr, flush=True)
 
 
@@ -101,7 +101,7 @@ def backup_to_durable(live=None, backup=None):
     if not backup or backup == live or not os.path.exists(live):
         return
     if _business_count(live) <= 0 and _business_count(backup) > 0:
-        print("[ringback] backup skipped: live DB empty but durable backup is populated",
+        print("[firstback] backup skipped: live DB empty but durable backup is populated",
               file=sys.stderr, flush=True)
         return
     tmpdir = tempfile.mkdtemp()
@@ -119,7 +119,7 @@ def backup_to_durable(live=None, backup=None):
         shutil.copy2(snap, staged)                   # plain write to the network disk
         os.replace(staged, backup)                   # atomic within the backup filesystem
     except (OSError, sqlite3.Error) as e:
-        print(f"[ringback] durable backup failed ({e})", file=sys.stderr, flush=True)
+        print(f"[firstback] durable backup failed ({e})", file=sys.stderr, flush=True)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -141,7 +141,7 @@ def start_backup_daemon(interval=60):
             time.sleep(interval)
             backup_to_durable()
     threading.Thread(target=_loop, daemon=True).start()
-    print(f"[ringback] durable DB backup started (every {interval}s -> {DB_BACKUP_PATH})",
+    print(f"[firstback] durable DB backup started (every {interval}s -> {DB_BACKUP_PATH})",
           file=sys.stderr, flush=True)
 
 
@@ -443,7 +443,7 @@ def init_db():
             "DROP TABLE integrations;"
             "ALTER TABLE integrations_new RENAME TO integrations;")
 
-    # businesses gain a `phone` (the RingBack texting number, shown in the demo).
+    # businesses gain a `phone` (the FirstBack texting number, shown in the demo).
     biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
     if "phone" not in biz_cols:
         c.execute("ALTER TABLE businesses ADD COLUMN phone TEXT")
@@ -742,7 +742,7 @@ def set_a2p_registration(business_id, brand_sid=None, campaign_sid=None,
 
 def set_forwarding_confirmed(business_id, confirmed):
     """Record whether the owner has confirmed they set carrier call-forwarding to the
-    RingBack number (the one go-live step that happens on their physical phone and so
+    FirstBack number (the one go-live step that happens on their physical phone and so
     can't be verified server-side)."""
     conn = get_conn()
     conn.execute("UPDATE businesses SET forwarding_confirmed=? WHERE id=?",
@@ -752,7 +752,7 @@ def set_forwarding_confirmed(business_id, confirmed):
 
 
 def get_business_by_twilio_number(number):
-    """The tenant that owns a given RingBack/Twilio number (a webhook's `To`).
+    """The tenant that owns a given FirstBack/Twilio number (a webhook's `To`).
     Matches on the last 10 digits so +1 / formatting differences never matter."""
     key = re.sub(r"\D", "", str(number or ""))[-10:]
     if not key:
@@ -1697,7 +1697,7 @@ NON_PROSPECT_CATEGORIES = ("personal", "vendor", "blocked")
 
 
 # ---- Caller triage: the suggestion / "for review" queue (QuickBooks-style) ----
-# RingBack observes a caller and PROPOSES a category; the owner confirms with one
+# FirstBack observes a caller and PROPOSES a category; the owner confirms with one
 # tap, recategorizes, or dismisses. Suggestions never auto-apply.
 def caller_signals(business_id):
     """Per-caller-number behavioral aggregates that drive suggestions: how many
@@ -2458,7 +2458,7 @@ def mark_coach_offered(business_id, convo_id):
 
 def all_owner_recipients():
     """(business_id, owner_email) for every tenant -- the weekly-digest cron's mailing list.
-    RingBack stores the owner's contact email in alert_email; falls back to the login email."""
+    FirstBack stores the owner's contact email in alert_email; falls back to the login email."""
     conn = get_conn()
     rows = conn.execute(
         "SELECT u.business_id AS bid, COALESCE(NULLIF(b.alert_email,''), u.email) AS email "

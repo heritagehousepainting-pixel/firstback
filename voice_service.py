@@ -1,10 +1,10 @@
-"""RingBack AI voice agent -- a SEPARATE async service (Phase 3).
+"""FirstBack AI voice agent -- a SEPARATE async service (Phase 3).
 
 Flask/WSGI cannot host a long-lived WebSocket, and Twilio ConversationRelay needs
 one, so the voice leg runs here as its own ASGI app (FastAPI/uvicorn) alongside
 the Flask app. Run it with:
 
-    python voice_service.py            # uvicorn on RINGBACK_VOICE_PORT (default 8810)
+    python voice_service.py            # uvicorn on FIRSTBACK_VOICE_PORT (default 8810)
 
 It exposes two endpoints Twilio talks to during an outbound AI callback:
   * GET/POST /twiml -> the ConversationRelay TwiML (welcome greeting with the
@@ -16,7 +16,7 @@ It exposes two endpoints Twilio talks to during an outbound AI callback:
     voice call books the estimate, alerts the owner, and queues the reminder with
     zero extra logic.
 
-The brain is whatever RINGBACK_PROVIDER selects (Claude for launch, the demo
+The brain is whatever FIRSTBACK_PROVIDER selects (Claude for launch, the demo
 responder offline) -- identical to the text path. Booking integrity is the DB
 UNIQUE slot constraint, shared across both processes (SQLite in WAL mode).
 
@@ -171,13 +171,13 @@ async def ws(websocket: WebSocket):
                 # half-spoken to reconcile; just keep listening.
                 continue
             elif mtype == "error":
-                print(f"[ringback] voice relay error: {msg.get('description')}",
+                print(f"[firstback] voice relay error: {msg.get('description')}",
                       file=sys.stderr, flush=True)
                 break
     except WebSocketDisconnect:
         pass
     except Exception as e:  # never let one call crash the worker
-        print(f"[ringback] voice ws error: {e}", file=sys.stderr, flush=True)
+        print(f"[firstback] voice ws error: {e}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@
     <div class="lead-col">
       <span class="mk-eyebrow">Talk to sales</span>
       <h1>Let’s get your phone working for you.</h1>
-      <p>Tell us about your business and we’ll show you exactly how RingBack books jobs from the calls you miss — then get you live the same week.</p>
+      <p>Tell us about your business and we’ll show you exactly how FirstBack books jobs from the calls you miss — then get you live the same week.</p>
       <ul class="pts">
         <li><span class="mk-check">{{ check }}</span> A 15-minute walk-through — no slides</li>
         <li><span class="mk-check">{{ check }}</span> Set up on your real phone number</li>
@@ -34,7 +34,7 @@
           {{ field('Business', name='business', value=request.form.get('business',''), placeholder='Heritage House Painting') }}
           {{ field('Phone', name='phone', type='tel', value=request.form.get('phone',''), placeholder='(555) 123-4567') }}
         </div>
-        {{ field('What do you want RingBack to do?', name='message', value=request.form.get('message',''), textarea=true, rows=4, required=true, placeholder='We miss calls during the day and lose the job to whoever picks up first…') }}
+        {{ field('What do you want FirstBack to do?', name='message', value=request.form.get('message',''), textarea=true, rows=4, required=true, placeholder='We miss calls during the day and lose the job to whoever picks up first…') }}
         <button class="ob-btn ob-btn-accent" type="submit" style="width:100%;height:48px;font-size:16px">Talk to sales</button>
         <p style="margin:0;font-size:.8rem;color:var(--ink-faint);text-align:center">No spam — we’ll only use this to set up your walk-through.</p>
       </form>

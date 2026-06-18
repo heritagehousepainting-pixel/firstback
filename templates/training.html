@@ -3,11 +3,11 @@
 {% from "components/ui/input.html" import field %}
 {% from "components/ui/badge.html" import pill %}
 {% block title %}Memory{% endblock %}
-{% block page_title %}RingBack's Memory{% endblock %}
-{% block page_sub %}<p class="page-sub">Every conversation you have with the command center is saved here. RingBack calls out where it fell short, and you teach it so it gets it right next time.</p>{% endblock %}
+{% block page_title %}FirstBack's Memory{% endblock %}
+{% block page_sub %}<p class="page-sub">Every conversation you have with the command center is saved here. FirstBack calls out where it fell short, and you teach it so it gets it right next time.</p>{% endblock %}
 
 {% block content %}
-{% if request.args.get('taught') %}<p class="provider-note provider-note-ok">Got it. RingBack learned that and will use it from now on.</p>{% endif %}
+{% if request.args.get('taught') %}<p class="provider-note provider-note-ok">Got it. FirstBack learned that and will use it from now on.</p>{% endif %}
 {% set _dg = request.args.get('digest') %}
 {% if _dg == 'sent' %}<p class="provider-note provider-note-ok">Emailed your digest.</p>{% elif _dg == 'simulated' %}<p class="provider-note provider-note-soft">Digest prepared (simulated). Set up SMTP to actually email it.</p>{% elif _dg %}<p class="provider-note provider-note-err">Couldn't email the digest just now.</p>{% endif %}
 
@@ -16,7 +16,7 @@
     <form method="post" action="/digest/send" style="margin:0"><button class="btn btn-secondary btn-sm" type="submit">Email me this</button></form></p>{% endif %}
 
   {% if top_unmet %}
-  {% call card(title='Build these next', subtitle="The requests RingBack couldn't handle, most frequent first. Teach it below, or build the tool.") %}
+  {% call card(title='Build these next', subtitle="The requests FirstBack couldn't handle, most frequent first. Teach it below, or build the tool.") %}
     {% for u in top_unmet %}
     <div class="card" style="margin-bottom:var(--space-2);padding:var(--space-3);display:flex;justify-content:space-between;align-items:center;gap:var(--space-3)">
       <span style="color:var(--ink)">"{{ u.sample }}"</span>
@@ -26,19 +26,19 @@
   {% endcall %}
   {% endif %}
 
-  {% call card(title='Worth a look', subtitle='Where RingBack could not act, you had to ask twice, or you corrected it.') %}
+  {% call card(title='Worth a look', subtitle='Where FirstBack could not act, you had to ask twice, or you corrected it.') %}
     {% if flags %}
       {% for f in flags %}
       <div class="card" style="margin-bottom:var(--space-3);padding:var(--space-4)">
         {{ pill(issue_label.get(f.kind, f.kind), 'warning', dot=true) }}
-        {% if f.detail and f.kind == 'unhelpful' %}<p style="margin:var(--space-2) 0 0;color:var(--ink-soft)">RingBack's review: {{ f.detail }}</p>{% endif %}
+        {% if f.detail and f.kind == 'unhelpful' %}<p style="margin:var(--space-2) 0 0;color:var(--ink-soft)">FirstBack's review: {{ f.detail }}</p>{% endif %}
         {% if f.turn_content %}<p style="margin:var(--space-2) 0;color:var(--ink)">You said: <strong>{{ f.turn_content }}</strong></p>{% endif %}
         <details style="margin-top:var(--space-2)">
-          <summary>Teach RingBack what to do when you say this</summary>
+          <summary>Teach FirstBack what to do when you say this</summary>
           <form method="post" action="/training/teach" style="margin-top:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)">
             <input type="hidden" name="flag_id" value="{{ f.id }}">
             {{ field('When I say something like', name='pattern', value=f.turn_content) }}
-            <label class="field-label">RingBack should</label>
+            <label class="field-label">FirstBack should</label>
             <select class="field-control" name="action">
               <optgroup label="Run a tool">
                 {% for t in tools %}<option value="{{ t }}">Run: {{ t }}</option>{% endfor %}
@@ -47,7 +47,7 @@
               <option value="answer">Say this</option>
             </select>
             {{ field('Page path or exact reply (leave blank when running a tool)', name='value', placeholder='/settings  or  the exact reply') }}
-            <button class="btn btn-primary btn-sm" type="submit" style="align-self:flex-start">Teach RingBack</button>
+            <button class="btn btn-primary btn-sm" type="submit" style="align-self:flex-start">Teach FirstBack</button>
           </form>
         </details>
         <form method="post" action="/training/resolve" style="margin-top:var(--space-2)">
@@ -57,11 +57,11 @@
       </div>
       {% endfor %}
     {% else %}
-      <p>Nothing to review yet. When RingBack can't do something, has to ask twice, or you correct it, it shows up here to teach.</p>
+      <p>Nothing to review yet. When FirstBack can't do something, has to ask twice, or you correct it, it shows up here to teach.</p>
     {% endif %}
   {% endcall %}
 
-  {% call card(title='What you have taught RingBack') %}
+  {% call card(title='What you have taught FirstBack') %}
     {% if learnings %}
       {% for l in learnings %}
       <div class="card" style="margin-bottom:var(--space-2);padding:var(--space-3);display:flex;justify-content:space-between;align-items:center;gap:var(--space-3)">
@@ -70,7 +70,7 @@
       </div>
       {% endfor %}
     {% else %}
-      <p>Nothing taught yet. Teach RingBack from a flagged exchange above and it lands here.</p>
+      <p>Nothing taught yet. Teach FirstBack from a flagged exchange above and it lands here.</p>
     {% endif %}
   {% endcall %}
 
@@ -83,7 +83,7 @@
       </a>
       {% endfor %}
     {% else %}
-      <p>No conversations yet. Talk to RingBack on the <a href="/dashboard">Command Center</a> and they'll be saved here.</p>
+      <p>No conversations yet. Talk to FirstBack on the <a href="/dashboard">Command Center</a> and they'll be saved here.</p>
     {% endif %}
   {% endcall %}
 </div>

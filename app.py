@@ -1289,6 +1289,47 @@ def twilio_sentinel_twiml():
     return _twiml("<Response><Say>Forwarding verified.</Say><Hangup/></Response>")
 
 
+# ---- Phase-4 C: Dispatcher Call TwiML routes ----
+@app.route("/twiml/dispatcher/<int:lead_id>", methods=["POST"])
+@require_twilio_signature
+def dispatcher_twiml(lead_id):
+    """TwiML served to the owner's phone when FirstBack places an urgent dispatcher
+    call. Reads the caller's exact last inbound message, then offers press-1 to
+    connect. The words come from db.get_last_inbound_message — always synchronous,
+    never relies on async-enriched summary which may not have landed yet."""
+    last_words = db.get_last_inbound_message(lead_id)
+    safe_words = _xesc(last_words) if last_words else "an urgent message"
+    connect_url = _public_base() + f"/twiml/dispatcher/connect/{lead_id}"
+    xml = (
+        f'<Response>'
+        f'<Say>Urgent lead alert. Your caller said: {safe_words}. '
+        f'Press 1 to connect to them now.</Say>'
+        f'<Gather numDigits="1" action="{connect_url}" method="POST">'
+        f'<Say>Press 1 to connect.</Say>'
+        f'</Gather>'
+        f'<Say>No input received. Goodbye.</Say>'
+        f'</Response>'
+    )
+    return _twiml(xml)
+
+
+@app.route("/twiml/dispatcher/connect/<int:lead_id>", methods=["POST"])
+@require_twilio_signature
+def dispatcher_connect_twiml(lead_id):
+    """TwiML that dials the lead's phone number when the owner presses 1.
+    If the digit pressed is not 1, hang up gracefully."""
+    digit = (request.form.get("Digits") or "").strip()
+    if digit != "1":
+        return _twiml("<Response><Say>Goodbye.</Say><Hangup/></Response>")
+    lead = db.get_lead(lead_id)
+    if not lead or not lead.get("phone"):
+        return _twiml("<Response><Say>Lead not found. Goodbye.</Say><Hangup/></Response>")
+    caller_number = _xesc(lead["phone"])
+    return _twiml(
+        f'<Response><Dial>{caller_number}</Dial></Response>'
+    )
+
+
 # ---- Design-system gallery (internal): renders every UI component + state ----
 @app.route("/ui")
 def ui_kit():
@@ -1436,13 +1477,36 @@ def handle_inbound(biz, lead, body):
         alerts.notify_async(biz, "urgent", {"lead_id": lead_id,
                                             "name": lead.get("name"),
                                             "phone": lead.get("phone")})
+        # Phase-4 C: Dispatcher Call — call the owner with the caller's exact last
+        # words + a press-1-to-connect TwiML.  Rate-limit: one call per lead urgency
+        # event (guard on dispatcher_call_last_at on the lead row).  If place_call
+        # returns simulated/error, the existing SMS alert is the backstop — NEVER
+        # claim a call was placed when it wasn't.
+        _owner_cell = (biz.get("alert_sms") or biz.get("phone") or "").strip()
+        _already_called = lead.get("dispatcher_call_last_at")
+        if _owner_cell and not _already_called:
+            _disp_base = VOICE_PUBLIC_URL.rstrip("/") if VOICE_PUBLIC_URL else None
+            if _disp_base:
+                _disp_url = f"{_disp_base}/twiml/dispatcher/{lead_id}"
+                _call_result = messaging.place_call(biz, _owner_cell, _disp_url)
+                if _call_result.get("status") == "placed":
+                    from datetime import timezone as _tz_utc
+                    _now_ts = datetime.now(_tz_utc.utc).isoformat()
+                    db.set_dispatcher_call_at(lead_id, _now_ts)
 
     # F05: RSVP classification -- wire classify_rsvp into handle_inbound.
     rsvp = reminders.classify_rsvp(body)
     if rsvp == "yes":
-        alerts.notify_async(biz, "booking", {"lead_id": lead_id, "name": lead.get("name"),
-                                             "phone": lead.get("phone"),
-                                             "when": "confirmed (RSVP)"})
+        # Phase-4 C: Show-Up-Prepared — enrich context with lead address/project/summary.
+        _rsvp_ctx = {"lead_id": lead_id, "name": lead.get("name"),
+                     "phone": lead.get("phone"), "when": "confirmed (RSVP)"}
+        if lead.get("address"):
+            _rsvp_ctx["address"] = lead["address"]
+        if lead.get("project_type"):
+            _rsvp_ctx["project"] = lead["project_type"]
+        if lead.get("summary"):
+            _rsvp_ctx["summary"] = lead["summary"]
+        alerts.notify_async(biz, "booking", _rsvp_ctx)
     elif rsvp == "no":
         # Owner notified; AI handles rebooking -- do NOT auto-cancel.
         alerts.notify_async(biz, "canceled", {"lead_id": lead_id, "name": lead.get("name"),
@@ -1474,8 +1538,33 @@ def handle_inbound(biz, lead, body):
             # estimate(s) so a re-book never double-books or orphans a slot.
             for a in prior:
                 db.cancel_appointment(biz["id"], a["id"])
-            alerts.notify_async(biz, "booking", {"lead_id": lead_id, "name": lead.get("name"),
-                                                 "phone": lead.get("phone"), "when": booking})
+            # Phase-4 C: Show-Up-Prepared — enrich context with lead address/project/summary.
+            _book_ctx = {"lead_id": lead_id, "name": lead.get("name"),
+                         "phone": lead.get("phone"), "when": booking}
+            if lead.get("address"):
+                _book_ctx["address"] = lead["address"]
+            if lead.get("project_type"):
+                _book_ctx["project"] = lead["project_type"]
+            if lead.get("summary"):
+                _book_ctx["summary"] = lead["summary"]
+            alerts.notify_async(biz, "booking", _book_ctx)
+            # Phase-4 C: Milestone hook — check if this booking crosses the ROI
+            # milestone threshold; fire once per tenant (idempotent via roi.py).
+            try:
+                import roi as _roi_mod
+                _milestone = _roi_mod.check_roi_milestone(biz["id"])
+                if _milestone:
+                    from datetime import timezone as _mtz
+                    _mts = datetime.now(_mtz.utc).isoformat()
+                    alerts.notify_async(biz, "roi_milestone",
+                                        {"body": _milestone.get("body", ""),
+                                         "multiple": _milestone.get("multiple"),
+                                         "revenue": _milestone.get("revenue")})
+                    db.set_roi_milestone_sent(biz["id"], _mts)
+            except Exception as _me:
+                import sys as _sys
+                print(f"[firstback] milestone hook error (biz {biz['id']}): {_me}",
+                      file=_sys.stderr, flush=True)
             # Mirror onto Google Calendar + queue the pre-estimate reminder (both
             # best-effort, off the hot path; no-ops unless configured).
             if gday and gtime:

@@ -126,41 +126,44 @@
         </form>
         {% endif %}
 
-        {# ===== Step: A2P registration (Phase 3) ===== #}
+        {# ===== Step: Texting activation (Phase 3 / SF-8) ===== #}
+        {# Zero Twilio/A2P/10DLC/TCR/brand/campaign jargon visible to the contractor. #}
         {% elif s.key == 'a2p' %}
         {% set status = business.a2p_status or 'unregistered' %}
         {% if status == 'pending' %}
-        <p class="setup-note is-pending">Carriers are reviewing your registration — usually a few hours, sometimes a day. You'll go live <strong>automatically</strong> the moment it's approved; nothing else to do here.</p>
+        <p class="setup-note is-pending">Your AI is already answering calls. Texting turns on automatically, usually within a day -- nothing else to do here.</p>
+        {% if business.business_type == 'sole_prop' %}
+        <p class="setup-note">You'll get a text shortly -- reply YES to switch texting on.</p>
+        {% endif %}
         <form method="get" action="/setup" class="step-form">
           <input type="hidden" name="edit" value="a2p">
           {{ button('Re-check status', variant='secondary', size='sm', type='submit') }}
         </form>
         {% elif status == 'failed' %}
-        <p class="setup-note is-pending">The carriers couldn't approve your registration. Double-check your legal name and EIN in step&nbsp;1, then resubmit.</p>
+        <p class="setup-note is-pending">We hit a snag activating texting. Double-check your legal name and address in step&nbsp;1, then try again.</p>
         <form method="post" action="/setup/a2p" class="step-form">
-          <input type="hidden" name="mode" value="submit">
-          {{ button('Resubmit for registration', type='submit') }}
+          <input type="hidden" name="mode" value="auto">
+          {{ button('Try again', type='submit') }}
         </form>
         {% else %}
-        <p class="setup-note">U.S. carriers require every business that texts to be registered — it's called A2P 10DLC. We handle the paperwork: just submit and we'll register <strong>{{ business.legal_business_name or business.name }}</strong> with the EIN on file.</p>
+        <p class="setup-note">One last thing: we need to activate texting for your number. Takes about a minute to submit -- texting usually turns on within a day after that. Your AI is already answering calls in the meantime.</p>
         <form method="post" action="/setup/a2p" class="step-form">
-          <input type="hidden" name="mode" value="submit">
-          {{ button('Submit for carrier registration', type='submit') }}
+          <input type="hidden" name="mode" value="auto">
+          {{ button('Activate texting', type='submit') }}
         </form>
         {% endif %}
         <details class="setup-adv">
-          <summary>Installer: paste your Twilio campaign details</summary>
+          <summary>Installer: paste your campaign details</summary>
           <form method="post" action="/setup/a2p" class="step-form">
             <input type="hidden" name="mode" value="record">
             <div class="field-grid">
-              {{ field('Brand SID', name='brand_sid', value=business.a2p_brand_sid or '', placeholder='BN…') }}
-              {{ field('Messaging Service SID', name='messaging_service_sid', value=business.a2p_messaging_service_sid or '', placeholder='MG…') }}
-              {{ field('Campaign SID', name='campaign_sid', value=business.a2p_campaign_sid or '', placeholder='CM…') }}
+              {{ field('Brand SID', name='brand_sid', value=business.a2p_brand_sid or '', placeholder='BN...') }}
+              {{ field('Messaging Service SID', name='messaging_service_sid', value=business.a2p_messaging_service_sid or '', placeholder='MG...') }}
+              {{ field('Campaign SID', name='campaign_sid', value=business.a2p_campaign_sid or '', placeholder='CM...') }}
             </div>
             {{ button('Save &amp; check approval', variant='secondary', size='sm', type='submit') }}
           </form>
         </details>
-
         {# ===== Step: Forwarding (Phase 4) ===== #}
         {% elif s.key == 'forwarding' %}
         <p class="setup-note">The last step happens on your phone: tell your carrier to send <em>missed</em> calls to {{ app_name }}. You keep answering calls normally — only the ones you miss get a text back.</p>

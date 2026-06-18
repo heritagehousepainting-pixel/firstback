@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ biz.legal_business_name or biz.name }}</title>
+  <meta name="description" content="Contact {{ biz.legal_business_name or biz.name }} for {{ biz.trade or 'home services' }} in {{ biz.service_area or 'your area' }}. Text messaging opt-in and privacy information.">
+  <link rel="canonical" href="/c/{{ request.view_args.slug if request.view_args else '' }}">
+  <meta property="og:title" content="{{ biz.legal_business_name or biz.name }}">
+  <meta property="og:image" content="/static/og-default.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    "name": "{{ (biz.legal_business_name or biz.name)|e }}",
+    "address": "{{ (biz.business_address or '')|e }}",
+    "description": "{{ (biz.trade or '')|e }}"
+  }
+  </script>
+  <style>
+    :root {
+      --c-bg:         #fff;
+      --c-text:       #1a1a1a;
+      --c-muted:      #444;
+      --c-border:     #d0d0d0;
+      --c-surface:    #f8f8f8;
+      --c-body-dim:   #333;
+      --c-rule:       #e0e0e0;
+      --c-footer:     #666;
+      --c-footer-lnk: #555;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--c-bg);
+      color: var(--c-text);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.4rem; }
+    p  { margin-bottom: 0.75rem; }
+    .addr { color: var(--c-muted); }
+    .opt-in {
+      margin-top: 2rem;
+      padding: 1rem 1.25rem;
+      border: 1px solid var(--c-border);
+      border-radius: 6px;
+      background: var(--c-surface);
+      font-size: 0.92rem;
+      color: var(--c-body-dim);
+    }
+    footer {
+      margin-top: 2.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--c-rule);
+      font-size: 0.82rem;
+      color: var(--c-footer);
+    }
+    footer a { color: var(--c-footer-lnk); text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <h1>{{ biz.legal_business_name or biz.name }}</h1>
+
+  {% if biz.business_address %}
+  <p class="addr">{{ biz.business_address }}</p>
+  {% endif %}
+
+  {% if biz.trade %}
+  <h2>Services</h2>
+  <p>{{ biz.trade }}</p>
+  {% endif %}
+
+  {% if biz.service_area %}
+  <h2>Service Area</h2>
+  <p>{{ biz.service_area }}</p>
+  {% endif %}
+
+  <div class="opt-in">
+    <p>By contacting us or providing your phone number, you agree to receive text messages
+    from {{ biz.legal_business_name or biz.name }} regarding your inquiry or service request.</p>
+    <p>Reply STOP at any time to opt out. Message and data rates may apply.</p>
+    <p>Message frequency varies. For help, reply HELP.</p>
+  </div>
+
+  <footer>
+    <p>
+      <a href="/privacy">Privacy Policy</a> &middot;
+      <a href="/terms">Terms of Service</a>
+    </p>
+  </footer>
+
+</body>
+</html>

@@ -310,6 +310,10 @@ def signup():
             "alert_on_booking": 1,
             "alert_on_urgent": 1,
         })
+        # Phase 3 SF-8: set business_type from the "Do you have an EIN?" checkbox.
+        # has_ein present (any truthy value) -> "llc"; absent -> "sole_prop".
+        has_ein = bool(request.form.get("has_ein"))
+        db.set_business_type(bid, "llc" if has_ein else "sole_prop")
         session.clear()
         session["uid"] = uid
         return redirect("/setup")   # a brand-new tenant always starts at Go Live
@@ -490,6 +494,61 @@ def terms():
 @app.route("/privacy")
 def privacy():
     return render_template("privacy.html")
+
+
+@app.route("/c/<slug>")
+def contractor_microsite(slug):
+    """Public contractor micro-site for TCR opt-in URL verification.
+    No FirstBack branding visible -- this page represents the contractor's identity.
+    No smart/curly quotes anywhere (Jinja rendering guard).
+    """
+    conn = db.get_conn()
+    row = conn.execute(
+        "SELECT name, legal_business_name, business_address, trade, service_area "
+        "FROM businesses WHERE micro_site_slug=?",
+        (slug,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        abort(404)
+    biz = dict(row) if hasattr(row, "keys") else {
+        "name": row[0], "legal_business_name": row[1],
+        "business_address": row[2], "trade": row[3], "service_area": row[4]
+    }
+    return render_template("microsite.html", biz=biz)
+
+
+@app.route("/api/places/lookup")
+@login_required
+def api_places_lookup():
+    """Google Places prefill for business legal name + address.
+    Gated on GOOGLE_PLACES_API_KEY. Returns {} when unset or on any error.
+    Never raises into the response.
+    """
+    api_key = getattr(config, "GOOGLE_PLACES_API_KEY", "")
+    if not api_key:
+        return jsonify({})
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({})
+    try:
+        import requests as _req
+        resp = _req.get(
+            "https://maps.googleapis.com/maps/api/place/textsearch/json",
+            params={"query": q, "key": api_key},
+            timeout=5
+        )
+        data = resp.json()
+        results = data.get("results") or []
+        if not results:
+            return jsonify({})
+        top = results[0]
+        return jsonify({
+            "legal_name": top.get("name", ""),
+            "address": top.get("formatted_address", "")
+        })
+    except Exception:
+        return jsonify({})
 
 
 # ---- Resources sub-pages (each Resources card links to one of these) ----
@@ -1126,15 +1185,17 @@ def setup_number():
 @app.route("/setup/a2p", methods=["POST"])
 @login_required
 def setup_a2p():
-    """A2P 10DLC registration (concierge v1): the contractor submits, we mark them
-    pending and notify the operator to register the brand+campaign. Once the operator
-    records the campaign SIDs, connections.a2p_sync flips the status to approved
-    automatically. `mode=record` is the operator pasting those SIDs."""
+    """Carrier texting registration. `mode=record` is the operator-paste path
+    (unchanged). `mode=auto` (default) dispatches via connections.submit_a2p which
+    calls the Twilio Write API when Trust Hub is configured. `mode=submit` is an alias
+    for `auto` kept for template back-compat."""
     biz = current_business()
     if biz is None:
         return redirect("/dashboard")
-    mode = request.form.get("mode") or "submit"
+    # Default to "auto" so the contractor's submit button triggers the automated path.
+    mode = request.form.get("mode") or "auto"
     if mode == "record":
+        # Operator-paste path: unchanged. Only operators may use this.
         if not _is_operator(current_user()):
             abort(403)
         db.set_a2p_registration(
@@ -1144,22 +1205,16 @@ def setup_a2p():
             messaging_service_sid=(request.form.get("messaging_service_sid") or "").strip() or None)
         connections.a2p_sync(biz["id"])          # try to confirm immediately
         return redirect("/setup?saved=a2p")
-    if not connections.profile_complete(biz):    # can't register without the intake
-        return redirect("/setup?err=profile")
-    db.set_a2p_registration(biz["id"], status="pending",
-                            submitted_at=datetime.utcnow().isoformat(timespec="seconds"))
-    body = ("A2P 10DLC registration requested for a FirstBack tenant.\n\n"
-            f"Business:    {biz.get('name')}\n"
-            f"Legal name:  {biz.get('legal_business_name') or biz.get('name')}\n"
-            f"EIN:         {biz.get('ein')}\n"
-            f"Address:     {biz.get('business_address')}\n"
-            f"Website:     {biz.get('website')}\n"
-            f"Number:      {biz.get('twilio_number')}\n\n"
-            "Register the brand + campaign in Twilio, then paste the campaign SIDs on "
-            "the tenant's Go-Live page to confirm.")
-    mail.send_email(db.owner_email(biz["id"]),
-                    "FirstBack: A2P registration requested", body)
-    return redirect("/setup?saved=a2p")
+    if mode in ("auto", "submit"):
+        # Automated path: guard on profile completeness, then dispatch.
+        if not connections.profile_complete(biz):
+            return redirect("/setup?err=profile")
+        result = connections.submit_a2p(biz["id"])
+        if isinstance(result, dict) and result.get("status") == "error":
+            return redirect("/setup?err=a2p_submit")
+        return redirect("/setup?saved=a2p")
+    # Unknown mode: treat as profile-incomplete guard (safe fallback).
+    return redirect("/setup?err=profile")
 
 
 @app.route("/setup/forwarding", methods=["POST"])

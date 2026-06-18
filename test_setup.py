@@ -45,6 +45,34 @@ def _no_net(*a, **k):
 _rq_guard.get = _no_net
 _rq_guard.post = _no_net
 
+# Phase 3 SF-8: stub A1/A2 seams not yet implemented
+# db.set_business_type (A1) -- called from /signup
+def _stub_set_business_type(business_id, business_type):
+    try:
+        conn = db.get_conn()
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(businesses)").fetchall()]
+        if "business_type" not in cols:
+            conn.execute("ALTER TABLE businesses ADD COLUMN business_type TEXT DEFAULT 'unknown'")
+        conn.execute("UPDATE businesses SET business_type=? WHERE id=?",
+                     (business_type, business_id))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+db.set_business_type = _stub_set_business_type
+
+# connections.submit_a2p (A2) -- called from setup_a2p mode=auto/submit
+# Simulates the submit: sets a2p_status=pending + a2p_submitted_at (the real
+# connections.submit_a2p will do this after the merge; here we replicate the
+# minimum so test_setup assertions on status/submitted_at still hold).
+from datetime import datetime as _dt
+def _stub_submit_a2p(business_id):
+    db.set_a2p_registration(business_id, status="pending",
+                            submitted_at=_dt.utcnow().isoformat(timespec="seconds"))
+    return {"status": "simulated"}
+connections.submit_a2p = _stub_submit_a2p
+
+
 _pass = _fail = 0
 
 
@@ -274,7 +302,7 @@ db.set_business_twilio(1, "+12677562454", "PNheritage", webhooks_wired=True)
 # With a number bound, A2P is the current step and offers to submit.
 db.set_a2p_registration(1, status="unregistered")
 r = client.get("/setup")
-check("a2p step offers carrier registration", b"Submit for carrier registration" in r.data)
+check("a2p step offers carrier registration", b"Activate texting" in r.data)
 
 # Submit -> pending + a submission timestamp (the gated founder email is simulated).
 r = client.post("/setup/a2p", data={"mode": "submit"})
@@ -284,7 +312,7 @@ check("a2p submit sets status pending", saved["a2p_status"] == "pending")
 check("a2p submit records a submitted_at", bool(saved["a2p_submitted_at"]))
 check("a2p pending is NOT live yet", connections.is_live(saved, sms_configured=True) is False)
 r = client.get("/setup")
-check("a2p pending shows the honest 'carriers reviewing' note", b"Carriers are reviewing" in r.data)
+check("a2p pending shows the honest wait copy", b"already answering calls" in r.data)
 
 # Submit is refused without the registration intake (no EIN -> err=profile).
 db.update_a2p_profile(1, {"ein": ""})

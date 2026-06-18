@@ -1326,6 +1326,28 @@ def _is_referential(message):
     return any(k in t for k in _DEMONSTRATIVE + _LASTISH + tuple(_ORDINAL))
 
 
+_BODY_SEPARATOR = re.compile(r"\b(?:saying|say)\b", re.I)
+# Ordinal + explicit "lead" noun: "the first lead" routes via most-recent, not a list referent.
+_ORDINAL_LEAD_RE = re.compile(
+    r"\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+lead\b", re.I)
+
+
+def _is_referential_lead(message):
+    """Like _is_referential but scoped to the LEAD-IDENTIFICATION part of the message
+    (strips after 'saying'/'say') and exempts ordinal-lead phrases like 'the first lead'
+    that route to the most-recent fallback, not to a shown list item."""
+    lead_part = _BODY_SEPARATOR.split(message or "", maxsplit=1)[0]
+    if not _is_referential(lead_part):
+        return False
+    t = " " + lead_part.lower() + " "
+    has_pronoun = any(" " + w + " " in t for w in _PRONOUN)
+    has_demonstrative = any(k in t for k in _DEMONSTRATIVE + _LASTISH)
+    if has_pronoun or has_demonstrative:
+        return True
+    # Only ordinal signal remains -- exempt "Nth lead" (points at the category, not a list row)
+    return not bool(_ORDINAL_LEAD_RE.search(lead_part))
+
+
 def _resolve_referent(message, entities):
     """The record the owner means ("her", "the second one", "the last one") from what was
     just shown. None when there's nothing to resolve. A bare pronoun with several records
@@ -1520,8 +1542,15 @@ def _tool_loop(business, message, history, entities=None, allow_llm=True):
                                  "content": "No such tool."})
                     continue
                 if spec["confirm"]:
-                    if name in _LEAD_TOOLS and entities and _is_referential(message):
-                        _apply_referent(message, args, entities)
+                    if name in _LEAD_TOOLS and _is_referential_lead(message):
+                        if entities:
+                            _apply_referent(message, args, entities)
+                        elif not _is_named_or_pinned(args):
+                            # P1-4: bare referent with nothing shown -- never guess a recipient.
+                            g = _say("Which lead? Tell me a name, or say \"list my leads\" first.")
+                            if cards:
+                                g["cards"] = cards + g.get("cards", [])
+                            return g
                     g = _gated(business, name, args, message,
                                res.get("text") or _CONFIRM_PROMPT)
                     if cards:                       # keep any read-tool cards from this turn
@@ -1913,12 +1942,46 @@ def _issue_token(business, tool, args):
     return token_id
 
 
+def _default_draft(business, lead):
+    """Deterministic draft body for a named/pinned lead when the owner gave no message.
+    Short, honest, ASCII-safe template -- the owner edits or approves on the card."""
+    first = (lead.get("name") or "").split()[0] if (lead.get("name") or "").strip() else "there"
+    owner = (business.get("owner_name") or "").strip() or "us"
+    biz = (business.get("name") or "").strip() or "our team"
+    return f"Hi {first}, it's {owner} with {biz} -- saw I missed your call. When's a good time to talk?"
+
+
+_PRONOUN_SET = set(_PRONOUN) | {"her", "him", "them", "they", "that", "this", "it"}
+
+
+def _is_named_or_pinned(args):
+    """True when the lead target was explicitly named or pinned by the owner (not just the
+    bare most-recent fallback). A 'name' that is actually a pronoun does not count -- the
+    demo router sometimes extracts pronouns as the name value (e.g. 'text her back' ->
+    args['name']='her'). Used to decide whether to offer the one-tap draft."""
+    name = (args.get("name") or "").strip().lower()
+    if name and name not in _PRONOUN_SET:
+        return True
+    return bool(args.get("_lead_id"))
+
+
 def _gated(business, tool, args, message, fallback_text=_CONFIRM_PROMPT):
     """Result for a confirm-gated tool: an early non-gated reply (ask for a missing detail,
     or show open windows) OR a pending_action carrying an honest summary + preview. Shared by
     the keyword path and the tool-calling loop so the gate behaves identically on both."""
     if tool == "text_lead" and not (args.get("message") or "").strip():
-        return _result(_h_text_lead(business, args), tool, "ok")     # ask what to say
+        # One-tap draft: if a single named/pinned lead was targeted, propose a draft so the
+        # confirm is genuinely one-tap. Keep asking when the target is truly ambiguous (no
+        # name/referent -- would hit the most-recent fallback only).
+        if _is_named_or_pinned(args):
+            target = _resolve_lead_target(business, args)
+            if target is not None:
+                args["message"] = _default_draft(business, target)
+                # fall through to normal pending_action minting below
+            else:
+                return _result(_h_text_lead(business, args), tool, "ok")
+        else:
+            return _result(_h_text_lead(business, args), tool, "ok")     # ask what to say
     if tool == "set_scheduling" and not (args.get("buffer_minutes") is not None
                                          or args.get("times") or args.get("working_days")):
         return _result(_h_scheduling(business, args), "scheduling", "ok")
@@ -2002,8 +2065,12 @@ def run(business, message, history=None, entities=None, allow_llm=True):
     # never bypassed either way -- a write only runs after an explicit confirm.)
     spec = TOOLS.get(tool)
     if spec and spec["confirm"]:
-        if tool in _LEAD_TOOLS and entities and _is_referential(message):
-            _apply_referent(message, args, entities)
+        if tool in _LEAD_TOOLS and _is_referential_lead(message):
+            if entities:
+                _apply_referent(message, args, entities)
+            elif not _is_named_or_pinned(args):
+                # P1-4: bare referent with nothing shown -- never guess a recipient.
+                return _say("Which lead? Tell me a name, or say \"list my leads\" first.")
         return _gated(business, tool, args, message)
 
     # Reads, chat, and fuzzy phrasing: the multi-step tool-calling loop when a provider is

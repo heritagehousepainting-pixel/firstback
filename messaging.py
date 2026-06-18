@@ -26,11 +26,13 @@ import hashlib
 import hmac
 import re
 import sys
+from datetime import datetime
 
 import compliance
 import db
+import tc_messaging
 from config import (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
-                    PUBLIC_BASE_URL, ALERT_FROM_NUMBER)
+                    PUBLIC_BASE_URL, ALERT_FROM_NUMBER, QUIET_START, QUIET_END, app_tz)
 
 # Twilio's REST API base. We hit /Accounts/{SID}/... with HTTP basic auth.
 API_BASE = "https://api.twilio.com/2010-04-01"
@@ -63,7 +65,8 @@ def _alert_from_number(business):
     return ALERT_FROM_NUMBER if ALERT_FROM_NUMBER else _from_number(business)
 
 
-def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True):
+def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True,
+             transactional=False):
     """Send an SMS for a business, or simulate it when Twilio can't send.
 
     Returns a status dict whose "status" is one of:
@@ -97,6 +100,30 @@ def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True):
     # Respect opt-outs (STOP / any revocation) before anything leaves the system.
     if biz_id and db.is_suppressed(biz_id, to):
         return {"status": "suppressed"}
+
+    # Phase 1 C — SF-6: transmit-time quiet-hours backstop.
+    # Ad-hoc/growth sends (gate=True, i.e. customer-facing) must not fire during
+    # quiet hours even if the scheduled-reminder path already guards them.
+    # Owner alerts (gate=False) are exempt (they go to the contractor, not a consumer).
+    # Transactional immediate text-backs (the missed-call response) are called from the
+    # webhook with gate=True too, but they originate from the consumer's own call so
+    # they satisfy the solicited-response exemption — that path passes transactional=True.
+    # Default: gate=True + no transactional flag → non-transactional → check quiet hours.
+    if gate:
+        # Use the business's timezone when available, else the app-wide default.
+        tz = None
+        if isinstance(business, dict) and business.get("timezone"):
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(business["timezone"])
+            except Exception:
+                pass
+        if tz is None:
+            tz = app_tz()
+        now_local = datetime.now(tz)
+        if tc_messaging.quiet_blocked(now_local, QUIET_START, QUIET_END,
+                                      transactional=transactional):
+            return {"status": "deferred", "reason": "quiet_hours"}
 
     # A2P 10DLC gate: a customer-facing real send must NOT go out until this tenant's
     # brand+campaign are approved -- carriers filter unregistered local traffic. No-op

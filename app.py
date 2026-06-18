@@ -30,6 +30,7 @@ import mail
 import alerts
 import reminders
 import compliance
+import consent
 import connections
 import triage
 import reputation
@@ -62,6 +63,9 @@ convos._tool_suggest_hook = assistant.suggest_tool_for
 
 # Seed an owner login for "client zero" (business 1) on first run so the existing
 # demo data is reachable immediately. Change the password after first login.
+# Phase 1 C: "firstback123" is gone. SEED_OWNER_PASSWORD uses a dev-only default
+# in config.py that is NOT the old known password; in prod the config fail-fast
+# guarantees it's set to a real value before the server starts.
 if db.count_users() == 0:
     db.create_user(SEED_OWNER_EMAIL, generate_password_hash(SEED_OWNER_PASSWORD), 1)
 
@@ -305,6 +309,34 @@ def signup():
     return render_template("auth.html", mode="signup")
 
 
+# Phase 1 C: login rate limiting. Track failed attempts per (email, remote IP) in an
+# in-memory dict with a short TTL so a credential-stuffing burst is blunted without
+# a Redis dependency. A per-tenant DB table would be better but would add migration
+# risk; this is the zero-dependency, good-enough approach for Phase 1.
+import collections, time as _time
+_LOGIN_FAILURES: dict = collections.defaultdict(list)  # key -> [timestamp, ...]
+LOGIN_MAX_ATTEMPTS = int(os.environ.get("FIRSTBACK_LOGIN_MAX_ATTEMPTS", "10") or "10")
+LOGIN_WINDOW_SECONDS = int(os.environ.get("FIRSTBACK_LOGIN_WINDOW", "300") or "300")  # 5 min
+
+
+def _login_rate_key(email):
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    return f"{email}:{ip}"
+
+
+def _login_blocked(email):
+    """True if this (email, IP) pair has exceeded the failure ceiling in the window."""
+    key = _login_rate_key(email)
+    cutoff = _time.monotonic() - LOGIN_WINDOW_SECONDS
+    _LOGIN_FAILURES[key] = [t for t in _LOGIN_FAILURES[key] if t > cutoff]
+    return len(_LOGIN_FAILURES[key]) >= LOGIN_MAX_ATTEMPTS
+
+
+def _login_record_failure(email):
+    key = _login_rate_key(email)
+    _LOGIN_FAILURES[key].append(_time.monotonic())
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if session.get("uid"):
@@ -312,8 +344,13 @@ def login():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
+        if _login_blocked(email):
+            return render_template("auth.html", mode="login",
+                                   error="Too many failed attempts. Please wait a few minutes "
+                                         "and try again."), 429
         user = db.get_user_by_email(email)
         if not user or not check_password_hash(user["password_hash"], password):
+            _login_record_failure(email)
             return render_template("auth.html", mode="login",
                                    error="Email or password is incorrect."), 401
         session.clear()
@@ -327,6 +364,67 @@ def login():
 def logout():
     session.clear()
     return redirect("/")
+
+
+# Phase 1 C: password reset routes.  Uses the Phase-0 platform email channel (mail.py).
+# Token lifetime: 1 hour.  Tokens are single-use (burned on redemption).
+_RESET_TOKEN_TTL_HOURS = int(os.environ.get("FIRSTBACK_RESET_TTL_HOURS", "1") or "1")
+
+
+@app.route("/auth/forgot", methods=["GET", "POST"])
+def auth_forgot():
+    """Issue a password-reset email. Always shows the same message to prevent
+    email enumeration (200 regardless of whether the address exists)."""
+    sent = False
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        if email:
+            user = db.get_user_by_email(email)
+            if user:
+                from datetime import timezone, timedelta
+                token = secrets.token_urlsafe(32)
+                expires = (datetime.now(timezone.utc)
+                           + timedelta(hours=_RESET_TOKEN_TTL_HOURS)).isoformat()
+                db.create_password_reset_token(user["id"], token, expires)
+                base = (config.PUBLIC_BASE_URL or request.host_url.rstrip("/"))
+                link = f"{base}/auth/reset?token={token}"
+                subject = f"{APP_NAME} — Password reset"
+                body = (
+                    f"Hi,\n\nSomeone requested a password reset for {email}.\n\n"
+                    f"Click the link below to set a new password (valid for "
+                    f"{_RESET_TOKEN_TTL_HOURS} hour):\n\n  {link}\n\n"
+                    f"If you didn't request this, you can ignore this email.\n\n"
+                    f"— {APP_NAME}"
+                )
+                mail.send_email(email, subject, body)
+        sent = True   # always show the same message (no enumeration)
+    return render_template("auth.html", mode="forgot", sent=sent)
+
+
+@app.route("/auth/reset", methods=["GET", "POST"])
+def auth_reset():
+    """Redeem a password-reset token and set a new password."""
+    token = (request.args.get("token") or request.form.get("token") or "").strip()
+    error = None
+    if request.method == "POST":
+        password = request.form.get("password") or ""
+        confirm = request.form.get("confirm") or ""
+        if not token:
+            error = "Missing or invalid reset link."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password != confirm:
+            error = "Passwords do not match."
+        else:
+            uid = db.consume_password_reset_token(token)
+            if uid is None:
+                error = "This reset link has already been used or has expired. Request a new one."
+            else:
+                db.update_user_password(uid, generate_password_hash(password))
+                return redirect("/login?reset=1")
+    elif not token:
+        return redirect("/auth/forgot")
+    return render_template("auth.html", mode="reset", token=token, error=error)
 
 
 # ---- Marketing pages (linked from the front door) ----
@@ -1888,6 +1986,16 @@ def twilio_sms_inbound():
         return _twiml(f"<Response><Message>{_xesc(biz.get('name') or 'FirstBack')}: "
                       "reply here about your free estimate. Reply STOP to "
                       "unsubscribe.</Message></Response>")
+    # Phase 1 C — SF-6: START / re-subscribe branch. CTIA requires that a prior STOP
+    # be reversible: if the caller sends START (or any recognized re-subscribe keyword),
+    # clear the opt-out flag so they can receive messages again. This check runs BEFORE
+    # the is_suppressed silent-drop so a suppressed user can actually re-opt-in.
+    # consent.opt_in_nlu covers the exact START keyword plus common rephrasings.
+    if consent.opt_in_nlu(body):
+        db.set_opt_in(biz["id"], caller, source="sms-start")
+        return _twiml(f"<Response><Message>You have been re-subscribed to messages from "
+                      f"{_xesc(biz.get('name') or 'FirstBack')}. Reply STOP to "
+                      f"unsubscribe again.</Message></Response>")
     contact = db.get_contact(biz["id"], caller)
     if (contact and contact.get("category") == "blocked") or \
             db.is_suppressed(biz["id"], caller) or not body:

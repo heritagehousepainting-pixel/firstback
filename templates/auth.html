@@ -1,13 +1,15 @@
 {% from "components/ui/button.html" import button %}
 {% from "components/ui/input.html" import field %}
 {% set is_signup = (mode == 'signup') %}
+{% set is_forgot = (mode == 'forgot') %}
+{% set is_reset  = (mode == 'reset') %}
 {% set star %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.56l-5.9 3.1 1.13-6.57L2.45 9.44l6.6-.96z"/></svg>{% endset %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ 'Sign up' if is_signup else 'Log in' }} · {{ app_name }}</title>
+  <title>{% if is_forgot %}Forgot password{% elif is_reset %}Reset password{% elif is_signup %}Sign up{% else %}Log in{% endif %} · {{ app_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -24,42 +26,79 @@
     </a>
     <div class="au-art-body">
       <h2 class="au-art-title">Never miss another job.</h2>
-      <p class="au-art-sub">FirstBack texts every missed caller in seconds, answers their questions, and books the estimate — so the job doesn’t go to the next contractor.</p>
+      <p class="au-art-sub">FirstBack texts every missed caller in seconds, answers their questions, and books the estimate -- so the job doesn't go to the next contractor.</p>
     </div>
     <div class="au-proof">
       <span class="au-stars" aria-label="5 out of 5">{{ star }}{{ star }}{{ star }}{{ star }}{{ star }}</span>
-      <p class=”au-quote”>Catch every missed call, book the job, and never chase a lead by hand again.</p>
-      <p class=”au-by”>— FirstBack</p>
+      <p class="au-quote">Catch every missed call, book the job, and never chase a lead by hand again.</p>
+      <p class="au-by">-- FirstBack</p>
     </div>
     <p class="au-foot">© {{ app_name }}</p>
   </aside>
 
   <main class="au-form-col">
     <div class="au-form">
-      <div class="au-switch">
-        <a href="/login" class="{{ 'on' if not is_signup }}">Sign in</a>
-        <a href="/signup" class="{{ 'on' if is_signup }}">Sign up</a>
-      </div>
 
-      <h1 class="au-title">{{ 'Create your account' if is_signup else 'Welcome back' }}</h1>
-      <p class="au-sub">{{ 'Start turning missed calls into booked jobs.' if is_signup else 'Sign in to your FirstBack cockpit.' }}</p>
+      {% if is_forgot %}
+        {# ---- Forgot password ---- #}
+        <h1 class="au-title">Forgot your password?</h1>
+        <p class="au-sub">Enter your email and we'll send you a reset link.</p>
+        {% if sent %}
+          <p class="au-success" role="status">
+            If that email is in our system, a reset link is on its way. Check your inbox.
+          </p>
+          <p class="au-alt"><a href="/login">Back to sign in</a></p>
+        {% else %}
+          {% if error %}<p class="au-error" role="alert">{{ error }}</p>{% endif %}
+          <form class="au-fields" method="post" action="/auth/forgot">
+            {{ field('Work email', name='email', type='email', value=request.form.get('email',''), placeholder='you@yourcompany.com', required=true, autocomplete='email') }}
+            {{ button('Send reset link', type='submit', block=true) }}
+          </form>
+          <p class="au-alt"><a href="/login">Back to sign in</a></p>
+        {% endif %}
 
-      {% if error %}<p class="au-error" role="alert">{{ error }}</p>{% endif %}
+      {% elif is_reset %}
+        {# ---- Reset password ---- #}
+        <h1 class="au-title">Set a new password</h1>
+        <p class="au-sub">Choose a strong password (at least 8 characters).</p>
+        {% if error %}<p class="au-error" role="alert">{{ error }}</p>{% endif %}
+        <form class="au-fields" method="post" action="/auth/reset">
+          <input type="hidden" name="token" value="{{ token or '' }}">
+          {{ field('New password', name='password', type='password', placeholder='••••••••', required=true, minlength='8', autocomplete='new-password') }}
+          {{ field('Confirm password', name='confirm', type='password', placeholder='••••••••', required=true, minlength='8', autocomplete='new-password') }}
+          {{ button('Set new password', type='submit', block=true) }}
+        </form>
+        <p class="au-alt"><a href="/auth/forgot">Request a new link</a></p>
 
-      <form class="au-fields" method="post" action="{{ '/signup' if is_signup else '/login' }}">
-        {% if is_signup %}{{ field('Business name', name='business', value=request.form.get('business',''), placeholder='Heritage House Painting', required=true) }}{% endif %}
-        {% if is_signup %}{{ field('Your name', name='owner', value=request.form.get('owner',''), placeholder='Jonathan') }}{% endif %}
-        {{ field('Work email', name='email', type='email', value=request.form.get('email',''), placeholder='you@yourcompany.com', required=true, autocomplete='email') }}
-        {{ field('Password', name='password', type='password', placeholder='••••••••', required=true, minlength=('8' if is_signup else ''), autocomplete=('new-password' if is_signup else 'current-password')) }}
-        {% if not is_signup %}<a class="au-forgot" href="/contact">Forgot password?</a>{% endif %}
-        {{ button('Create account' if is_signup else 'Sign in', type='submit', block=true) }}
-      </form>
+      {% else %}
+        {# ---- Login / signup (original) ---- #}
+        <div class="au-switch">
+          <a href="/login" class="{{ 'on' if not is_signup }}">Sign in</a>
+          <a href="/signup" class="{{ 'on' if is_signup }}">Sign up</a>
+        </div>
 
-      <p class="au-alt">
-        {{ 'Already have an account?' if is_signup else 'New to FirstBack?' }}
-        <a href="{{ '/login' if is_signup else '/signup' }}">{{ 'Log in' if is_signup else 'Sign up' }}</a>
-      </p>
-      <p class="au-terms">By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+        <h1 class="au-title">{{ 'Create your account' if is_signup else 'Welcome back' }}</h1>
+        <p class="au-sub">{{ 'Start turning missed calls into booked jobs.' if is_signup else 'Sign in to your FirstBack cockpit.' }}</p>
+
+        {% if error %}<p class="au-error" role="alert">{{ error }}</p>{% endif %}
+        {% if request.args.get('reset') == '1' %}<p class="au-success" role="status">Password updated. Sign in with your new password.</p>{% endif %}
+
+        <form class="au-fields" method="post" action="{{ '/signup' if is_signup else '/login' }}">
+          {% if is_signup %}{{ field('Business name', name='business', value=request.form.get('business',''), placeholder='Heritage House Painting', required=true) }}{% endif %}
+          {% if is_signup %}{{ field('Your name', name='owner', value=request.form.get('owner',''), placeholder='Jonathan') }}{% endif %}
+          {{ field('Work email', name='email', type='email', value=request.form.get('email',''), placeholder='you@yourcompany.com', required=true, autocomplete='email') }}
+          {{ field('Password', name='password', type='password', placeholder='••••••••', required=true, minlength=('8' if is_signup else ''), autocomplete=('new-password' if is_signup else 'current-password')) }}
+          {% if not is_signup %}<a class="au-forgot" href="/auth/forgot">Forgot password?</a>{% endif %}
+          {{ button('Create account' if is_signup else 'Sign in', type='submit', block=true) }}
+        </form>
+
+        <p class="au-alt">
+          {{ 'Already have an account?' if is_signup else 'New to FirstBack?' }}
+          <a href="{{ '/login' if is_signup else '/signup' }}">{{ 'Log in' if is_signup else 'Sign up' }}</a>
+        </p>
+        <p class="au-terms">By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+      {% endif %}
+
     </div>
   </main>
 

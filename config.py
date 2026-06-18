@@ -196,7 +196,22 @@ DEBUG = os.environ.get("FIRSTBACK_DEBUG", "").strip().lower() in ("1", "true", "
 
 # Signs the login session cookie. MUST be set to a long random value in
 # production (FIRSTBACK_SECRET); the fallback is for local dev only.
-SECRET_KEY = os.environ.get("FIRSTBACK_SECRET", "dev-insecure-secret-change-me")
+_SECRET_KEY_DEFAULT = "dev-insecure-secret-change-me"
+SECRET_KEY = os.environ.get("FIRSTBACK_SECRET", _SECRET_KEY_DEFAULT)
+
+# Phase 1 C: fail-fast if the insecure default key is used in production.
+# "Production" = FIRSTBACK_HTTPS=1 (meaning we're behind TLS and the Secure cookie
+# flag is on) OR FIRSTBACK_ENV=production.  In those modes an insecure default key
+# means session cookies can be forged — hard fail so this ships correctly or not at all.
+_is_prod = (
+    os.environ.get("FIRSTBACK_HTTPS", "").strip().lower() in ("1", "true", "yes", "on")
+    or os.environ.get("FIRSTBACK_ENV", "").strip().lower() == "production"
+)
+if _is_prod and SECRET_KEY == _SECRET_KEY_DEFAULT:
+    raise RuntimeError(
+        "CRITICAL: FIRSTBACK_SECRET is not set (using the insecure default). "
+        "Set a long random value in your environment before deploying."
+    )
 
 # Encrypts stored OAuth tokens (Google access/refresh) at rest in SQLite. A single
 # symmetric key; any non-empty string works (it's run through HKDF, see
@@ -233,8 +248,19 @@ def app_tz():
 
 # Starter owner login seeded for "client zero" (business 1) so the existing demo
 # data is reachable immediately. Change the password after first login.
+# Phase 1 C: the insecure "firstback123" default is replaced. In production,
+# FIRSTBACK_OWNER_PASSWORD MUST be set explicitly — the prod fail-fast (above) ensures
+# the server won't start with the dev default key, which makes a known seed password
+# equally dangerous. In dev/local the dev-only default below is intentionally different
+# from "firstback123" and labeled as dev-only so it's never confused with a real credential.
+_SEED_PW_DEV_DEFAULT = "dev-change-me-not-for-prod"
 SEED_OWNER_EMAIL = os.environ.get("FIRSTBACK_OWNER_EMAIL", "heritagehousepainting@gmail.com")
-SEED_OWNER_PASSWORD = os.environ.get("FIRSTBACK_OWNER_PASSWORD", "firstback123")
+SEED_OWNER_PASSWORD = os.environ.get("FIRSTBACK_OWNER_PASSWORD", _SEED_PW_DEV_DEFAULT)
+if _is_prod and SEED_OWNER_PASSWORD == _SEED_PW_DEV_DEFAULT:
+    raise RuntimeError(
+        "CRITICAL: FIRSTBACK_OWNER_PASSWORD is using the dev default. "
+        "Set a strong password in your environment before deploying."
+    )
 
 # --- Storage --------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent

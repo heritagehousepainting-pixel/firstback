@@ -578,6 +578,9 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_appts_lead "
               "ON appointments(lead_id, status, day)")
 
+    # Phase 1 C: password reset tokens table (additive).
+    _ensure_password_reset_tokens(c)
+
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
         b = DEFAULT_BUSINESS
@@ -2487,3 +2490,75 @@ def all_owner_recipients():
         "FROM users u JOIN businesses b ON b.id = u.business_id").fetchall()
     conn.close()
     return [(r["bid"], r["email"]) for r in rows if r["email"]]
+
+
+# ---- Phase 1 C: password reset tokens ----
+def _ensure_password_reset_tokens(conn):
+    """Create the password_reset_tokens table if it doesn't exist. Additive; safe to
+    call on every boot (CREATE TABLE IF NOT EXISTS)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prt_token ON password_reset_tokens(token)"
+    )
+
+
+def create_password_reset_token(user_id, token, expires_at):
+    """Persist a single-use expiring reset token. Returns the token."""
+    conn = get_conn()
+    _ensure_password_reset_tokens(conn)
+    conn.execute(
+        "INSERT INTO password_reset_tokens (user_id, token, expires_at, used, created_at) "
+        "VALUES (?,?,?,0,?)",
+        (user_id, token, expires_at, now_iso()))
+    conn.commit()
+    conn.close()
+    return token
+
+
+def consume_password_reset_token(token):
+    """Look up an unused, unexpired token. Returns the user_id if valid, else None.
+    Marks it used atomically so it cannot be redeemed twice."""
+    from datetime import timezone
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_conn()
+    _ensure_password_reset_tokens(conn)
+    row = conn.execute(
+        "SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token=?",
+        (token,)).fetchone()
+    if not row or row["used"] or row["expires_at"] < now:
+        conn.close()
+        return None
+    conn.execute("UPDATE password_reset_tokens SET used=1 WHERE id=?", (row["id"],))
+    conn.commit()
+    uid = row["user_id"]
+    conn.close()
+    return uid
+
+
+# ---- Phase 1 C: SMS opt-in (re-subscribe after STOP) ----
+def set_opt_in(business_id, number, source="sms-start"):
+    """Reverse a prior STOP: clear the opt_out flag so the consumer can receive
+    messages again. CTIA requires that STOP suppression be reversible via START.
+    Mirrors the shape of set_opt_out (same table, complementary operation)."""
+    key = re.sub(r"\D", "", str(number or ""))[-10:]
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO contacts_consent (business_id, consumer_number, opted_out, "
+        " opted_out_at, source, updated_at) VALUES (?,?,0,NULL,?,?) "
+        "ON CONFLICT(business_id, consumer_number) DO UPDATE SET "
+        "  opted_out=0, opted_out_at=NULL, source=excluded.source, "
+        "  updated_at=excluded.updated_at",
+        (business_id, key, source, now_iso()))
+    conn.commit()
+    conn.close()

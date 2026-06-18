@@ -21,6 +21,9 @@ os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_fake"
 os.environ["STRIPE_PRICE_STARTER"]  = "price_starter_test"
 os.environ["STRIPE_PRICE_PRO"]      = "price_pro_test"
 os.environ["STRIPE_PRICE_CREW"]     = "price_crew_test"
+os.environ["STRIPE_PRICE_STARTER_ANNUAL"] = "price_starter_year_test"
+os.environ["STRIPE_PRICE_PRO_ANNUAL"]     = "price_pro_year_test"
+os.environ["STRIPE_PRICE_CREW_ANNUAL"]    = "price_crew_year_test"
 
 # ── Temp DB ────────────────────────────────────────────────────────────────────
 import config
@@ -306,6 +309,28 @@ try:
     check("portal raises ValueError for no customer", False, detail="no exception")
 except ValueError:
     check("portal raises ValueError for no customer", True)
+
+# ── 14: Annual (20%-off) checkout ──────────────────────────────────────────────
+print("\n=== Annual (20% off) checkout ===")
+_cap = {}
+def _capture_checkout(**kwargs):
+    _cap.clear(); _cap.update(kwargs)
+    return {"id": "cs_year", "url": "https://checkout.stripe.com/pay/cs_year"}
+
+with mock.patch("stripe.checkout.Session.create", side_effect=_capture_checkout):
+    billing.create_checkout_session(1, "pro", interval="year")
+check("annual checkout uses the ANNUAL price id",
+      _cap.get("line_items", [{}])[0].get("price") == "price_pro_year_test",
+      detail=repr(_cap.get("line_items")))
+check("annual checkout records interval=year in metadata",
+      _cap.get("metadata", {}).get("interval") == "year")
+
+with mock.patch("stripe.checkout.Session.create", side_effect=_capture_checkout):
+    billing.create_checkout_session(1, "starter")  # default → month
+check("default checkout uses the MONTHLY price id",
+      _cap.get("line_items", [{}])[0].get("price") == "price_starter_test")
+check("annual allotment == monthly allotment (gauge refills monthly, not 12x)",
+      billing.PLAN_GRANTS["pro"] == 1000)
 
 # ── 13: Starter and Crew plan grant amounts ────────────────────────────────────
 print("\n=== Plan → grant amounts ===")

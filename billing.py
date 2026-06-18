@@ -23,23 +23,34 @@ from config import VOICE_PUBLIC_URL  # re-use the base URL pattern
 STRIPE_SECRET_KEY     = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
-# Stripe Price IDs (created once in the Stripe dashboard / fixtures).
+# Stripe Price IDs keyed by (plan, interval). Annual is billed once a year at 20% off
+# the monthly rate (i.e. monthly × 12 × 0.8). The monthly conversation allotment is the
+# SAME on annual — the fuel gauge still refills every calendar month (see db.conversations_remaining).
 PRICE_IDS = {
-    "starter": os.environ.get("STRIPE_PRICE_STARTER", ""),
-    "pro":     os.environ.get("STRIPE_PRICE_PRO", ""),
-    "crew":    os.environ.get("STRIPE_PRICE_CREW", ""),
+    ("starter", "month"): os.environ.get("STRIPE_PRICE_STARTER", ""),
+    ("pro",     "month"): os.environ.get("STRIPE_PRICE_PRO", ""),
+    ("crew",    "month"): os.environ.get("STRIPE_PRICE_CREW", ""),
+    ("starter", "year"):  os.environ.get("STRIPE_PRICE_STARTER_ANNUAL", ""),
+    ("pro",     "year"):  os.environ.get("STRIPE_PRICE_PRO_ANNUAL", ""),
+    ("crew",    "year"):  os.environ.get("STRIPE_PRICE_CREW_ANNUAL", ""),
 }
 
-# Conversations granted per billing period by plan.
+# Conversations granted per MONTH by plan (annual subscribers get this same monthly refill).
 PLAN_GRANTS: dict[str, int] = {
     "starter": 250,
     "pro":     1000,
     "crew":    3000,
 }
 
-# Map Stripe Price ID → internal plan key (populated lazily if IDs are set).
+
+def _norm_interval(interval: str) -> str:
+    """Normalize any annual-ish word to 'year', everything else to 'month'."""
+    return "year" if str(interval or "").lower() in ("year", "annual", "annually", "yr", "yearly") else "month"
+
+
+# Map Stripe Price ID → internal plan key (works for both monthly and annual IDs).
 def _price_to_plan(price_id: str) -> str:
-    for plan, pid in PRICE_IDS.items():
+    for (plan, _interval), pid in PRICE_IDS.items():
         if pid and pid == price_id:
             return plan
     return "starter"  # safe fallback — MUST have a valid price id in practice
@@ -55,17 +66,18 @@ def _stripe():
 
 
 # ── Checkout ──────────────────────────────────────────────────────────────────
-def create_checkout_session(business_id: int, plan: str,
+def create_checkout_session(business_id: int, plan: str, interval: str = "month",
                             success_url: str = None, cancel_url: str = None):
     """Create a Stripe Checkout session for a new subscription.
 
-    Returns the session dict (has .url for the redirect).  The customer id is
-    not yet known; we learn it from the first webhook and persist it then.
+    `interval` is 'month' (default) or 'year' (annual, 20% off). Returns the session
+    dict (has .url for the redirect). The customer id is learned from the first webhook.
     """
     s = _stripe()
-    price_id = PRICE_IDS.get(plan)
+    interval = _norm_interval(interval)
+    price_id = PRICE_IDS.get((plan, interval))
     if not price_id:
-        raise ValueError(f"Unknown or unconfigured plan: {plan!r}")
+        raise ValueError(f"Unknown or unconfigured plan/interval: {plan!r}/{interval!r}")
 
     base = (VOICE_PUBLIC_URL or "").rstrip("/")
     biz = db.get_business(business_id) or {}
@@ -76,8 +88,8 @@ def create_checkout_session(business_id: int, plan: str,
         "line_items": [{"price": price_id, "quantity": 1}],
         "success_url": success_url or f"{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url":  cancel_url  or f"{base}/billing/cancel",
-        "metadata":    {"business_id": str(business_id), "plan": plan},
-        "subscription_data": {"metadata": {"business_id": str(business_id), "plan": plan}},
+        "metadata":    {"business_id": str(business_id), "plan": plan, "interval": interval},
+        "subscription_data": {"metadata": {"business_id": str(business_id), "plan": plan, "interval": interval}},
     }
     customer_id = biz.get("stripe_customer_id")
     if customer_id:

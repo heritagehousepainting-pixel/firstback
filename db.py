@@ -2721,7 +2721,13 @@ def conversations_remaining(business_id):
     if not row:
         return None, None
     grant = dict(row)
-    consumed = conversations_consumed(business_id, grant.get("period_start"))
+    # The conversation allotment refills every CALENDAR MONTH — including for ANNUAL
+    # subscribers, who are billed once a year but still get the same monthly allotment.
+    # So count consumption in the current calendar month, not since the (possibly
+    # year-long) grant period_start.
+    month_start = datetime.now(timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0).date().isoformat()
+    consumed = conversations_consumed(business_id, month_start)
     remaining = max(0, int(grant.get("conversations_granted") or 0) - consumed)
     return remaining, grant
 

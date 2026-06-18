@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FirstBack — Bring your AI assistant online</title>
+<meta name="description" content="Activate FirstBack, the AI assistant that answers missed calls, texts customers back in seconds, and books the estimate automatically for busy trade businesses.">
+<link rel="canonical" href="https://firstback.app/onboarding">
+<meta name="robots" content="noindex">
+<style>
+  @font-face{font-family:"Space Grotesk";font-weight:400;font-display:swap;src:url("fonts/sg-400.woff2") format("woff2")}
+  @font-face{font-family:"Space Grotesk";font-weight:500;font-display:swap;src:url("fonts/sg-500.woff2") format("woff2")}
+  @font-face{font-family:"Space Grotesk";font-weight:600;font-display:swap;src:url("fonts/sg-600.woff2") format("woff2")}
+  @font-face{font-family:"JetBrains Mono";font-weight:400;font-display:swap;src:url("fonts/jbm-400.woff2") format("woff2")}
+  @font-face{font-family:"JetBrains Mono";font-weight:500;font-display:swap;src:url("fonts/jbm-500.woff2") format("woff2")}
+  @font-face{font-family:"JetBrains Mono";font-weight:600;font-display:swap;src:url("fonts/jbm-600.woff2") format("woff2")}
+  :root{
+    --bg:#070A12; --edge:rgba(93,189,255,.32); --edge-soft:rgba(93,189,255,.14);
+    --hairline:rgba(140,180,235,.2); --input-bg:rgba(6,10,20,.5);
+    --accent:#3FA9F5; --accent-bright:#5DBDFF; --accent-hot:#9AD8FF; --accent-core:#EAF6FF;
+    --accent-ink:#04121F; --ok:#46E0A0; --text:#EAF2FF; --muted:#9BB1D0; --dim:#5E7396;
+    --glow-xs:0 0 8px rgba(63,169,245,.55); --glow-sm:0 0 14px rgba(63,169,245,.55); --glow-md:0 0 30px rgba(63,169,245,.45);
+    --ring-shadow:0 0 22px rgba(63,169,245,.6), inset 0 0 16px rgba(63,169,245,.4);
+    --tshadow:0 0 34px rgba(63,169,245,.6); --tdark:0 2px 14px rgba(3,6,14,.95);
+    --node-bg:rgba(7,10,18,.7); --tk-bg:rgba(7,12,24,.55); --rest-bg:rgba(8,16,32,.5);
+    --fb-glow:0 0 30px rgba(157,216,255,.95);
+    --hero-panel:url("assets/hero-panel.png");
+    --page-glow:radial-gradient(60% 75% at 80% 46%, rgba(40,96,168,.3), transparent 72%);
+    --page-grid-v:linear-gradient(rgba(93,189,255,.04) 1px, transparent 1px);
+    --page-grid-h:linear-gradient(90deg, rgba(93,189,255,.04) 1px, transparent 1px);
+    --grid-mask:radial-gradient(120% 90% at 20% 30%, black, transparent 70%);
+    --cta-fill:linear-gradient(160deg, rgba(63,169,245,.24), rgba(63,169,245,.06));
+    --ch:16px; --dur:600ms; --ease:cubic-bezier(.2,.7,0,1);
+    --display:"Space Grotesk", system-ui, sans-serif; --mono:"JetBrains Mono", ui-monospace, monospace;
+    --chamfer:polygon(var(--ch) 0, calc(100% - var(--ch)) 0, 100% var(--ch), 100% calc(100% - var(--ch)), calc(100% - var(--ch)) 100%, var(--ch) 100%, 0 calc(100% - var(--ch)), 0 var(--ch));
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+  body{ font-family:var(--display); color:var(--text); background:var(--bg);
+    -webkit-font-smoothing:antialiased; overflow:hidden; display:grid; place-items:center; }
+
+  .frame{ position:relative; width:1280px; height:800px; overflow:hidden; background:var(--bg); }
+  .glowbg{ position:absolute; inset:0; background:var(--page-glow); }
+  .gridbg{ position:absolute; inset:0; background-image:var(--page-grid-v), var(--page-grid-h); background-size:52px 52px;
+    -webkit-mask-image:var(--grid-mask); mask-image:var(--grid-mask); opacity:.6; }
+
+  .top{ position:absolute; top:36px; left:64px; right:64px; display:flex; align-items:center; justify-content:space-between; z-index:4; }
+  .brand{ display:flex; align-items:center; gap:13px; }
+  .badge{ width:42px; height:42px; border-radius:50%; display:grid; place-items:center; border:1.5px solid var(--accent);
+    box-shadow:var(--ring-shadow); font-weight:600; font-size:15px; color:var(--accent-core); letter-spacing:.5px; }
+  .brand b{ font-weight:600; font-size:21px; letter-spacing:-.01em; }
+  .help{ display:flex; align-items:center; gap:9px; color:var(--muted); font-size:.95rem; }
+  .help svg{ width:18px; height:18px; color:var(--dim); }
+  .help a{ color:var(--accent-bright); text-decoration:none; font-weight:600; font-variant-numeric:tabular-nums; }
+
+  .left{ position:absolute; left:64px; top:138px; width:560px; z-index:4; }
+  .eyebrow{ font-family:var(--mono); font-size:12px; font-weight:500; letter-spacing:.28em; text-transform:uppercase;
+    color:var(--accent-bright); display:inline-flex; align-items:center; gap:10px; }
+  .eyebrow::before{ content:""; width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:var(--glow-sm); }
+  h1{ font-size:4.05rem; line-height:1.04; letter-spacing:-.022em; font-weight:400; margin:16px 0 0; }
+  h1 .hl{ color:var(--accent-bright); text-shadow:var(--tshadow); font-weight:500; }
+  .sub{ color:var(--muted); font-size:1.12rem; max-width:34ch; margin:20px 0 0; }
+
+  .stepper{ margin:34px 0 0; position:relative; }
+  .stepper::before{ content:""; position:absolute; left:20px; top:18px; bottom:42px; width:1.5px;
+    background:linear-gradient(var(--accent), var(--edge-soft)); opacity:.5; }
+  .step{ display:grid; grid-template-columns:42px 1fr; gap:18px; align-items:start; padding:0 0 18px; }
+  .node{ width:42px; height:42px; border-radius:50%; display:grid; place-items:center; background:var(--node-bg);
+    border:1.5px solid var(--hairline); font-family:var(--mono); font-size:14px; color:var(--dim); z-index:1; }
+  .step.active .node{ border-color:var(--accent); color:var(--accent-core); box-shadow:var(--ring-shadow); }
+  .lbl{ font-family:var(--mono); font-weight:600; font-size:.92rem; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); padding-top:10px; }
+  .step.active .lbl{ color:var(--text); }
+  .desc{ display:block; font-family:var(--display); font-weight:400; font-size:.92rem; letter-spacing:0; text-transform:none; color:var(--dim); margin-top:4px; }
+  .field{ margin:14px 0 2px; display:flex; align-items:center; gap:12px; padding:14px 16px; background:var(--input-bg);
+    border:1.5px solid var(--edge); clip-path:var(--chamfer); box-shadow:var(--glow-xs); max-width:380px; }
+  .field .ph{ color:var(--accent-bright); display:grid; place-items:center; } .field .ph svg{ width:18px; height:18px; }
+  .field .num{ flex:1; font-family:var(--mono); font-size:16px; letter-spacing:.04em; color:var(--text); }
+  .field .verified{ display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px; font-weight:600;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--ok); } .field .verified svg{ width:13px; height:13px; }
+
+  .cta-row{ display:flex; align-items:center; gap:20px; margin:28px 0 0; }
+  .btn{ font-family:var(--mono); font-weight:600; font-size:.95rem; letter-spacing:.14em; text-transform:uppercase; cursor:pointer;
+    border:none; padding:18px 32px; color:var(--accent-core); background:var(--cta-fill); clip-path:var(--chamfer);
+    display:inline-flex; align-items:center; gap:12px; box-shadow:inset 0 0 0 1.5px var(--accent), var(--glow-sm);
+    transition:box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); } .btn svg{ width:18px; height:18px; }
+  .btn:hover{ box-shadow:inset 0 0 0 1.5px var(--accent-bright), var(--glow-md); } .btn:active{ transform:scale(.98); }
+  .mini{ color:var(--dim); font-size:.9rem; }
+
+  /* right: the generated holographic panel + composited text */
+  .stage{ position:absolute; left:712px; top:92px; width:496px; height:620px; z-index:3;
+    background:var(--hero-panel) center/contain no-repeat; }
+  .hud{ position:absolute; z-index:4; text-shadow:var(--tdark); }
+  .fb{ left:0; right:0; top:13.8%; text-align:center; font-weight:600; font-size:52px; letter-spacing:.02em;
+    color:var(--accent-core); text-shadow:var(--fb-glow); }
+  .rlive{ left:62%; top:33%; font-family:var(--mono); font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--accent-bright); display:flex; align-items:center; gap:6px; }
+  .rlive::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); box-shadow:var(--glow-sm); }
+  .rstatus{ left:0; right:0; top:37%; text-align:center; font-weight:600; font-size:1.18rem; }
+  .rchecks{ left:15%; top:45.5%; display:flex; flex-direction:column; gap:11px; }
+  .rcheck{ display:flex; align-items:center; gap:11px; font-size:.95rem; color:var(--text); }
+  .rcheck .tk{ flex:none; width:21px; height:21px; border-radius:50%; display:grid; place-items:center;
+    border:1.5px solid var(--accent); color:var(--accent-core); box-shadow:var(--glow-xs); background:var(--tk-bg); }
+  .rcheck .tk svg{ width:12px; height:12px; }
+  .rest{ left:14%; right:14%; top:73%; display:flex; align-items:center; gap:13px; padding:13px 15px;
+    background:var(--rest-bg); border:1px solid var(--edge-soft); clip-path:var(--chamfer); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
+  .rest .cal{ flex:none; width:38px; height:38px; border-radius:10px; display:grid; place-items:center; border:1px solid var(--edge);
+    color:var(--accent-bright); box-shadow:var(--glow-xs); } .rest .cal svg{ width:18px; height:18px; }
+  .rest .e1{ font-family:var(--mono); font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim); }
+  .rest .e2{ font-weight:600; font-size:1rem; margin-top:2px; white-space:nowrap; } .rest .e2 b{ color:var(--accent-bright); }
+
+  .rise{ opacity:0; transform:translateY(12px); animation:rise var(--dur) var(--ease) forwards; }
+  @keyframes rise{ to{ opacity:1; transform:none; } }
+  .d1{animation-delay:.04s}.d2{animation-delay:.16s}.d3{animation-delay:.28s}.d4{animation-delay:.4s}.d5{animation-delay:.54s}
+  .d6{animation-delay:.74s}.d7{animation-delay:.9s}.d8{animation-delay:1.06s}.d9{animation-delay:1.22s}.d10{animation-delay:1.4s}
+  @media (max-width:1320px){ .frame{ transform:scale(.92); } }
+  @media (prefers-reduced-motion:reduce){ .rise{ animation:none; opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="glowbg" aria-hidden="true"></div>
+    <div class="gridbg" aria-hidden="true"></div>
+
+    <header class="top rise d1">
+      <div class="brand"><span class="badge">FB</span><b>FirstBack</b></div>
+      <div class="help">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.4 2.5c-.8.3-1.4.9-1.4 1.8v.3" stroke-linecap="round"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
+        <span>Need help? Call or text us at <a href="tel:+16105550148">(610)&nbsp;555-0148</a></span>
+      </div>
+    </header>
+
+    <div class="left">
+      <span class="eyebrow rise d2">Get started</span>
+      <h1 class="rise d3">Bring your AI<br>assistant <span class="hl">online</span>.</h1>
+      <p class="sub rise d4">FirstBack answers the calls you miss, texts back in seconds, and books the
+        job — while you're still on the ladder.</p>
+
+      <div class="stepper rise d5">
+        <div class="step active">
+          <span class="node">1</span>
+          <span><span class="lbl">Connect your number</span>
+            <span class="desc">We'll forward missed calls to your AI assistant.</span>
+            <span class="field">
+              <span class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6.5 4h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A16 16 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4z" stroke-linejoin="round"/></svg></span>
+              <span class="num">(610) 555-0148</span>
+              <span class="verified"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>Verified</span>
+            </span>
+          </span>
+        </div>
+        <div class="step"><span class="node">2</span><span><span class="lbl">Set your hours</span><span class="desc">When should the AI pick up for you?</span></span></div>
+        <div class="step"><span class="node">3</span><span><span class="lbl">Train it on your trade</span><span class="desc">Pricing, service area, the questions you always ask.</span></span></div>
+        <div class="step"><span class="node">4</span><span><span class="lbl">Go live</span><span class="desc">Stop sending jobs to voicemail.</span></span></div>
+      </div>
+
+      <div class="cta-row rise d6">
+        <button class="btn">Continue setup
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+        <span class="mini">It'll only take a minute.</span>
+      </div>
+    </div>
+
+    <div class="stage rise d4">
+      <div class="hud fb rise d5">FB</div>
+      <div class="hud rlive rise d6">Live</div>
+      <div class="hud rstatus rise d6">Missed call. Handled.</div>
+      <div class="hud rchecks">
+        <div class="rcheck rise d7"><span class="tk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span> Texted the customer back</div>
+        <div class="rcheck rise d8"><span class="tk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span> Called back &amp; answered</div>
+        <div class="rcheck rise d9"><span class="tk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span> Qualified the lead</div>
+        <div class="rcheck rise d10"><span class="tk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span> Booked the estimate</div>
+      </div>
+      <div class="hud rest rise d10">
+        <span class="cal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg></span>
+        <span><span class="e1">Estimate scheduled</span><span class="e2">Tomorrow · <b>10:00 AM</b></span></span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

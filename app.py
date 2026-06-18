@@ -1793,7 +1793,13 @@ def api_usage():
     remaining, grant = db.conversations_remaining(bid)
     granted = int(grant.get("conversations_granted") or 0) if grant else None
     consumed = (granted - remaining) if (granted is not None and remaining is not None) else None
-    period_end = grant.get("period_end") if grant else None
+    # The allotment refills on the 1st of next month (monthly cadence for monthly AND annual plans).
+    period_end = None
+    if grant:
+        from datetime import timezone as _tz
+        _now = datetime.now(_tz.utc)
+        period_end = (f"{_now.year + 1:04d}-01-01" if _now.month == 12
+                      else f"{_now.year:04d}-{_now.month + 1:02d}-01")
     spend_today = db.get_llm_spend_today(bid)
     cap = config.CLAUDE_DAILY_COST_CAP_USD
     over_cap = ai.is_over_daily_cap(bid)
@@ -2139,8 +2145,9 @@ def billing_checkout():
     plan = request.form.get("plan", "starter").lower().strip()
     if plan not in ("starter", "pro", "crew"):
         return jsonify(error="Invalid plan"), 400
+    interval = request.form.get("interval", "month").lower().strip()  # 'month' | 'year' (annual, 20% off)
     try:
-        session = _billing.create_checkout_session(biz["id"], plan)
+        session = _billing.create_checkout_session(biz["id"], plan, interval=interval)
         # session is a dict-like object with a .url attribute.
         checkout_url = session.get("url") if isinstance(session, dict) else session.url
         return redirect(checkout_url)

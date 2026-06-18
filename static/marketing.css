@@ -114,6 +114,8 @@
 .mk-price .price{display:flex;align-items:baseline;gap:6px}
 .mk-price .amount{font-size:3rem;font-weight:900;letter-spacing:-.04em}
 .mk-price .per{font-size:.95rem;color:var(--ink-faint)}
+.mk-price .price-annual{font-size:.85rem;color:var(--ink-soft);margin:-2px 0 2px}
+.mk-price .price-annual strong{color:var(--accent)}
 .mk-price .blurb{font-size:.95rem;color:var(--ink-soft);margin:0}
 .mk-price ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:11px}
 .mk-price li{display:flex;gap:10px;font-size:.95rem;color:var(--ink)}

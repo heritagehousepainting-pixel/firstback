@@ -142,6 +142,10 @@ GOOGLE_CONTACTS_REDIRECT_URI = os.environ.get(
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "")
+# Platform number used for OWNER alerts (separate from the tenant's A2P customer-facing number).
+# When set, owner-alert SMS sends FROM this number so they don't depend on any tenant's A2P approval.
+# Falls back to the tenant's own from-number when unset (original behavior).
+ALERT_FROM_NUMBER = os.environ.get("ALERT_FROM_NUMBER", "")
 # Public base URL where Twilio can reach this app's webhooks (an ngrok https URL
 # in dev, your real domain in prod). Used when provisioning a number's Voice/SMS
 # webhooks; leave empty until you have a public URL.

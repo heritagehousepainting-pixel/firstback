@@ -30,7 +30,7 @@ import sys
 import compliance
 import db
 from config import (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
-                    PUBLIC_BASE_URL)
+                    PUBLIC_BASE_URL, ALERT_FROM_NUMBER)
 
 # Twilio's REST API base. We hit /Accounts/{SID}/... with HTTP basic auth.
 API_BASE = "https://api.twilio.com/2010-04-01"
@@ -54,6 +54,13 @@ def _from_number(business):
     if isinstance(business, dict) and business.get("twilio_number"):
         return business["twilio_number"]
     return TWILIO_FROM_NUMBER
+
+
+def _alert_from_number(business):
+    """The from-number for OWNER alerts. Uses the platform-wide ALERT_FROM_NUMBER when
+    set (recommended: avoids depending on the tenant's A2P approval). Falls back to the
+    tenant's own number via _from_number() when ALERT_FROM_NUMBER is unset."""
+    return ALERT_FROM_NUMBER if ALERT_FROM_NUMBER else _from_number(business)
 
 
 def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True):
@@ -100,7 +107,9 @@ def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True):
             db.add_message(lead_id, "out", body)
         return {"status": "blocked", "reason": "a2p_not_approved"}
 
-    sender = _from_number(business)
+    # Owner alerts (gate=False) use the platform alert number so they never depend
+    # on the tenant's A2P approval status. Customer-facing sends use the tenant's number.
+    sender = _alert_from_number(business) if not gate else _from_number(business)
     if not configured() or not sender:
         # Simulated: post to the lead's thread (when known) so the demo still
         # shows the message; never pretend it really went out.

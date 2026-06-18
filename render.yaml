@@ -47,6 +47,21 @@ services:
         value: "1"
       - key: FIRSTBACK_TZ            # <-- set to the business's timezone
         value: America/New_York
+      # ---- Platform alert channel (ops must set real values in Render dashboard) ----
+      # SMTP: owner alert emails route through this SMTP host. Set SMTP_USER + SMTP_PASS
+      # as secrets in the dashboard (never commit real credentials).
+      - key: SMTP_HOST
+        value: smtp.resend.com   # placeholder — set real value in Render dashboard
+        sync: false
+      - key: SMTP_FROM
+        value: alerts@firstback.app   # placeholder — set real value in Render dashboard
+        sync: false
+      # ALERT_FROM_NUMBER: the platform Twilio number owner-alert SMS send FROM.
+      # Keeps owner alerts off the tenant's A2P customer-facing number (no A2P required).
+      # Set the real E.164 number (+1...) as a secret in the Render dashboard.
+      - key: ALERT_FROM_NUMBER
+        value: ""   # placeholder — set real value in Render dashboard
+        sync: false
       # ---- Add these as SECRETS in the Render dashboard (Environment tab) ----
       # The AI brain (pick one):
       #   FIRSTBACK_PROVIDER = claude     and  ANTHROPIC_API_KEY = sk-ant-...
@@ -57,7 +72,7 @@ services:
       #   PUBLIC_BASE_URL = https://<your-render-url>
       #   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER
       # Email alerts (optional):
-      #   SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM
+      #   SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM (see placeholders above)
       # First-login owner (optional; defaults to the seeded creds you then change):
       #   FIRSTBACK_OWNER_EMAIL / FIRSTBACK_OWNER_PASSWORD
 

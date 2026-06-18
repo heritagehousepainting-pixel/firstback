@@ -288,6 +288,17 @@ def signup():
             "service_area": "Your service area", "hours": "Mon-Fri, 8am-5pm",
             "ai_instructions": _default_ai_instructions(biz_name, trade)})
         uid = db.create_user(email, generate_password_hash(password), bid)
+        # Populate owner-alert prefs so SMS/email alerts are non-NULL from day 1.
+        # alert_sms uses the phone field when present in the form (e.g. a future signup
+        # step that collects it); alert_email defaults to the login email.
+        signup_phone = (request.form.get("phone") or "").strip()
+        db.update_alert_prefs(bid, {
+            "alert_email": email,
+            "alert_sms": signup_phone,
+            "alert_on_lead": 1,
+            "alert_on_booking": 1,
+            "alert_on_urgent": 1,
+        })
         session.clear()
         session["uid"] = uid
         return redirect("/setup")   # a brand-new tenant always starts at Go Live

@@ -87,6 +87,10 @@ function addMeta(container, text) {
   // which is shown in the device header from the business profile).
   const DEMO_CALLER = "+1 (415) 555-0142";
   let leadId = null;
+  // Route to the correct API: demo (public sandbox) vs. logged-in simulator.
+  const simRoot = document.querySelector(".sim-2col");
+  const API_INCOMING = (simRoot && simRoot.dataset.simIncoming) || "/api/sim/incoming";
+  const API_REPLY = (simRoot && simRoot.dataset.simReply) || "/api/sim/reply";
 
   function banner(kind, label, text) {
     const el = document.createElement("div");
@@ -132,7 +136,7 @@ function addMeta(container, text) {
     addMeta(thread, "Missed call · " + callerLabel + " · just now");
     btn.disabled = true;
     try {
-      const data = await apiFetch("/api/sim/incoming", {
+      const data = await apiFetch(API_INCOMING, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: CUSTOMER, phone: DEMO_CALLER, scenario }),
@@ -169,7 +173,7 @@ function addMeta(container, text) {
     input.disabled = true;
     sendBtn.disabled = true;
     try {
-      const data = await apiFetch("/api/sim/reply", {
+      const data = await apiFetch(API_REPLY, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lead_id: leadId, body: text }),

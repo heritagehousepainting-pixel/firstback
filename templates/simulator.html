@@ -11,7 +11,7 @@
 {% block page_sub %}<p class="page-sub">See exactly what your customer feels the moment you miss their call.</p>{% endblock %}
 
 {% block content %}
-<div class="sim-2col">
+<div class="sim-2col" data-sim-incoming="{{ '/api/demo/incoming' if demo_mode else '/api/sim/incoming' }}" data-sim-reply="{{ '/api/demo/reply' if demo_mode else '/api/sim/reply' }}">
   <div class="sim-explain">
     {% call card(title='Try it yourself') %}
       <p class="sim-lead">Hit <strong>Simulate missed call</strong> to fire the instant text-back, then reply as if you’re the homeowner. Watch {{ app_name }} qualify the job and book the estimate.</p>

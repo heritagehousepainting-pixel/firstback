@@ -80,6 +80,9 @@ def spam_score(signals):
         line_type       str  -- e.g. 'nonFixedVoip' (a robocaller signal)
         reputation_score int -- 0-100 from a paid provider (authoritative)
         crowd_count     int  -- distinct OTHER businesses that flagged this number
+        burst_count     int  -- distinct businesses that flagged this number in the
+                               last 24h (velocity burst; needs corroboration to reach
+                               HARD -- +35 alone doesn't hit the 80 default threshold)
         behavior        dict -- {missed_calls, inbound_msgs, booked}
     """
     score, reasons = 0, []
@@ -121,6 +124,14 @@ def spam_score(signals):
         score += contribution
         reasons.append(f"flagged as spam by {crowd} other businesses")
 
+    # Burst signal: this number has been flagged by 3+ distinct businesses in the
+    # last 24 hours (velocity). +35 alone does NOT reach the default HARD threshold
+    # of 80 -- corroboration (another signal) is still required. Precision-first.
+    burst = int(signals.get("burst_count") or 0)
+    if burst >= 3:
+        score += 35
+        reasons.append("calling dozens of businesses in the past hour")
+
     beh = signals.get("behavior") or {}
     missed = int(beh.get("missed_calls") or 0)
     inbound = int(beh.get("inbound_msgs") or 0)
@@ -133,12 +144,20 @@ def spam_score(signals):
 
 
 def screen_caller(business_id, number, *, attestation=None, neighbor_spoof=False,
-                  reputation=None, behavior=None):
+                  reputation=None, behavior=None, hard=None, mid=None):
     """Verdict for a missed caller, BEFORE we text back (see module docstring for the
     shape). Identity tiers first (free, decisive), then the spam score for unknowns.
 
     The signal kwargs are optional, so a bare screen_caller(biz, number) still works
-    (identity-only, as the original v1 did) -- the hot path passes the richer signals."""
+    (identity-only, as the original v1 did) -- the hot path passes the richer signals.
+
+    `hard`/`mid`: per-tenant band overrides (from biz['screen_hard'/'screen_mid']).
+    Default to SCREEN_SCORE_HARD/MID when None. The UI slice resolves these from the
+    business row and passes them in; CORE reads the config defaults so callers that
+    don't pass them get existing behavior."""
+    hard_threshold = hard if hard is not None else SCREEN_SCORE_HARD
+    mid_threshold = mid if mid is not None else SCREEN_SCORE_MID
+
     if db.is_suppressed(business_id, number):
         return {"engage": False, "status": "opted_out", "score": 0,
                 "category": "opted_out", "reasons": ["recipient opted out"],
@@ -159,9 +178,20 @@ def screen_caller(business_id, number, *, attestation=None, neighbor_spoof=False
                 "reasons": ["known caller -- handled by you, not the bot"],
                 "reason": "known caller"}
 
-    # Unknown caller: score the spam signals (crowd count read here; the rest passed in).
+    # Unknown caller: score the spam signals (crowd count + burst count read here;
+    # the rest passed in). Crowd = all-time distinct flagging businesses (persistent
+    # reputation). Burst = how many distinct businesses flagged in the last 24h
+    # (velocity signal for a fresh robocall blitz; +35 alone does NOT reach HARD=80).
+    # Burst is only passed when crowd hasn't fired: if crowd already reflects the same
+    # flags, burst would double-count the same evidence. When crowd fires (>= CROWD_MIN),
+    # the persistent reputation already captures the signal; burst adds nothing new.
+    crowd_count = db.global_spam_count(number, exclude_business_id=business_id)
+    burst_count = 0
+    if crowd_count < SCREEN_CROWD_MIN:
+        burst_count = db.global_spam_count(number, exclude_business_id=business_id,
+                                           within_hours=24)
     signals = {"neighbor_spoof": neighbor_spoof, "behavior": behavior or {},
-               "crowd_count": db.global_spam_count(number, exclude_business_id=business_id)}
+               "crowd_count": crowd_count, "burst_count": burst_count}
     if attestation is not None:
         signals["attestation"] = attestation
     if reputation:
@@ -169,11 +199,11 @@ def screen_caller(business_id, number, *, attestation=None, neighbor_spoof=False
         signals["reputation_score"] = reputation.get("spam_score")
 
     score, reasons = spam_score(signals)
-    if score >= SCREEN_SCORE_HARD:
+    if score >= hard_threshold:
         return {"engage": False, "status": "screened_spam", "score": score,
                 "category": "spam", "reasons": reasons,
                 "reason": "looks like spam/robocall"}
-    if score >= SCREEN_SCORE_MID:
+    if score >= mid_threshold:
         return {"engage": True, "status": "review", "score": score,
                 "category": category, "reasons": reasons,
                 "reason": "engaged but flagged for review"}

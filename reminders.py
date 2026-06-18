@@ -29,7 +29,8 @@ import db
 import alerts
 import messaging
 from config import (app_tz, REMINDER_LEAD_HOURS, FOLLOWUP_IDLE_HOURS, TICK_SECONDS,
-                    QUIET_START, QUIET_END)
+                    QUIET_START, QUIET_END, SCREEN_GRADUATION_DAYS, SCREEN_GRADUATION_MIN_VERDICTS,
+                    SCREEN_MODE)
 
 # SF-5: per-business timezone helper (Agent 1 defines biz_tz in config.py;
 # we import lazily so tests can monkeypatch before the real function exists).
@@ -478,6 +479,74 @@ def scan_stall_nudges(now=None):
     return fired
 
 
+def scan_screening_graduation(now=None):
+    """Phase 5c: auto-promote businesses from monitor -> enforce after a clean
+    observation window. For each business:
+      - Skip unless effective mode is 'monitor' and screening_hold is not set.
+      - Lazy-init NULL window_start to now() and skip this pass (clock just started).
+      - Promote when: window_age >= SCREEN_GRADUATION_DAYS AND
+        would_screen count (in-window) >= SCREEN_GRADUATION_MIN_VERDICTS.
+      - On promote: db.promote_screening + alerts.notify("screening_graduated").
+    A rescue resets window_start, so the clock restarts and the next pass won't promote
+    -- this IS the safety valve (a real homeowner can never be silenced without recovery).
+    Returns the count of businesses promoted this pass."""
+    from datetime import datetime, timezone, timedelta
+    now_dt = datetime.now(timezone.utc)
+    now_str = now or now_dt.isoformat()
+    promoted = 0
+    for biz in db.list_businesses():
+        try:
+            bid = biz.get("id")
+            if bid is None:
+                continue
+            # Effective mode: per-business override wins; falls back to config default.
+            effective = (biz.get("screen_mode") or "").strip().lower()
+            if effective not in ("off", "monitor", "enforce"):
+                effective = SCREEN_MODE
+            # Only graduate businesses in monitor mode (never off, never already enforce).
+            if effective != "monitor":
+                continue
+            # Respect the owner's "keep in observe" hold.
+            if biz.get("screening_hold"):
+                continue
+            # Lazy-init NULL window_start: set to now and SKIP this pass (the 7d clock
+            # starts from today; we'll graduate on a future pass after 7 days elapse).
+            window_start = biz.get("screening_window_start")
+            if not window_start:
+                conn = db.get_conn()
+                conn.execute(
+                    "UPDATE businesses SET screening_window_start=? WHERE id=?",
+                    (now_dt.isoformat(), bid))
+                conn.commit()
+                conn.close()
+                continue
+            # Compute window age.
+            try:
+                ws_dt = datetime.fromisoformat(window_start)
+                if ws_dt.tzinfo is None:
+                    ws_dt = ws_dt.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                continue
+            age_days = (now_dt - ws_dt).total_seconds() / 86400.0
+            if age_days < SCREEN_GRADUATION_DAYS:
+                continue
+            # Check would_screen count since window start.
+            stats = db.screening_stats(bid, since=window_start)
+            would_screen = stats.get("would_screen", 0)
+            if would_screen < SCREEN_GRADUATION_MIN_VERDICTS:
+                continue
+            # Conditions met: promote to enforce.
+            db.promote_screening(bid)
+            # Refresh business row so alerts reads the updated screen_mode.
+            biz_updated = db.get_business(bid)
+            alerts.notify(biz_updated, "screening_graduated", {"n": would_screen})
+            promoted += 1
+        except Exception as e:
+            print(f"[firstback] screening graduation failed (biz {biz.get('id')}): {e}",
+                  file=sys.stderr, flush=True)
+    return promoted
+
+
 def tick_once(now=None):
     """One scheduler pass: refresh caller-triage suggestions, queue follow-ups, then
     send everything due. Always writes a heartbeat to meta (SF-3), even on partial
@@ -520,6 +589,11 @@ def tick_once(now=None):
         scan_stall_nudges(now)
     except Exception as e:
         print(f"[firstback] stall nudge tick failed: {e}", file=sys.stderr, flush=True)
+    # Phase 5c: screening graduation (monitor -> enforce after clean 7d window).
+    try:
+        scan_screening_graduation(now)
+    except Exception as e:
+        print(f"[firstback] screening graduation tick failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
     return {"queued": queued, "growth_queued": growth_queued, "sent": sent}
 

@@ -10,7 +10,8 @@ import sqlite3
 from datetime import datetime, timezone, date, timedelta
 import token_crypto
 from config import (DB_PATH, DB_BACKUP_PATH, DEFAULT_BUSINESS, ESTIMATE_TIMES,
-                    BOOKING_HORIZON_DAYS, DEFAULT_WORKING_DAYS, DEFAULT_BUFFER_MINUTES, app_tz)
+                    BOOKING_HORIZON_DAYS, DEFAULT_WORKING_DAYS, DEFAULT_BUFFER_MINUTES, app_tz,
+                    FLUSH_MAX_AGE_HOURS)
 
 # `available_slots` is intentionally omitted: availability comes from the
 # in-house calendar now, so we no longer seed or update that legacy column.
@@ -696,6 +697,22 @@ def init_db():
     appt_cols = [r[1] for r in c.execute("PRAGMA table_info(appointments)").fetchall()]
     if "google_event_id" not in appt_cols:
         c.execute("ALTER TABLE appointments ADD COLUMN google_event_id TEXT")
+
+    # Phase 3 — A2P path fork (business_type) on businesses
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    for col, ddl in (("business_type", "TEXT DEFAULT 'unknown'"),
+                     ("micro_site_slug", "TEXT"),
+                     ("a2p_contact_email", "TEXT")):
+        if col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+
+    # Phase 3 — blocked_sends: persisted text-backs to replay on A2P approval (auto-flush)
+    c.execute("""CREATE TABLE IF NOT EXISTS blocked_sends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id INTEGER NOT NULL, lead_id INTEGER,
+        to_number TEXT NOT NULL, body TEXT NOT NULL, blocked_at TEXT NOT NULL,
+        flushed INTEGER DEFAULT 0, flushed_at TEXT, skip_reason TEXT)""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_blocked_sends_biz ON blocked_sends(business_id, flushed)")
 
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
@@ -2961,5 +2978,89 @@ def set_opt_in(business_id, number, source="sms-start"):
         "  opted_out=0, opted_out_at=NULL, source=excluded.source, "
         "  updated_at=excluded.updated_at",
         (business_id, key, source, now_iso()))
+    conn.commit()
+    conn.close()
+
+
+# ---- Phase 3 seam functions (owned by A1) ----
+
+def set_business_type(business_id, business_type):
+    """Persist the A2P registration path: 'sole_prop' | 'llc' | 'unknown'.
+    Set at signup from the 'Do you have an EIN?' checkbox; gates the profile
+    completion check and the brand-submission payload."""
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET business_type=? WHERE id=?",
+                 (business_type, business_id))
+    conn.commit()
+    conn.close()
+
+
+def set_micro_site(business_id, slug, contact_email):
+    """Store the micro-site slug and A2P contact email on a business.
+    Called by connections.submit_a2p (Path B) after build_slug/build_contact_email.
+    The opt-in URL submitted to TCR is https://<slug>.<MICRO_SITE_DOMAIN>."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE businesses SET micro_site_slug=?, a2p_contact_email=? WHERE id=?",
+        (slug, contact_email, business_id))
+    conn.commit()
+    conn.close()
+
+
+def queue_blocked_send(business_id, lead_id, to, body, blocked_at=None):
+    """Queue a blocked outbound SMS for replay when A2P is approved (auto-flush).
+    Returns the new row id, or None on a sqlite error (never raises into the request).
+    `blocked_at` defaults to now_iso() when not provided."""
+    at = blocked_at if blocked_at is not None else now_iso()
+    conn = get_conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO blocked_sends "
+            "(business_id, lead_id, to_number, body, blocked_at) VALUES (?,?,?,?,?)",
+            (business_id, lead_id, to, body, at))
+        conn.commit()
+        row_id = cur.lastrowid
+    except sqlite3.Error as e:
+        conn.rollback()
+        row_id = None
+        print(f"[firstback] queue_blocked_send failed (biz {business_id}): {e}",
+              file=sys.stderr, flush=True)
+    conn.close()
+    return row_id
+
+
+def get_blocked_sends(business_id, flushed=False, limit=50):
+    """Return blocked send rows for a business. `flushed=False` returns only
+    un-replayed rows (the flush queue); `flushed=True` returns completed/skipped rows.
+    Ordered oldest-first (so flush replays in arrival order). Returns list[dict]."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM blocked_sends WHERE business_id=? AND flushed=? "
+        "ORDER BY blocked_at ASC LIMIT ?",
+        (business_id, 1 if flushed else 0, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_flushed(blocked_send_id):
+    """Mark a blocked send as successfully flushed (replayed). Sets flushed=1 and
+    flushed_at to now. The auto-flush safety spec requires this is set BEFORE calling
+    send_sms so a crash mid-flush never retries the same row."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE blocked_sends SET flushed=1, flushed_at=? WHERE id=?",
+        (now_iso(), blocked_send_id))
+    conn.commit()
+    conn.close()
+
+
+def mark_flush_skipped(blocked_send_id, reason):
+    """Record that this blocked send was skipped during flush and why
+    (stale | opted_out | conversation_progressed | send_error | ...).
+    Sets flushed=1 (so it won't be re-queried) and stores the skip_reason."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE blocked_sends SET flushed=1, flushed_at=?, skip_reason=? WHERE id=?",
+        (now_iso(), reason, blocked_send_id))
     conn.commit()
     conn.close()

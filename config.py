@@ -125,6 +125,25 @@ except (TypeError, ValueError):
     REPUTATION_TIMEOUT_SECONDS = 2.5
 
 
+# Phase 3 — Google Places API (optional; gated — /api/places/lookup returns {} when unset).
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+
+# Phase 3 — Micro-site domain for A2P opt-in landing pages. <slug>.<MICRO_SITE_DOMAIN>
+# is the brand opt-in URL submitted to TCR. The /c/<slug> Flask route works for tests today;
+# full subdomain routing requires OWNER-OPS: *.firstback.io wildcard DNS + Cloudflare routing.
+MICRO_SITE_DOMAIN = os.environ.get("MICRO_SITE_DOMAIN", "firstback.io")
+
+# Phase 3 — Catch-all email domain for A2P contact emails. Requires OWNER-OPS:
+# Cloudflare Email Routing catch-all @clients.firstback.com -> forward address.
+CLIENTS_EMAIL_DOMAIN = os.environ.get("CLIENTS_EMAIL_DOMAIN", "clients.firstback.com")
+
+# Phase 3 — Auto-flush safety: max age (hours) for a blocked send to be replayed.
+# A "we'll text you right back" that lands days later is incoherent; default 6h.
+try:
+    FLUSH_MAX_AGE_HOURS = float(os.environ.get("FIRSTBACK_FLUSH_MAX_AGE_HOURS", "") or 6)
+except (TypeError, ValueError):
+    FLUSH_MAX_AGE_HOURS = 6.0
+
 # --- Google Calendar (optional real two-way sync) -------------------------
 # To turn on: in Google Cloud Console create an OAuth 2.0 Client ID of type
 # "Web application", add the redirect URI below to its "Authorized redirect
@@ -149,6 +168,11 @@ GOOGLE_CONTACTS_REDIRECT_URI = os.environ.get(
 # also needs a from-number -- the app-wide TWILIO_FROM_NUMBER, or a business's own
 # provisioned number -- otherwise it stays simulated. TWILIO_FROM_NUMBER must be an
 # E.164 number Twilio owns (e.g. +15551234567).
+# Phase 3 — A2P Trust Hub write API. The Trust Hub product SID is required before
+# any brand/campaign creation call is made (prevents accidental real, billable submissions).
+# TWILIO_A2P_RESELLER_SID is optional: included in campaigns only when set (ISV reseller path).
+TWILIO_TRUST_PRODUCT_SID = os.environ.get("TWILIO_TRUST_PRODUCT_SID", "")
+TWILIO_A2P_RESELLER_SID = os.environ.get("TWILIO_A2P_RESELLER_SID", "")
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "")

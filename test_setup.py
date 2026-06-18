@@ -328,13 +328,28 @@ r = client.get("/setup?edit=forwarding&carrier=verizon")
 check("forwarding step shows the carrier star code", b"*71+12677562454" in r.data)
 check("forwarding step offers a tap-to-dial link", b"tel:*71+12677562454" in r.data)
 
-# Catcher model: confirm forwarding, forward_to stays blank, business goes LIVE.
+# SF-7: stub send_sentinel_call so no real outbound call fires here. The full
+# sentinel + inbound-confirm path is covered in test_sf7_sentinel.py; this test
+# pins the route's HONESTY contract: a placed sentinel must NOT self-confirm.
+_orig_send_sentinel = connections.send_sentinel_call
+connections.send_sentinel_call = lambda biz_id, to_number=None: {"status": "placed", "sid": "CAtest"}
+
+# Catcher model: forwarding is verified by a sentinel to the owner's cell (forward_to
+# stays blank), NOT self-attested. confirmed stays 0 until the sentinel rings back.
 r = client.post("/setup/forwarding", data={"mode": "catcher"})
 check("forwarding confirm redirects", r.status_code in (301, 302))
+check("catcher fires a sentinel (verifying), not a self-confirm",
+      "verifying=1" in r.headers.get("Location", ""))
 saved = db.get_business(1)
-check("catcher confirm sets forwarding_confirmed", saved["forwarding_confirmed"] == 1)
+check("catcher does NOT self-attest forwarding_confirmed", saved["forwarding_confirmed"] == 0)
 check("catcher confirm keeps forward_to blank", not saved["forward_to"])
-check("business is now LIVE (launch_blockers empty)", connections.is_live(saved, True) is True)
+check("not live until the sentinel confirms forwarding", connections.is_live(saved, True) is False)
+# Simulate the sentinel ringing back -> the inbound webhook is what confirms (see
+# test_sf7_sentinel.py). Now the business is live.
+db.set_forwarding_confirmed(1, True)
+saved = db.get_business(1)
+check("business is LIVE once forwarding is confirmed", connections.is_live(saved, True) is True)
+connections.send_sentinel_call = _orig_send_sentinel
 r = client.get("/setup")
 # Honest banner (DESIGN_AGENT_GOLIVE_BRIEF §G): blockers are clear but no test call has
 # been texted back yet, so it shows "setup complete / make a test call" — NOT "You're live".
@@ -362,7 +377,7 @@ check("a fully wired + approved + forwarded business is LIVE",
 # SF-7: stub send_sentinel_call to return "simulated" so the manual fallback
 # (confirmed=True) fires. The real sentinel path is tested in test_sf7_sentinel.py.
 _orig_send_sentinel = connections.send_sentinel_call
-connections.send_sentinel_call = lambda biz_id: {"status": "simulated"}
+connections.send_sentinel_call = lambda biz_id, to_number=None: {"status": "simulated"}
 db.set_forwarding_confirmed(1, False)
 r = client.post("/setup/forwarding", data={"mode": "dial", "forward_to": "+15551234567"})
 check("dial mode stores the cell to ring", db.get_business(1)["forward_to"] == "+15551234567")

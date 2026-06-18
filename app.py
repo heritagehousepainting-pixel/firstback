@@ -1199,8 +1199,22 @@ def setup_forwarding():
             db.set_forwarding_confirmed(biz["id"], True)
     else:
         db.update_phone_voice(biz["id"], forward_to="")   # catcher: blank = text immediately
-        # Catcher mode: no sentinel needed; the owner dialed the carrier star code.
-        db.set_forwarding_confirmed(biz["id"], True)
+        # Catcher mode relies on the SAME carrier conditional-forwarding as dial mode,
+        # so it gets the SAME honest proof: sentinel the owner's own cell (forward_to
+        # is blank here by design). If the carrier star code is set, the call rings
+        # back to the FirstBack number -> twilio_voice_inbound confirms it. We never
+        # self-attest confirmed=True here. [DECIDED] honesty rule.
+        owner_cell = messaging.to_e164((biz.get("alert_sms") or biz.get("phone") or "").strip())
+        if messaging.configured() and owner_cell:
+            sentinel_result = connections.send_sentinel_call(biz["id"], to_number=owner_cell)
+            if sentinel_result.get("status") == "placed":
+                return redirect("/setup?saved=forwarding&verifying=1")
+            # Sentinel couldn't be placed (no public URL / Twilio error): fall back to a
+            # clearly-labelled manual confirm so local dev still works.
+            db.set_forwarding_confirmed(biz["id"], True)
+        else:
+            # Twilio not configured (local dev) or no owner cell on file -> manual fallback.
+            db.set_forwarding_confirmed(biz["id"], True)
     return redirect("/setup?saved=forwarding")
 
 

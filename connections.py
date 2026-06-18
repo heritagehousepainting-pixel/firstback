@@ -315,11 +315,17 @@ def _sentinel_twiml_url():
     return (base + "/webhooks/twilio/voice/sentinel-twiml") if base else None
 
 
-def send_sentinel_call(business_id):
-    """Place an outbound verification call to the business's `forward_to` number.
-    When Twilio is configured and a forward_to is set, places a real call and
-    stores the SID via db.set_forwarding_sentinel. The inbound webhook
-    (twilio_voice_inbound) is the ONLY place that sets forwarding_confirmed=True.
+def send_sentinel_call(business_id, to_number=None):
+    """Place an outbound verification call that proves carrier forwarding is live.
+
+    Dial-through mode passes nothing: we call the business's own `forward_to`.
+    Catcher mode passes the owner's cell explicitly via `to_number` (forward_to is
+    blank in catcher mode by design), because catcher relies on the same carrier
+    conditional-forwarding -- dialing the owner's cell rings back to the FirstBack
+    number when forwarding is set, which is what the inbound webhook confirms.
+
+    Either way the SID is stored via db.set_forwarding_sentinel and the inbound
+    webhook (twilio_voice_inbound) is the ONLY place that sets forwarding_confirmed=True.
 
     Returns a dict with 'status': one of 'placed', 'simulated', 'error',
     'no_forward_to', 'no_twiml_url'.
@@ -330,15 +336,15 @@ def send_sentinel_call(business_id):
     biz = db.get_business(business_id) if not isinstance(business_id, dict) else business_id
     if not biz:
         return {"status": "error", "error": "business not found"}
-    forward_to = (biz.get("forward_to") or "").strip()
-    if not forward_to:
+    target = (to_number or biz.get("forward_to") or "").strip()
+    if not target:
         return {"status": "no_forward_to"}
     twiml_url = _sentinel_twiml_url()
     if not twiml_url:
         # Dev/local: no public URL configured. Return 'simulated' so the route can
         # show an honest manual-fallback message.
         return {"status": "simulated"}
-    result = messaging.place_call(biz, forward_to, twiml_url)
+    result = messaging.place_call(biz, target, twiml_url)
     if result.get("status") == "placed":
         sid = result.get("sid")
         now = datetime.now(timezone.utc).isoformat()

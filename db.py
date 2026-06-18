@@ -544,6 +544,58 @@ def init_db():
         if col not in biz_cols:
             c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
 
+    # ── Phase 1 A: Stripe billing columns on businesses ──────────────────────
+    # CRITICAL GUARD: existing rows (esp. business_id=1 — the live seed tenant)
+    # must default subscription_status='active' so the new gate in launch_blockers
+    # does NOT lock them out. New rows default NULL → treated as active by
+    # the gate when the status is missing (belt + suspenders: the column default
+    # guarantees it on existing rows even if no UPDATE runs).
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    for col, ddl in (
+            ("stripe_customer_id", "TEXT"),
+            ("stripe_sub_id",      "TEXT"),
+            # DEFAULT 'active': existing rows are live tenants — never lock them out.
+            ("subscription_status", "TEXT DEFAULT 'active'"),
+            ("plan",               "TEXT"),
+            ("current_period_end", "INTEGER")):
+        if col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+    # Ensure existing rows that got NULL from an older migration are backfilled.
+    c.execute(
+        "UPDATE businesses SET subscription_status='active' "
+        "WHERE subscription_status IS NULL")
+
+    # stripe_events: idempotency ledger — Stripe retries for 3 days, so we dedupe
+    # on event_id (Stripe's globally unique event identifier).
+    c.executescript("""
+        CREATE TABLE IF NOT EXISTS stripe_events (
+            event_id    TEXT PRIMARY KEY,
+            event_type  TEXT,
+            status      TEXT,          -- 'ok' | 'error'
+            detail      TEXT,
+            created_at  TEXT
+        );
+    """)
+
+    # usage_grants: written by billing.py on invoice.paid.
+    # B (Cost spine) reads this to compute conversations_remaining.
+    # (business_id, period_start) is the natural dedup key but we allow
+    # multiple grants per period (e.g. mid-cycle upgrades) and let the
+    # gauge SUM them.
+    c.executescript("""
+        CREATE TABLE IF NOT EXISTS usage_grants (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id             INTEGER NOT NULL,
+            period_start            INTEGER,   -- Unix timestamp (from Stripe)
+            period_end              INTEGER,   -- Unix timestamp
+            conversations_granted   INTEGER NOT NULL,
+            source                  TEXT,      -- e.g. 'stripe:sub_xxx'
+            created_at              TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_grants_biz
+            ON usage_grants(business_id, period_end);
+    """)
+
     # One follow-up per lead, EVER -- enforced at the DB layer so two scheduler
     # drivers (the in-process ticker + an external /tasks/run-due cron) can't race
     # and double-queue a nudge. Collapse any pre-existing duplicates (keep the
@@ -589,6 +641,92 @@ def init_db():
         )
     conn.commit()
     conn.close()
+
+
+# ---- Stripe billing --------------------------------------------------------
+def update_billing(business_id: int, stripe_customer_id: str = None,
+                   stripe_sub_id: str = None, subscription_status: str = None,
+                   plan: str = None, current_period_end=None):
+    """Upsert Stripe billing fields on a business. Only provided fields are written."""
+    sets, vals = [], []
+    for col, val in (
+            ("stripe_customer_id", stripe_customer_id),
+            ("stripe_sub_id",      stripe_sub_id),
+            ("subscription_status", subscription_status),
+            ("plan",               plan),
+            ("current_period_end", current_period_end)):
+        if val is not None:
+            sets.append(f"{col}=?")
+            vals.append(val)
+    if not sets:
+        return
+    conn = get_conn()
+    conn.execute(f"UPDATE businesses SET {', '.join(sets)} WHERE id=?",
+                 tuple(vals) + (business_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_business_id_by_stripe_customer(customer_id: str) -> int | None:
+    """Reverse-lookup: Stripe customer_id → business_id."""
+    if not customer_id:
+        return None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id FROM businesses WHERE stripe_customer_id=? LIMIT 1",
+        (customer_id,),
+    ).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def stripe_event_seen(event_id: str) -> bool:
+    """True if this Stripe event id has already been processed."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM stripe_events WHERE event_id=?", (event_id,)
+    ).fetchone()
+    conn.close()
+    return bool(row)
+
+
+def mark_stripe_event(event_id: str, event_type: str, status: str = "ok",
+                      detail: str = ""):
+    """Record (or update) a Stripe event in the idempotency ledger."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO stripe_events "
+        "(event_id, event_type, status, detail, created_at) VALUES (?,?,?,?,?)",
+        (event_id, event_type, status, detail or "", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_usage_grant(business_id: int, period_start=None, period_end=None,
+                    conversations_granted: int = 0, source: str = ""):
+    """Write a usage grant row (called on Stripe invoice.paid)."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO usage_grants "
+        "(business_id, period_start, period_end, conversations_granted, source, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (business_id, period_start, period_end, conversations_granted,
+         source or "", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_usage_grants(business_id: int) -> list[dict]:
+    """All usage grants for a business, newest first."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM usage_grants WHERE business_id=? ORDER BY id DESC",
+        (business_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ---- Platform meta (key-value) ----

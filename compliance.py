@@ -46,6 +46,17 @@ def a2p_ready(business):
     return a2p_status(business) == "approved"
 
 
+def subscription_active(business) -> bool:
+    """True when the tenant has an active (or unconfigured/legacy) subscription.
+
+    A NULL/missing subscription_status is treated as active — it means the tenant
+    pre-dates billing (the seed tenant or any legacy row) and must not be gated out.
+    Only the explicit values 'canceled' and 'past_due' block launch.
+    """
+    status = (business or {}).get("subscription_status") or "active"
+    return status not in ("canceled", "past_due")
+
+
 def launch_blockers(business, sms_configured):
     """Plain-English list of what still stands between this business and sending for
     real. Empty list means ready. Drives honest Settings / onboarding copy so we
@@ -64,4 +75,8 @@ def launch_blockers(business, sms_configured):
     # conditional-forwarding; forward_to stays blank) OR dial-through (forward_to set).
     if not (b.get("forward_to") or b.get("forwarding_confirmed")):
         out.append("Call forwarding to your FirstBack number isn't set up yet.")
+    # Phase 1 A: subscription gate — canceled or unpaid tenants cannot go live.
+    if not subscription_active(b):
+        status = b.get("subscription_status", "unknown")
+        out.append(f"Subscription is {status}. Reactivate your plan to send messages.")
     return out

@@ -1959,6 +1959,68 @@ def tasks_run_due():
     return jsonify(out)
 
 
+# ── Phase 1 A: Stripe billing routes ─────────────────────────────────────────
+# /webhooks/stripe  — raw body required for signature verification; no auth.
+# /billing/checkout — auth-gated; creates a Checkout session for a plan.
+# /billing/portal   — auth-gated; creates a Billing Portal session.
+import billing as _billing
+
+
+@app.route("/webhooks/stripe", methods=["POST"])
+def stripe_webhook():
+    """Stripe webhook endpoint.  Must receive the RAW request body so the HMAC
+    signature can be verified.  Flask's request.data gives the bytes as-is when
+    we read it before request.form is touched — which is always the case here
+    (no form parsing on this route).  Auth-free: protected by the HMAC instead."""
+    payload    = request.get_data()   # raw bytes — never parse as form first
+    sig_header = request.headers.get("Stripe-Signature", "")
+    try:
+        msg, code = _billing.handle_webhook(payload, sig_header)
+        return jsonify(status=msg), code
+    except Exception as exc:
+        # Let Stripe know the payload was bad so it retries (or stops).
+        import stripe as _stripe_mod
+        if isinstance(exc, _stripe_mod.error.SignatureVerificationError):
+            return jsonify(error="Invalid signature"), 400
+        # Unexpected errors: 500 so Stripe retries.
+        return jsonify(error=str(exc)), 500
+
+
+@app.route("/billing/checkout", methods=["POST"])
+@login_required
+def billing_checkout():
+    """Create a Stripe Checkout session and redirect the owner to it."""
+    u   = current_user()
+    biz = db.get_business(u["business_id"])
+    plan = request.form.get("plan", "starter").lower().strip()
+    if plan not in ("starter", "pro", "crew"):
+        return jsonify(error="Invalid plan"), 400
+    try:
+        session = _billing.create_checkout_session(biz["id"], plan)
+        # session is a dict-like object with a .url attribute.
+        checkout_url = session.get("url") if isinstance(session, dict) else session.url
+        return redirect(checkout_url)
+    except Exception as exc:
+        return jsonify(error=str(exc)), 500
+
+
+@app.route("/billing/portal", methods=["POST"])
+@login_required
+def billing_portal():
+    """Redirect the authenticated owner to the Stripe Billing Portal."""
+    u   = current_user()
+    biz = db.get_business(u["business_id"])
+    try:
+        session = _billing.create_portal_session(biz["id"])
+        portal_url = session.get("url") if isinstance(session, dict) else session.url
+        return redirect(portal_url)
+    except ValueError as exc:
+        # No Stripe customer yet — merchant hasn't subscribed.
+        return jsonify(error=str(exc)), 400
+    except Exception as exc:
+        return jsonify(error=str(exc)), 500
+
+
 # ---- SF-3: Ticker heartbeat health endpoint ----
 # No auth: this is a liveness/health probe for ops monitoring.
 # Returns only platform-level metadata; zero tenant data is exposed.

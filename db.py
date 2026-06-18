@@ -2457,6 +2457,40 @@ def followup_candidate_rows(business_id):
     return [dict(r) for r in rows]
 
 
+def warm_leads_idle(business_id, hours):
+    """Warm leads (replied, not booked, not urgent) whose last inbound/outbound
+    message is older than `hours` hours ago. Returns a list of dicts with keys:
+    id, name, phone, last_msg_at, idle_hours, avg_job_value.
+
+    ALPHA P1-3: used by scan_stall_nudges to find leads needing a nudge.
+    No new columns on businesses; avg_job_value is already on the table."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT l.id, l.name, l.phone, b.avg_job_value, "
+        "MAX(m.created_at) AS last_msg_at "
+        "FROM leads l "
+        "JOIN messages m ON m.lead_id = l.id "
+        "JOIN businesses b ON b.id = l.business_id "
+        "WHERE l.business_id=? AND l.status != 'booked' AND (l.urgent IS NULL OR l.urgent=0) "
+        "AND EXISTS(SELECT 1 FROM messages mi WHERE mi.lead_id=l.id AND mi.direction='in') "
+        "GROUP BY l.id "
+        "HAVING MAX(m.created_at) < ?",
+        (business_id, cutoff)).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        # Compute idle_hours for the caller.
+        try:
+            last = datetime.fromisoformat(d["last_msg_at"])
+            d["idle_hours"] = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+        except (TypeError, ValueError):
+            d["idle_hours"] = hours
+        out.append(d)
+    return out
+
+
 def reminders_by_appointment(business_id):
     """{appointment_id: {'status', 'send_at'}} (newest row per appointment) for the
     dashboard's reminder-state column."""

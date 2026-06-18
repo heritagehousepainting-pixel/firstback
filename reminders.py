@@ -26,6 +26,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import db
+import alerts
 import messaging
 from config import (app_tz, REMINDER_LEAD_HOURS, FOLLOWUP_IDLE_HOURS, TICK_SECONDS,
                     QUIET_START, QUIET_END)
@@ -378,6 +379,105 @@ def scan_followups(now=None):
     return queued
 
 
+def scan_morning_briefing(now=None):
+    """P1-2: fire ONE morning digest SMS per business per local day when local hour
+    is in [7, 10) and the briefing has actionable items (tone=='active', items non-empty).
+    Dedupes via alerts.notify's own dedupe key (vic_morning + local YYYY-MM-DD), so a
+    restart or double-tick can never double-send. Returns the count of digests fired."""
+    now = now or db.now_iso()
+    fired = 0
+    for biz in db.list_businesses():
+        try:
+            tz = _biz_tz(biz)
+            try:
+                now_local = datetime.fromisoformat(now).astimezone(tz)
+            except (TypeError, ValueError):
+                now_local = datetime.now(tz)
+            # Only fire in the [7, 10) morning window.
+            if not (7 <= now_local.hour < 10):
+                continue
+            local_day = now_local.strftime("%Y-%m-%d")
+            # Lazy-import assistant here (ALPHA reads it read-only).
+            try:
+                import assistant as _assistant
+                card = _assistant.briefing(biz)
+            except Exception:
+                continue
+            tone = card.get("tone", "")
+            items = card.get("items") or []
+            if tone != "active" or not items:
+                continue
+            # Build a compact, honest body. No "tap to send".
+            headline = (card.get("headline") or "").strip()
+            hottest = ""
+            for it in items:
+                title = (it.get("title") or "").strip()
+                if title:
+                    hottest = title
+                    break
+            # Extract count and money from the headline if available.
+            import re as _re
+            n_match = _re.search(r"(\d+)\s+lead", headline, _re.I)
+            n = int(n_match.group(1)) if n_match else len(items)
+            money_match = _re.search(r"~?\$[\d,]+", headline)
+            money = money_match.group(0) if money_match else ""
+            ctx = {
+                "n": n,
+                "money": money,
+                "hottest": hottest,
+                "local_day": local_day,
+            }
+            result = alerts.notify(biz, "vic_morning", ctx)
+            if result:
+                fired += 1
+        except Exception as e:
+            print(f"[firstback] morning briefing scan failed (biz {biz.get('id')}): {e}",
+                  file=sys.stderr, flush=True)
+    return fired
+
+
+def scan_stall_nudges(now=None):
+    """P1-3: nudge the owner when a warm lead has gone quiet for >24h (one per lead
+    per local day). Escalates copy at >48h. Dedupes via alerts.notify dedupe key
+    (vic_stall + lead_id + local YYYY-MM-DD). Returns the count of nudges fired."""
+    now = now or db.now_iso()
+    fired = 0
+    for biz in db.list_businesses():
+        try:
+            tz = _biz_tz(biz)
+            try:
+                now_local = datetime.fromisoformat(now).astimezone(tz)
+            except (TypeError, ValueError):
+                now_local = datetime.now(tz)
+            local_day = now_local.strftime("%Y-%m-%d")
+            # Find warm leads idle >24h (not urgent, replied, not booked).
+            idle_leads = db.warm_leads_idle(biz["id"], 24)
+            avg_val = biz.get("avg_job_value")
+            for lead in idle_leads:
+                try:
+                    name = (lead.get("name") or "").strip() or "They"
+                    idle_h = lead.get("idle_hours", 0)
+                    # Money hint if avg_job_value is set.
+                    money = f"${int(avg_val):,}" if avg_val else ""
+                    ctx = {
+                        "lead_id": lead["id"],
+                        "name": name,
+                        "idle_hours": idle_h,
+                        "money": money,
+                        "local_day": local_day,
+                    }
+                    result = alerts.notify(biz, "vic_stall", ctx)
+                    if result:
+                        fired += 1
+                except Exception as e:
+                    print(f"[firstback] stall nudge failed (lead {lead.get('id')}): {e}",
+                          file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[firstback] stall scan failed (biz {biz.get('id')}): {e}",
+                  file=sys.stderr, flush=True)
+    return fired
+
+
 def tick_once(now=None):
     """One scheduler pass: refresh caller-triage suggestions, queue follow-ups, then
     send everything due. Always writes a heartbeat to meta (SF-3), even on partial
@@ -410,6 +510,16 @@ def tick_once(now=None):
         connections.check_forwarding_health()
     except Exception as e:
         print(f"[firstback] forwarding health check failed: {e}", file=sys.stderr, flush=True)
+    # P1-2: morning digest (proactive owner push).
+    try:
+        scan_morning_briefing(now)
+    except Exception as e:
+        print(f"[firstback] morning briefing tick failed: {e}", file=sys.stderr, flush=True)
+    # P1-3: warm-lead stall nudges (proactive owner push).
+    try:
+        scan_stall_nudges(now)
+    except Exception as e:
+        print(f"[firstback] stall nudge tick failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
     return {"queued": queued, "growth_queued": growth_queued, "sent": sent}
 

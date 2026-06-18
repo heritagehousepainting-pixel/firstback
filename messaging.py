@@ -33,7 +33,7 @@ import db
 import tc_messaging
 from config import (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
                     PUBLIC_BASE_URL, ALERT_FROM_NUMBER, QUIET_START, QUIET_END, app_tz,
-                    sms_status_callback_url)
+                    sms_status_callback_url, TWILIO_TRUST_PRODUCT_SID, TWILIO_A2P_RESELLER_SID)
 
 # Twilio's REST API base. We hit /Accounts/{SID}/... with HTTP basic auth.
 API_BASE = "https://api.twilio.com/2010-04-01"
@@ -48,6 +48,14 @@ def configured():
     out also depends on a from-number being available -- the app-wide
     TWILIO_FROM_NUMBER or the business's own provisioned number; see send_sms.)"""
     return bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN)
+
+
+def trust_hub_configured():
+    """True only when Twilio API credentials AND the Trust Hub product SID are set.
+    The A2P write functions (create_a2p_brand/service/campaign) gate on this — NOT
+    just configured() — to prevent accidental real, billable, garbage submissions when
+    creds exist but the Trust Hub product hasn't been provisioned yet."""
+    return configured() and bool(TWILIO_TRUST_PRODUCT_SID)
 
 
 def _from_number(business):
@@ -132,6 +140,8 @@ def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True,
     if gate and configured() and not compliance.a2p_ready(business):
         if lead_id is not None:
             db.add_message(lead_id, "out", body)
+            if biz_id is not None:
+                db.queue_blocked_send(biz_id, lead_id, to, body)
         return {"status": "blocked", "reason": "a2p_not_approved"}
 
     # Owner alerts (gate=False) use the platform alert number so they never depend
@@ -384,6 +394,168 @@ def provision_number(business_id, phone=None, area_code=None, base_url=None,
         print(f"[firstback] twilio provision_number failed (biz {business_id}): {e}",
               file=sys.stderr, flush=True)
         return None
+
+
+# ---- Phase 3: A2P 10DLC write API (Trust Hub + Messaging) ----
+# These functions gate on trust_hub_configured() — NOT just configured() — so that
+# having Twilio creds but no Trust Hub product SID (the common local/dev state) never
+# triggers accidental real, billable, garbage brand/campaign submissions.
+#
+# SECURITY: Never log EIN or business_address VALUES. Log only business_id + HTTP status.
+# The cardinal rule: these functions may only set a2p_status="pending" when recording
+# success. Only connections.a2p_sync() may ever set a2p_status="approved" after polling.
+
+_TRUST_HUB_BASE = "https://trusthub.twilio.com/v1"
+_MESSAGING_BASE = "https://messaging.twilio.com/v1"
+
+
+def create_a2p_brand(business):
+    """Create an A2P 10DLC Secondary Customer Profile (brand) via Twilio Trust Hub.
+    Returns {"status": "simulated"} when trust_hub_configured() is False (no real call).
+    Returns {"status": "created", "brand_sid": sid} on success.
+    Returns {"status": "error", "error": msg} on any API failure. Never raises.
+
+    The brand payload differs by business_type:
+      llc / unknown -> Standard brand (EIN required, micro-site opt-in URL)
+      sole_prop     -> Starter brand (Path A: NO EIN; name+address+phone only)
+
+    # DEFERRED HC-3: confirm sole-prop Starter brand payload + OTP with one real submission
+    """
+    if not trust_hub_configured():
+        return {"status": "simulated"}
+    biz_id = business.get("id") if isinstance(business, dict) else None
+    business_type = (business.get("business_type") or "unknown").lower()
+    import requests
+    try:
+        if business_type == "sole_prop":
+            # Path A: Starter brand for sole proprietors. EIN is absent (it would disqualify
+            # a sole-prop submission). Uses name + address + phone only.
+            # DEFERRED HC-3: confirm sole-prop Starter brand payload + OTP with one real submission
+            payload = {
+                "FriendlyName": business.get("legal_business_name") or business.get("name") or "",
+                "BusinessType": "Sole Proprietorship",
+                # NOTE: EIN is intentionally OMITTED for sole_prop (Path A).
+                "BusinessPhysicalAddress": business.get("business_address") or "",
+                "PhoneNumber": business.get("phone") or "",
+                "PolicyDocument": TWILIO_TRUST_PRODUCT_SID,
+            }
+        else:
+            # Path B: Standard brand for LLC / unknown (EIN required).
+            opt_in_url = ""
+            slug = business.get("micro_site_slug")
+            if slug:
+                from config import MICRO_SITE_DOMAIN
+                opt_in_url = f"https://{slug}.{MICRO_SITE_DOMAIN}"
+            payload = {
+                "FriendlyName": business.get("legal_business_name") or business.get("name") or "",
+                "BusinessType": "Limited Liability Company",
+                "BusinessRegistrationIdentifier": "EIN",
+                # EIN value intentionally NOT logged (see SECURITY note above).
+                "BusinessIdentity": business.get("ein") or "",
+                "BusinessPhysicalAddress": business.get("business_address") or "",
+                "WebsiteUrl": business.get("website") or opt_in_url,
+                "PolicyDocument": TWILIO_TRUST_PRODUCT_SID,
+            }
+        r = requests.post(
+            f"{_TRUST_HUB_BASE}/CustomerProfiles",
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            data=payload, timeout=30)
+        # SECURITY: log business_id + HTTP status ONLY — never EIN or address values.
+        print(f"[firstback] create_a2p_brand biz={biz_id} http={r.status_code}",
+              file=__import__("sys").stderr, flush=True)
+        r.raise_for_status()
+        sid = r.json().get("sid")
+        return {"status": "created", "brand_sid": sid}
+    except Exception as e:
+        print(f"[firstback] create_a2p_brand failed (biz {biz_id}): {e}",
+              file=__import__("sys").stderr, flush=True)
+        return {"status": "error", "error": str(e)}
+
+
+def create_a2p_messaging_service(business):
+    """Create a Twilio Messaging Service for A2P 10DLC.
+    Returns {"status": "simulated"} when trust_hub_configured() is False.
+    Returns {"status": "created", "messaging_service_sid": sid} on success.
+    Returns {"status": "error", "error": msg} on any API failure. Never raises."""
+    if not trust_hub_configured():
+        return {"status": "simulated"}
+    biz_id = business.get("id") if isinstance(business, dict) else None
+    import requests
+    try:
+        name = business.get("legal_business_name") or business.get("name") or f"biz-{biz_id}"
+        payload = {
+            "FriendlyName": f"{name} Messaging Service",
+            "UseInboundWebhookOnNumber": "false",
+        }
+        r = requests.post(
+            f"{_MESSAGING_BASE}/Services",
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            data=payload, timeout=30)
+        print(f"[firstback] create_a2p_messaging_service biz={biz_id} http={r.status_code}",
+              file=__import__("sys").stderr, flush=True)
+        r.raise_for_status()
+        sid = r.json().get("sid")
+        return {"status": "created", "messaging_service_sid": sid}
+    except Exception as e:
+        print(f"[firstback] create_a2p_messaging_service failed (biz {biz_id}): {e}",
+              file=__import__("sys").stderr, flush=True)
+        return {"status": "error", "error": str(e)}
+
+
+def create_a2p_campaign(business, messaging_service_sid, brand_sid):
+    """Create a US A2P 10DLC campaign and attach it to a Messaging Service.
+    UseCase is hardcoded to CUSTOMER_CARE (the correct use case for missed-call text-backs).
+    IsrId (ISV reseller SID) is included ONLY when TWILIO_A2P_RESELLER_SID is set.
+    Returns {"status": "simulated"} when trust_hub_configured() is False.
+    Returns {"status": "created", "campaign_sid": sid} on success.
+    Returns {"status": "error", "error": msg} on any API failure. Never raises."""
+    if not trust_hub_configured():
+        return {"status": "simulated"}
+    biz_id = business.get("id") if isinstance(business, dict) else None
+    import requests
+    try:
+        opt_in_url = ""
+        slug = business.get("micro_site_slug")
+        if slug:
+            from config import MICRO_SITE_DOMAIN
+            opt_in_url = f"https://{slug}.{MICRO_SITE_DOMAIN}"
+        payload = {
+            "BrandRegistrationSid": brand_sid,
+            # UseCase is hardcoded — missed-call text-backs are CUSTOMER_CARE, never marketing.
+            "UseCase": "CUSTOMER_CARE",
+            "Description": (
+                "Automated text-back to missed callers, confirming the business received "
+                "their call and will follow up to schedule an estimate."
+            ),
+            "MessageSamples": (
+                "Hi! You just called Heritage House Painting but I missed you. "
+                "I'll text you right back -- what's the best time to follow up?"
+            ),
+            "OptInMessage": "Reply YES to receive texts from this business. Reply STOP to cancel.",
+            "OptInKeywords": "YES",
+            "OptOutMessage": "You have been unsubscribed. Reply START to re-subscribe.",
+            "OptOutKeywords": "STOP",
+            "HelpMessage": "Reply STOP to cancel. Msg&Data rates may apply.",
+            "HelpKeywords": "HELP,INFO",
+        }
+        if opt_in_url:
+            payload["OptInImageUrls"] = opt_in_url
+        # Include IsrId ONLY when TWILIO_A2P_RESELLER_SID is set (ISV reseller path).
+        if TWILIO_A2P_RESELLER_SID:
+            payload["IsrId"] = TWILIO_A2P_RESELLER_SID
+        r = requests.post(
+            f"{_MESSAGING_BASE}/Services/{messaging_service_sid}/Compliance/Usa2p",
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            data=payload, timeout=30)
+        print(f"[firstback] create_a2p_campaign biz={biz_id} http={r.status_code}",
+              file=__import__("sys").stderr, flush=True)
+        r.raise_for_status()
+        sid = r.json().get("sid")
+        return {"status": "created", "campaign_sid": sid}
+    except Exception as e:
+        print(f"[firstback] create_a2p_campaign failed (biz {biz_id}): {e}",
+              file=__import__("sys").stderr, flush=True)
+        return {"status": "error", "error": str(e)}
 
 
 # ---- Webhook authenticity ----

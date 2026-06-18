@@ -273,9 +273,12 @@ check("'how do customers register' does not route to /setup",
 # --- the HTTP routes return JSON ---
 r = client.post("/assistant", data={"message": "how many leads this week?", "_csrf": CSRF})
 check("/assistant route returns JSON", r.status_code == 200 and r.is_json)
-r = client.post("/assistant/confirm",
-                data={"tool": "text_lead", "_csrf": CSRF,
-                      "args": '{"message": "see you then", "name": "Dana"}'})
+# SF-6: the owner approves by a server-issued token (not by re-posting tool+args). Propose
+# the action to mint the token, then redeem it.
+_prop = assistant.run(biz, "text my last lead saying see you then")
+_tok = (_prop.get("pending_action") or {}).get("token_id")
+check("a gated proposal mints a server-bound confirm token", isinstance(_tok, str) and _tok)
+r = client.post("/assistant/confirm", data={"confirm_token": _tok, "_csrf": CSRF})
 check("/assistant/confirm runs the gated action", r.status_code == 200 and r.is_json)
 check("a confirmed gated action is audit-logged",
       any(a["action"].startswith("confirm:") for a in db.list_audit(1)))

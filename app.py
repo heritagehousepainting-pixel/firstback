@@ -9,6 +9,7 @@ import re
 import secrets
 import sys
 import threading
+import time
 from datetime import datetime
 from functools import wraps
 from urllib.parse import quote
@@ -864,21 +865,67 @@ def assistant_learn():
 @app.route("/assistant/confirm", methods=["POST"])
 @login_required
 def assistant_confirm():
-    """Run a gated action the owner just approved (e.g. texting a lead). The send still
-    flows through the gated messaging.send_sms seam (opt-outs + simulated-vs-live honored)."""
+    """Redeem a server-bound confirm token (SF-6). The owner approves by token ALONE; we
+    re-run the EXACT tool+args we stored when the preview was issued -- the client can't swap
+    the action or its recipient. Single-use (no replay/double-send), expiring, per-tenant. The
+    send still flows through the gated messaging.send_sms seam (opt-outs + simulated honored)."""
     biz = current_business()
     if not _csrf_ok():
         return jsonify({"error": "bad_csrf"}), 403
-    tool = (request.form.get("tool") or "").strip()
+    token_id = (request.form.get("confirm_token") or "").strip()
+    if not token_id:
+        return jsonify({"reply": "I couldn't find that confirmation to run. Ask me again and "
+                        "I'll set it back up.", "cards": [], "pending_action": None,
+                        "meta": {"tool": None, "status": "error"}}), 400
+    row = db.get_confirm_token(biz["id"], token_id)
+    if not row:
+        # Unknown / wrong-tenant / already cleaned up. Fail closed, but answer like a human
+        # (a 4xx would surface the client's generic "something went wrong").
+        return jsonify({"reply": "I couldn't find that confirmation -- it may have already run. "
+                        "Ask me again if you still need it.", "cards": [],
+                        "pending_action": None, "meta": {"tool": None, "status": "error"}})
+    tool = row["tool"]
+    # Idempotent replay: already redeemed -> return the stored result, never re-execute.
+    if row["consumed"]:
+        try:
+            return jsonify(json.loads(row["result_json"]))
+        except (ValueError, TypeError):
+            return jsonify({"reply": "I already took care of that one.", "cards": [],
+                            "pending_action": None, "meta": {"tool": tool, "status": "ok"}})
+    # Expired -> never act on stale state; recompute on the owner's next ask.
+    if float(row["expires_at"] or 0) < time.time():
+        return jsonify({"reply": "That confirmation expired -- the situation may have changed. "
+                        "Ask me again and I'll show you the current picture.", "cards": [],
+                        "pending_action": None, "meta": {"tool": tool, "status": "expired"}})
+    # Claim atomically: only the first redemption executes (race guard / no double-send).
+    if not db.claim_confirm_token(biz["id"], token_id):
+        again = db.get_confirm_token(biz["id"], token_id)
+        if again and again.get("result_json"):
+            try:
+                return jsonify(json.loads(again["result_json"]))
+            except (ValueError, TypeError):
+                pass
+        return jsonify({"reply": "I'm already running that one -- give me a second.",
+                        "cards": [], "pending_action": None,
+                        "meta": {"tool": tool, "status": "ok"}})
     try:
-        args = json.loads(request.form.get("args") or "{}")
+        args = json.loads(row["args_json"] or "{}")
         if not isinstance(args, dict):
             args = {}
     except (ValueError, TypeError):
         args = {}
+    # The ONLY client-overridable field: the text_lead body the owner may have edited on the
+    # confirm card. The recipient + the action stay server-bound (from the stored args), so
+    # an edit can't redirect the message or change what runs.
+    if tool == "text_lead":
+        edited = (request.form.get("message") or "").strip()
+        if edited:
+            args["message"] = edited
     out = assistant.execute(biz, tool, args)
-    # Audit the confirmed action (no raw phone numbers; the body is the owner's own words).
-    db.add_audit(biz["id"], f"confirm:{tool}", str(args.get("message") or "")[:120])
+    db.set_confirm_result(token_id, json.dumps(out))
+    # Audit the confirmed action (token id, no raw phone; body is the owner's own words).
+    db.add_audit(biz["id"], f"confirm:{tool}",
+                 f"token={token_id[:8]} {str(args.get('message') or '')[:100]}")
     convos.record_exchange(biz["id"], request.form.get("convo_key", ""),
                            f"[confirmed: {tool}]", out)
     return jsonify(out)

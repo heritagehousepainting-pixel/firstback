@@ -20,6 +20,7 @@ execute(business, tool, args)   -> {reply, cards}
 import hashlib
 import json
 import re
+import secrets
 from datetime import date, datetime, timezone
 
 import db
@@ -1894,6 +1895,24 @@ def _result(out, tool, status):
             "entities": out.get("entities"), "meta": {"tool": tool, "status": status}}
 
 
+_CONFIRM_TTL_SECONDS = 600  # 10 min (F11-FINAL §4.1): long enough to read a push, short
+#                             enough that the redeemed picture is still current.
+
+
+def _issue_token(business, tool, args):
+    """Persist the EXACT (tool, args) about to be previewed and return an opaque token.
+    /assistant/confirm redeems by this token alone and re-runs the STORED content -- so the
+    client cannot swap the action or its recipient after the owner sees the preview. The
+    token is single-use (idempotent) and expires. This is what makes "you approve exactly
+    what you saw" true at the SERVER, not just in the UI."""
+    token_id = secrets.token_hex(16)
+    preview_hash = hashlib.sha256(
+        json.dumps([tool, args], sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    db.issue_confirm_token(business["id"], token_id, tool, args, preview_hash,
+                           _CONFIRM_TTL_SECONDS)
+    return token_id
+
+
 def _gated(business, tool, args, message, fallback_text=_CONFIRM_PROMPT):
     """Result for a confirm-gated tool: an early non-gated reply (ask for a missing detail,
     or show open windows) OR a pending_action carrying an honest summary + preview. Shared by
@@ -1951,6 +1970,7 @@ def _gated(business, tool, args, message, fallback_text=_CONFIRM_PROMPT):
     pending = {"tool": tool, "args": args, "summary": summary}
     if tool == "text_lead":
         pending["preview"] = _text_preview(business, args)
+    pending["token_id"] = _issue_token(business, tool, args)
     return {"reply": fallback_text, "cards": [], "pending_action": pending,
             "meta": {"tool": tool, "status": "pending"}}
 
@@ -2185,9 +2205,11 @@ def _apply_learning(business, message):
             return None
         if spec["confirm"]:
             summary = _confirm_summary(tool, {"raw": message})
-            pending = {"tool": tool, "args": {"raw": message}, "summary": summary}
+            l_args = {"raw": message}
+            pending = {"tool": tool, "args": l_args, "summary": summary}
             if tool == "text_lead":
-                pending["preview"] = _text_preview(business, {"raw": message})
+                pending["preview"] = _text_preview(business, l_args)
+            pending["token_id"] = _issue_token(business, tool, l_args)
             return {"reply": "Ready when you are. Confirm below and I will take care of it.",
                     "cards": [], "pending_action": pending,
                     "meta": {"tool": tool, "status": "pending"}}

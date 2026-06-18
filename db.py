@@ -6,6 +6,8 @@ one business. "Client zero" (Heritage House Painting) is business id 1.
 """
 import re
 import sys
+import time
+import json as _json
 import sqlite3
 from datetime import datetime, timezone, date, timedelta
 import token_crypto
@@ -386,6 +388,23 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_usage_grants_biz
             ON usage_grants(business_id, period_start);
+        -- Phase 5a — SF-6 server-bound confirm tokens. A gated action the owner is about
+        -- to approve is stored here under an opaque token; /assistant/confirm redeems by
+        -- token alone and re-runs the STORED tool+args (the client can't swap the action
+        -- or its target). Idempotent (consumed once -> result_json replay) and expiring.
+        CREATE TABLE IF NOT EXISTS pending_confirms (
+            token_id TEXT PRIMARY KEY,
+            business_id INTEGER NOT NULL,
+            tool TEXT NOT NULL,
+            args_json TEXT,
+            preview_hash TEXT,
+            expires_at REAL,
+            consumed INTEGER DEFAULT 0,
+            result_json TEXT,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pending_confirms_biz
+            ON pending_confirms(business_id, token_id);
         """
     )
     # Migration: add `urgent` to older databases that predate the column.
@@ -2710,6 +2729,57 @@ def list_audit(business_id, limit=50):
         "ORDER BY id DESC LIMIT ?", (business_id, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ---- SF-6 server-bound confirm tokens (Phase 5a) ----
+def issue_confirm_token(business_id, token_id, tool, args, preview_hash, ttl_seconds=600):
+    """Persist the EXACT (tool, args) the owner is about to approve, under an opaque token
+    that /assistant/confirm later redeems. The stored args are authoritative -- the client
+    cannot substitute a different action or recipient at redeem time."""
+    conn = get_conn()
+    # Opportunistic self-cleanup: drop tokens an hour past expiry so the table stays tiny.
+    # Safe -- a redeem after this only ever yields an honest "already ran" reply (the atomic
+    # claim still prevents any double-send for live tokens).
+    conn.execute("DELETE FROM pending_confirms WHERE expires_at < ?", (time.time() - 3600,))
+    conn.execute(
+        "INSERT INTO pending_confirms (token_id, business_id, tool, args_json, preview_hash, "
+        "expires_at, consumed, result_json, created_at) VALUES (?,?,?,?,?,?,0,NULL,?)",
+        (token_id, business_id, tool, _json.dumps(args or {}, default=str), preview_hash,
+         time.time() + ttl_seconds, now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def get_confirm_token(business_id, token_id):
+    """The token row IFF it belongs to this tenant (cross-tenant lookups fail closed)."""
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM pending_confirms WHERE token_id=? AND business_id=?",
+                       (token_id, business_id)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def claim_confirm_token(business_id, token_id):
+    """Atomically mark the token consumed IFF it was still unconsumed. Returns True only for
+    the single redemption that wins -- the race guard that guarantees an action runs once
+    (no double-send / double-book), even across workers."""
+    conn = get_conn()
+    cur = conn.execute(
+        "UPDATE pending_confirms SET consumed=1 WHERE token_id=? AND business_id=? AND consumed=0",
+        (token_id, business_id))
+    conn.commit()
+    won = cur.rowcount == 1
+    conn.close()
+    return won
+
+
+def set_confirm_result(token_id, result_json):
+    """Store the executed result so a replayed tap returns it verbatim (no re-execution)."""
+    conn = get_conn()
+    conn.execute("UPDATE pending_confirms SET result_json=? WHERE token_id=?",
+                 (result_json, token_id))
+    conn.commit()
+    conn.close()
 
 
 def recent_entities(business_id, convo_id):

@@ -499,7 +499,13 @@
     if (busy) return;
     busy = true; send.disabled = true; Orb.set(1);
     var thinking = addThinking();
-    post("/assistant/confirm", { tool: pending.tool, args: JSON.stringify(pending.args || {}) })
+    /* SF-6: approve by server-issued token only. The server re-runs the EXACT stored
+       action + recipient -- we never re-send tool/args. The one editable field is the
+       text_lead body the owner may have tweaked above; the recipient stays server-bound. */
+    var data = { confirm_token: pending.token_id || "" };
+    if (pending.tool === "text_lead" && pending.args && pending.args.message != null)
+      data.message = pending.args.message;
+    post("/assistant/confirm", data)
       .then(function (res) {
         thinking.parentNode && thinking.parentNode.removeChild(thinking);
         var body = addTurn("agent", res.reply || "Done.");

@@ -32,7 +32,8 @@ import compliance
 import db
 import tc_messaging
 from config import (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
-                    PUBLIC_BASE_URL, ALERT_FROM_NUMBER, QUIET_START, QUIET_END, app_tz)
+                    PUBLIC_BASE_URL, ALERT_FROM_NUMBER, QUIET_START, QUIET_END, app_tz,
+                    sms_status_callback_url)
 
 # Twilio's REST API base. We hit /Accounts/{SID}/... with HTTP basic auth.
 API_BASE = "https://api.twilio.com/2010-04-01"
@@ -142,6 +143,13 @@ def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True,
         if lead_id is not None:
             db.add_message(lead_id, "out", body)
         return {"status": "simulated"}
+
+    # Auto-inject the platform status callback when the caller didn't specify one,
+    # so delivery tracking works out-of-the-box when PUBLIC_BASE_URL is set.
+    if status_callback is None:
+        _cb = sms_status_callback_url()
+        if _cb:
+            status_callback = _cb
 
     # Real send via Twilio's REST API (HTTP basic auth: account SID / auth token).
     data = {"From": sender, "To": to, "Body": body}

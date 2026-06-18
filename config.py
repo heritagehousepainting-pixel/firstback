@@ -256,6 +256,100 @@ def app_tz():
             pass
     return datetime.now().astimezone().tzinfo
 
+
+# NPA (area-code) to IANA timezone mapping for ~50 US area codes covering all
+# six mainland + territory zones. Used by biz_tz() as a fallback when a
+# business has no explicit timezone stored but its Twilio number area code is
+# known. Covers the most common painting/contractor markets; not exhaustive.
+NPA_TO_IANA = {
+    # Eastern (UTC-5/-4 DST)
+    "201": "America/New_York", "202": "America/New_York", "203": "America/New_York",
+    "212": "America/New_York", "215": "America/New_York", "301": "America/New_York",
+    "302": "America/New_York", "305": "America/New_York", "404": "America/New_York",
+    "407": "America/New_York", "412": "America/New_York", "413": "America/New_York",
+    "414": "America/Chicago",  # Milwaukee — Central, not Eastern
+    "470": "America/New_York", "478": "America/New_York", "508": "America/New_York",
+    "516": "America/New_York", "617": "America/New_York", "703": "America/New_York",
+    "704": "America/New_York", "718": "America/New_York", "813": "America/New_York",
+    "914": "America/New_York", "954": "America/New_York",
+    # Central (UTC-6/-5 DST)
+    "214": "America/Chicago",  "224": "America/Chicago",  "312": "America/Chicago",
+    "314": "America/Chicago",  "346": "America/Chicago",  "469": "America/Chicago",
+    "512": "America/Chicago",  "630": "America/Chicago",  "713": "America/Chicago",
+    "773": "America/Chicago",  "815": "America/Chicago",  "901": "America/Chicago",
+    "936": "America/Chicago",
+    # Mountain (UTC-7/-6 DST)
+    "303": "America/Denver",   "480": "America/Phoenix",  "520": "America/Phoenix",
+    "602": "America/Phoenix",  "623": "America/Phoenix",  "720": "America/Denver",
+    "801": "America/Denver",   "970": "America/Denver",
+    # Pacific (UTC-8/-7 DST)
+    "206": "America/Los_Angeles", "213": "America/Los_Angeles",
+    "408": "America/Los_Angeles", "415": "America/Los_Angeles",
+    "503": "America/Los_Angeles", "619": "America/Los_Angeles",
+    "626": "America/Los_Angeles", "650": "America/Los_Angeles",
+    "702": "America/Los_Angeles", "714": "America/Los_Angeles",
+    "818": "America/Los_Angeles", "916": "America/Los_Angeles",
+    "949": "America/Los_Angeles",
+    # Alaska (UTC-9/-8 DST)
+    "907": "America/Anchorage",
+    # Hawaii (UTC-10, no DST)
+    "808": "America/Honolulu",
+}
+
+
+def biz_tz(business):
+    """Return a tzinfo for a business. `business` may be a dict (the hot path:
+    reads business['timezone'] with NO db hit) or an int id (does a lazy db
+    lookup). Resolution order:
+
+      1. business['timezone'] / db row timezone column (valid IANA name) -> ZoneInfo
+      2. NPA of business['twilio_number'] -> NPA_TO_IANA -> ZoneInfo
+      3. app_tz() global fallback
+
+    Never raises; always returns a tzinfo.
+    """
+    from zoneinfo import ZoneInfo
+    if isinstance(business, int):
+        import db as _db
+        business = _db.get_business(business)
+    if not isinstance(business, dict):
+        return app_tz()
+    # 1. Stored IANA name
+    tz_name = (business.get("timezone") or "").strip()
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            pass  # fall through to NPA
+    # 2. NPA fallback from the provisioned Twilio number
+    number = (business.get("twilio_number") or "").strip()
+    if number:
+        import re as _re
+        digits = _re.sub(r"\D", "", number)
+        # US numbers: +1NXXNXXXXXX -> NPA is digits[1:4] (after leading 1)
+        npa = None
+        if len(digits) == 11 and digits.startswith("1"):
+            npa = digits[1:4]
+        elif len(digits) == 10:
+            npa = digits[:3]
+        if npa and npa in NPA_TO_IANA:
+            try:
+                return ZoneInfo(NPA_TO_IANA[npa])
+            except Exception:
+                pass
+    # 3. Global fallback
+    return app_tz()
+
+
+def sms_status_callback_url():
+    """Return the full URL for Twilio's SMS status callback webhook, or '' if
+    FIRSTBACK_PUBLIC_URL is not set. Callers should treat '' as 'no callback'
+    (don't pass it to Twilio)."""
+    base = PUBLIC_BASE_URL.rstrip("/") if PUBLIC_BASE_URL else ""
+    if not base:
+        return ""
+    return base + "/webhooks/twilio/sms/status"
+
 # Starter owner login seeded for "client zero" (business 1) so the existing demo
 # data is reachable immediately. Change the password after first login.
 # Phase 1 C: the insecure "firstback123" default is replaced. In production,

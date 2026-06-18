@@ -27,13 +27,15 @@ import db
 import mail
 import messaging
 
-ALERT_KINDS = ("lead", "booking", "urgent", "canceled")
+ALERT_KINDS = ("lead", "booking", "urgent", "canceled", "sms_fail", "forwarding_lost")
 # Collapse identical alerts (same business + event) within this many seconds.
 ALERT_DEDUPE_SECONDS = 120
 
 # A cancellation rides the same toggle as a booking (both are "your calendar changed").
+# sms_fail and forwarding_lost ride the urgent toggle (operational alerts the owner needs).
 _TOGGLE_COL = {"lead": "alert_on_lead", "booking": "alert_on_booking",
-               "urgent": "alert_on_urgent", "canceled": "alert_on_booking"}
+               "urgent": "alert_on_urgent", "canceled": "alert_on_booking",
+               "sms_fail": "alert_on_urgent", "forwarding_lost": "alert_on_urgent"}
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -59,6 +61,13 @@ def format_message(kind, context):
     if kind == "canceled":
         when = (context.get("when") or "").strip()
         return f"Estimate canceled: {who}{(' for ' + when) if when else ''}.{tail}".rstrip()
+    if kind == "sms_fail":
+        attempts = context.get("attempts", 3)
+        return (f"SMS delivery failed after {attempts} attempts to {who}{tail}. "
+                f"Check FirstBack for details.")
+    if kind == "forwarding_lost":
+        return (f"Call forwarding may be broken for your FirstBack number. "
+                f"Open FirstBack to re-verify.{tail}").rstrip()
     return f"FirstBack alert ({kind})."
 
 
@@ -66,7 +75,9 @@ def _subject(kind):
     return {"lead": "New lead — FirstBack",
             "booking": "Estimate booked — FirstBack",
             "urgent": "Urgent lead — FirstBack",
-            "canceled": "Estimate canceled — FirstBack"}.get(kind, "FirstBack alert")
+            "canceled": "Estimate canceled — FirstBack",
+            "sms_fail": "SMS delivery failed — FirstBack",
+            "forwarding_lost": "Call forwarding issue — FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):

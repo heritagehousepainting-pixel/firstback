@@ -640,19 +640,35 @@ def init_db():
     # One ACTIVE growth touch per (lead, kind) -- the same race-safe dedupe for the
     # Phase 3 growth engine. Partial on status!='canceled' so a touch can be re-queued
     # after it's canceled (e.g. a reschedule), but never double-queued while in flight.
+    # Phase 2: sms_retry and morning_reminder are NOT growth touches -- sms_retry rows
+    # stack per-lead (one per attempt); morning_reminder dedupes via find_scheduled_message.
+    # Drop and recreate the index to add these exclusions if it already exists.
+    _GROWTH_EXCLUSION = "('reminder','followup','sms_retry','morning_reminder')"
+    _needs_growth_idx_rebuild = False
     if "uniq_growth_touch_per_lead" not in sched_idx:
+        _needs_growth_idx_rebuild = True
+    else:
+        # Check if the existing index uses the old exclusion list (missing sms_retry).
+        _idx_sql = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='uniq_growth_touch_per_lead'"
+        ).fetchone()
+        if _idx_sql and "sms_retry" not in (_idx_sql[0] or ""):
+            _needs_growth_idx_rebuild = True
+            c.execute("DROP INDEX IF EXISTS uniq_growth_touch_per_lead")
+
+    if _needs_growth_idx_rebuild:
         # Collapse any pre-existing active duplicates (keep the earliest per lead+kind) so the
         # UNIQUE index can't fail to build on an already-populated DB.
         c.execute(
-            "DELETE FROM scheduled_messages WHERE kind NOT IN ('reminder','followup') "
+            f"DELETE FROM scheduled_messages WHERE kind NOT IN {_GROWTH_EXCLUSION} "
             "AND status!='canceled' AND id NOT IN ("
-            "  SELECT MIN(id) FROM scheduled_messages "
-            "  WHERE kind NOT IN ('reminder','followup') AND status!='canceled' "
+            f"  SELECT MIN(id) FROM scheduled_messages "
+            f"  WHERE kind NOT IN {_GROWTH_EXCLUSION} AND status!='canceled' "
             "  GROUP BY lead_id, kind)")
         c.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uniq_growth_touch_per_lead "
-            "ON scheduled_messages(lead_id, kind) "
-            "WHERE kind NOT IN ('reminder','followup') AND status!='canceled'")
+            f"ON scheduled_messages(lead_id, kind) "
+            f"WHERE kind NOT IN {_GROWTH_EXCLUSION} AND status!='canceled'")
     # Speed the growth-engine per-lead aggregates (growth_candidates correlated subqueries).
     c.execute("CREATE INDEX IF NOT EXISTS idx_messages_lead "
               "ON messages(lead_id, direction, created_at)")
@@ -661,6 +677,25 @@ def init_db():
 
     # Phase 1 C: password reset tokens table (additive).
     _ensure_password_reset_tokens(c)
+
+    # Phase 2 — SF-4 retry tracking on scheduled_messages
+    sched_cols = [r[1] for r in c.execute("PRAGMA table_info(scheduled_messages)").fetchall()]
+    for col, ddl in (("retry_count", "INTEGER DEFAULT 0"), ("retry_of", "INTEGER")):
+        if col not in sched_cols:
+            c.execute(f"ALTER TABLE scheduled_messages ADD COLUMN {col} {ddl}")
+
+    # Phase 2 — SF-7 sentinel tracking on businesses
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    for col, ddl in (("forwarding_sentinel_sid", "TEXT"),
+                     ("forwarding_sentinel_at",  "TEXT"),
+                     ("forwarding_last_probe_at","TEXT")):
+        if col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+
+    # Phase 2 — F04 Google event id on appointments
+    appt_cols = [r[1] for r in c.execute("PRAGMA table_info(appointments)").fetchall()]
+    if "google_event_id" not in appt_cols:
+        c.execute("ALTER TABLE appointments ADD COLUMN google_event_id TEXT")
 
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
@@ -796,13 +831,21 @@ def update_user_password(user_id, password_hash):
 
 # ---- Business profile ----
 def create_business(fields):
-    """Create a new tenant business (signup). Returns its id."""
-    cols = [col for col in _BUSINESS_COLS if col in fields]
+    """Create a new tenant business (signup). Returns its id.
+
+    Phase 2: new businesses default buffer_minutes=60 (the owner can change it
+    in Settings). We do NOT change config.DEFAULT_BUFFER_MINUTES and do NOT
+    touch existing rows, so the live Heritage tenant is unaffected."""
+    # Merge the caller's fields with the Phase 2 new-business defaults. Caller
+    # fields take precedence (an explicit 0 is honoured).
+    merged = {"buffer_minutes": 60}
+    merged.update(fields)
+    cols = [col for col in _BUSINESS_COLS if col in merged]
     conn = get_conn()
     collist = ",".join(cols)
     marks = ",".join("?" for _ in cols)
     cur = conn.execute(f"INSERT INTO businesses ({collist}) VALUES ({marks})",
-                       tuple(fields[col] for col in cols))
+                       tuple(merged[col] for col in cols))
     conn.commit()
     bid = cur.lastrowid
     conn.close()
@@ -941,6 +984,103 @@ def set_forwarding_confirmed(business_id, confirmed):
                  (1 if confirmed else 0, business_id))
     conn.commit()
     conn.close()
+
+
+# ---- Phase 2 seam functions (owned by A1) ----
+
+def set_business_timezone(business_id, tz_name):
+    """Persist the IANA timezone name on a business (set by Google Calendar connect
+    after reading /calendars/primary timeZone). An empty/None tz_name is stored
+    as-is so callers can explicitly clear it."""
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET timezone=? WHERE id=?", (tz_name, business_id))
+    conn.commit()
+    conn.close()
+
+
+def set_google_event_id(appointment_id, event_id):
+    """Store (or clear) the Google Calendar event id on an appointment. Called by
+    google_cal after a successful create_event; None clears the link."""
+    conn = get_conn()
+    conn.execute("UPDATE appointments SET google_event_id=? WHERE id=?",
+                 (event_id, appointment_id))
+    conn.commit()
+    conn.close()
+
+
+def set_forwarding_sentinel(business_id, call_sid, sent_at):
+    """Store the SID + timestamp of the sentinel call placed to verify forwarding.
+    Pass (None, None) to clear after the sentinel is consumed or abandoned."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE businesses SET forwarding_sentinel_sid=?, forwarding_sentinel_at=? WHERE id=?",
+        (call_sid, sent_at, business_id))
+    conn.commit()
+    conn.close()
+
+
+def set_forwarding_probe(business_id):
+    """Record that a forwarding health-probe was placed for this business right now
+    (sets forwarding_last_probe_at to the current UTC ISO timestamp)."""
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET forwarding_last_probe_at=? WHERE id=?",
+                 (datetime.now(timezone.utc).isoformat(), business_id))
+    conn.commit()
+    conn.close()
+
+
+def queue_sms_retry(business_id, lead_id, to, body, attempt, send_at,
+                    kind="sms_retry"):
+    """Queue a delayed SMS retry as a new scheduled_messages row (async, never
+    synchronous). `attempt` is the retry attempt number (1, 2, 3); `to` is stored
+    in the body prefix so the sender knows the destination. Returns the new row id,
+    or None on a DB error."""
+    # Encode destination into body so run_due_once can route it; the kind tag
+    # disambiguates from normal reminders so the ticker can handle it.
+    encoded_body = f"[retry_to:{to}] {body}"
+    conn = get_conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO scheduled_messages "
+            "(business_id, lead_id, kind, send_at, body, status, retry_count, created_at) "
+            "VALUES (?,?,?,?,?, 'pending', ?,?)",
+            (business_id, lead_id, kind, send_at, encoded_body, attempt, now_iso()))
+        conn.commit()
+        row_id = cur.lastrowid
+    except sqlite3.Error as e:
+        conn.rollback()
+        row_id = None
+        print(f"[firstback] queue_sms_retry failed (biz {business_id}): {e}",
+              file=sys.stderr, flush=True)
+    conn.close()
+    return row_id
+
+
+def get_message_by_provider_sid(provider_sid):
+    """Look up a sent message by its Twilio SID (for delivery-status webhooks).
+    Returns the message row as a dict, or None if not found."""
+    if not provider_sid:
+        return None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM messages WHERE provider_sid=? LIMIT 1", (provider_sid,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def find_scheduled_message(business_id, lead_id, kind):
+    """Return the most recent PENDING scheduled_message of the given kind for a
+    (business, lead), or None. Used to deduplicate (e.g. avoid queuing a second
+    sms_retry or morning_reminder when one is already pending)."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM scheduled_messages "
+        "WHERE business_id=? AND lead_id=? AND kind=? AND status='pending' "
+        "ORDER BY id DESC LIMIT 1",
+        (business_id, lead_id, kind)).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def get_business_by_twilio_number(number):

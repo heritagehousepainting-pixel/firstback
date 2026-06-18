@@ -714,12 +714,15 @@ def init_db():
         flushed INTEGER DEFAULT 0, flushed_at TEXT, skip_reason TEXT)""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_blocked_sends_biz ON blocked_sends(business_id, flushed)")
 
-    # Phase 4 — ROI milestone + dispatcher-call tracking on businesses
+    # Phase 4 — ROI milestone tracking on businesses (per-tenant, fired at most once)
     biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
-    for col, ddl in (("roi_milestone_sent_at", "TEXT"),
-                     ("dispatcher_call_last_at", "TEXT")):
-        if col not in biz_cols:
-            c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+    if "roi_milestone_sent_at" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN roi_milestone_sent_at TEXT")
+    # Phase 4 — Dispatcher-call rate-limit is PER LEAD (one urgency call per caller,
+    # not one per business), so the timestamp lives on the lead row.
+    lead_cols = [r[1] for r in c.execute("PRAGMA table_info(leads)").fetchall()]
+    if "dispatcher_call_last_at" not in lead_cols:
+        c.execute("ALTER TABLE leads ADD COLUMN dispatcher_call_last_at TEXT")
 
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
@@ -2587,10 +2590,12 @@ def set_roi_milestone_sent(business_id, ts):
     conn.close()
 
 
-def set_dispatcher_call_at(business_id, ts):
-    """Record the ISO timestamp of the most recent dispatcher call to the owner."""
+def set_dispatcher_call_at(lead_id, ts):
+    """Record the ISO timestamp of the dispatcher call placed for a LEAD's urgency,
+    so a second inbound from the same caller doesn't re-trigger the owner call
+    (rate-limit is per lead, not per business)."""
     conn = get_conn()
-    conn.execute("UPDATE businesses SET dispatcher_call_last_at=? WHERE id=?", (ts, business_id))
+    conn.execute("UPDATE leads SET dispatcher_call_last_at=? WHERE id=?", (ts, lead_id))
     conn.commit()
     conn.close()
 

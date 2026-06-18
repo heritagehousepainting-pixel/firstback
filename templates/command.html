@@ -99,9 +99,57 @@
       </button>
     </form>
     <p class="command-foot">FirstBack confirms before it texts anyone. Nothing is sent without your okay.</p>
+    {# Fuel gauge: conversation count + refill date, trades language only. Loaded async so
+       it never blocks the command bar. Hidden until data arrives. #}
+    <div id="usageGauge" class="usage-gauge" aria-live="polite" hidden></div>
   </div>
 
   <input type="hidden" id="csrfToken" value="{{ csrf_token }}">
 </section>
+<style>
+.usage-gauge{font-size:.78rem;color:var(--ink-faint);text-align:center;padding:.25rem 0 .1rem;letter-spacing:.01em}
+.usage-gauge a{color:var(--accent);text-decoration:none}
+.usage-gauge a:hover{text-decoration:underline}
+.usage-gauge--low{color:var(--warning)}
+.usage-gauge--resting{color:var(--danger)}
+</style>
+<script>
+(function(){
+  function _fmtDate(iso){
+    if(!iso)return '';
+    try{var d=new Date(iso),m=d.toLocaleString('en-US',{month:'short'}),day=d.getDate();return m+' '+day;}catch(e){return iso.slice(0,10);}
+  }
+  fetch('/api/usage').then(function(r){return r.json();}).then(function(d){
+    var el=document.getElementById('usageGauge');
+    if(!el)return;
+    if(!d.has_plan){
+      /* No plan active: show spend indicator only when over cap */
+      if(d.over_daily_cap){
+        el.className='usage-gauge usage-gauge--resting';
+        el.textContent='Resting for a moment — back shortly.';
+        el.hidden=false;
+      }
+      return;
+    }
+    var used=d.conversations_used,total=d.conversations_total,rem=d.conversations_remaining;
+    var pct=total>0?Math.round(used/total*100):0;
+    var refill=d.period_ends?(' · refills '+_fmtDate(d.period_ends)):'';
+    var cls='usage-gauge';
+    var txt='';
+    if(d.over_daily_cap){
+      cls+=' usage-gauge--resting';
+      txt='Resting for a moment'+refill+'. <a href="/pricing">Add more</a>';
+    } else if(pct>=90){
+      cls+=' usage-gauge--low';
+      txt=rem+' of '+total+' conversations left'+refill+' · <a href="/pricing">+50 for $12</a>';
+    } else {
+      txt=rem+' of '+total+' conversations left'+refill;
+    }
+    el.className=cls;
+    el.innerHTML=txt;
+    el.hidden=false;
+  }).catch(function(){/* gauge is optional; silent fail */});
+})();
+</script>
 <script defer src="/static/assistant.js?v=18"></script>
 {% endblock %}

@@ -1482,7 +1482,21 @@ def _tool_loop(business, message, history, entities=None, allow_llm=True):
     cards, ents_out, last_text = [], None, ""
     try:
         for _ in range(_MAX_TOOL_STEPS):
-            res = llm.tool_complete(provider, _loop_system(business), msgs, tools)
+            res = llm.tool_complete(provider, _loop_system(business), msgs, tools,
+                                   return_usage=True)
+            # Log token usage to the ledger (best-effort; never breaks the turn).
+            _usage = res.pop("usage", None)
+            if _usage and _usage.get("cost_usd") is not None:
+                try:
+                    db.log_llm_usage(business["id"], "assistant",
+                                     _usage.get("model", ""),
+                                     _usage.get("input_tokens", 0),
+                                     _usage.get("output_tokens", 0),
+                                     _usage.get("cost_usd", 0.0))
+                except Exception as _ue:
+                    import sys as _sys
+                    print(f"[firstback] log_llm_usage (assistant) failed: {_ue}",
+                          file=_sys.stderr, flush=True)
             last_text = res.get("text") or last_text
             calls = res.get("tool_calls") or []
             if not calls:
@@ -2042,6 +2056,19 @@ def _tool_loop_stream(business, message, history, entities=None):
                 else:
                     res = payload
             res = res or {"text": "", "tool_calls": []}
+            # Log usage from streaming round (best-effort).
+            _stream_usage = res.pop("usage", None)
+            if _stream_usage and _stream_usage.get("cost_usd") is not None:
+                try:
+                    db.log_llm_usage(business["id"], "assistant",
+                                     _stream_usage.get("model", ""),
+                                     _stream_usage.get("input_tokens", 0),
+                                     _stream_usage.get("output_tokens", 0),
+                                     _stream_usage.get("cost_usd", 0.0))
+                except Exception as _ue:
+                    import sys as _sys
+                    print(f"[firstback] log_llm_usage (stream) failed: {_ue}",
+                          file=_sys.stderr, flush=True)
             last_text = res.get("text") or last_text
             calls = res.get("tool_calls") or []
             if not calls:

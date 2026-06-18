@@ -192,11 +192,18 @@ def _assistant_budget(biz, message):
     """Spend one assistant turn against this tenant's rate budgets. Returns
     (allow_llm, throttled): `throttled` trips the per-minute burst limiter (caller should ask
     the owner to slow down); `allow_llm` is False once the daily LLM budget is spent (caller
-    degrades to the keyword floor). No-op for an empty message."""
+    degrades to the keyword floor). No-op for an empty message.
+
+    Phase 1: the dollar daily cap (ai.is_over_daily_cap) replaces the raw turn-count
+    ceiling as the primary LLM gate; the turn-count window still caps burst abuse."""
     if not message:
         return True, False
     throttled = db.incr_rate(biz["id"], "assistant", 60) > ASSISTANT_RPM
-    allow_llm = db.incr_rate(biz["id"], "assistant_daily", 86400) <= ASSISTANT_DAILY
+    # Dollar cap (Phase 1): gate by spend, not turn count.
+    over_cap = ai.is_over_daily_cap(biz["id"])
+    # Fall back to the turn-count cap when no dollar ledger data exists yet.
+    turn_cap_ok = db.incr_rate(biz["id"], "assistant_daily", 86400) <= ASSISTANT_DAILY
+    allow_llm = (not over_cap) and turn_cap_ok
     return allow_llm, throttled
 
 
@@ -1212,7 +1219,8 @@ def handle_inbound(biz, lead, body):
                                             "phone": lead.get("phone")})
     history = db.get_messages(lead_id)
     exclude = google_cal.busy_slot_ids(biz["id"])  # Google conflicts, empty if not connected
-    reply, booking = ai.generate_reply(biz, history, exclude_slot_ids=exclude)
+    reply, booking = ai.generate_reply(biz, history, exclude_slot_ids=exclude,
+                                       lead_id=lead_id)
     db.add_message(lead_id, "out", reply)
     booked = None
     if booking:
@@ -1673,6 +1681,34 @@ def google_contacts_sync():
 def google_contacts_disconnect():
     google_contacts.disconnect(current_business()["id"])
     return jsonify(connected=False)
+
+
+# ---- Phase 1: usage fuel gauge ----
+@app.route("/api/usage")
+@login_required
+def api_usage():
+    """Usage gauge data for the fuel-gauge surface. Returns conversations consumed/remaining
+    (from the usage_grants table) and today's AI spend. Trades language only -- no
+    'credits', 'grants', 'bundle', 'Twilio', or 'A2P' words reach the surface."""
+    biz = current_business()
+    bid = biz["id"]
+    remaining, grant = db.conversations_remaining(bid)
+    granted = int(grant.get("conversations_granted") or 0) if grant else None
+    consumed = (granted - remaining) if (granted is not None and remaining is not None) else None
+    period_end = grant.get("period_end") if grant else None
+    spend_today = db.get_llm_spend_today(bid)
+    cap = config.CLAUDE_DAILY_COST_CAP_USD
+    over_cap = ai.is_over_daily_cap(bid)
+    return jsonify({
+        "conversations_used": consumed,
+        "conversations_total": granted,
+        "conversations_remaining": remaining,
+        "period_ends": period_end,
+        "spend_today_usd": round(spend_today, 4),
+        "daily_cap_usd": cap,
+        "over_daily_cap": over_cap,
+        "has_plan": grant is not None,
+    })
 
 
 def _cancel_estimate_for(biz, caller):

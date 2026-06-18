@@ -356,6 +356,35 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT
         );
+        -- Phase 1 — Cost spine (Agent B): token + cost ledger for every LLM call.
+        -- path ∈ {sms, voice, assistant}. lead_id may be NULL on the assistant path.
+        CREATE TABLE IF NOT EXISTS llm_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL,
+            lead_id INTEGER,
+            path TEXT NOT NULL,
+            model TEXT,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0.0,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_llm_usage_biz_day
+            ON llm_usage(business_id, created_at);
+        -- Phase 1 — Usage grants (owned by Agent A; defensive CREATE so B/C can
+        -- read it before A's migration runs). A writes period_start/end/granted/source
+        -- from Stripe invoice.paid. B only reads it (conversations_remaining).
+        CREATE TABLE IF NOT EXISTS usage_grants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL,
+            period_start TEXT,
+            period_end TEXT,
+            conversations_granted INTEGER DEFAULT 0,
+            source TEXT,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_grants_biz
+            ON usage_grants(business_id, period_start);
         """
     )
     # Migration: add `urgent` to older databases that predate the column.
@@ -2487,3 +2516,70 @@ def all_owner_recipients():
         "FROM users u JOIN businesses b ON b.id = u.business_id").fetchall()
     conn.close()
     return [(r["bid"], r["email"]) for r in rows if r["email"]]
+
+
+# ---- Phase 1: LLM cost ledger + usage gauge (Agent B) ----
+
+def log_llm_usage(business_id, path, model, input_tokens, output_tokens, cost_usd,
+                  lead_id=None):
+    """Record one LLM call to the token/cost ledger.
+    path ∈ {sms, voice, assistant}. lead_id is None on the assistant path."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO llm_usage (business_id, lead_id, path, model, "
+        "input_tokens, output_tokens, cost_usd, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (business_id, lead_id, path, model or "",
+         int(input_tokens or 0), int(output_tokens or 0),
+         float(cost_usd or 0.0), now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def get_llm_spend_today(business_id):
+    """Total cost_usd spent by this business today (UTC calendar day). Returns a float."""
+    today = datetime.now(timezone.utc).date().isoformat()  # 'YYYY-MM-DD'
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COALESCE(SUM(cost_usd), 0.0) FROM llm_usage "
+        "WHERE business_id=? AND created_at>=?",
+        (business_id, today)).fetchone()
+    conn.close()
+    return float(row[0] if row else 0.0)
+
+
+def conversations_consumed(business_id, period_start=None):
+    """Count of DISTINCT lead_ids in llm_usage where path='sms' for this business,
+    optionally since `period_start` (ISO date string). This is the fuel-gauge numerator."""
+    conn = get_conn()
+    if period_start:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT lead_id) FROM llm_usage "
+            "WHERE business_id=? AND path='sms' AND created_at>=? AND lead_id IS NOT NULL",
+            (business_id, period_start)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT lead_id) FROM llm_usage "
+            "WHERE business_id=? AND path='sms' AND lead_id IS NOT NULL",
+            (business_id,)).fetchone()
+    conn.close()
+    return int(row[0] if row else 0)
+
+
+def conversations_remaining(business_id):
+    """Conversations left in the current billing period = granted − consumed.
+    Reads the most recent active usage_grant (Agent A writes this on Stripe invoice.paid).
+    Returns (remaining, grant_row_or_None). When no grant exists returns (None, None)
+    so callers can show 'no plan active' rather than '0 left'."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM usage_grants WHERE business_id=? "
+        "ORDER BY id DESC LIMIT 1",
+        (business_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None, None
+    grant = dict(row)
+    consumed = conversations_consumed(business_id, grant.get("period_start"))
+    remaining = max(0, int(grant.get("conversations_granted") or 0) - consumed)
+    return remaining, grant

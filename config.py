@@ -40,10 +40,20 @@ MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.5")
 MINIMAX_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io")
 
 # Claude — for the public launch. Set ANTHROPIC_API_KEY and FIRSTBACK_PROVIDER=claude.
-# For high-volume SMS a faster/cheaper model (claude-sonnet-4-6 / claude-haiku-4-5)
-# may beat Opus on cost and latency.
+# Model-defaults region (Agent B — Phase 1 cost spine):
+#   CLAUDE_MODEL      — SMS / booking / Vic-conversational brain: Sonnet (fast + cheap)
+#   CLAUDE_MODEL_VOICE — voice-relay turns (very short): Haiku (cheapest)
+# Each model has an env override so you can hot-swap without a code change.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+CLAUDE_MODEL_VOICE = os.environ.get("CLAUDE_MODEL_VOICE", "claude-haiku-4-5")
+# Per-tenant dollar daily spending cap on the AI-reply path. Past this the bot
+# degrades honestly ("resting" message) rather than silently breaking. Zero = no cap.
+try:
+    CLAUDE_DAILY_COST_CAP_USD = float(
+        os.environ.get("FIRSTBACK_DAILY_COST_CAP", "") or "1.00")
+except (TypeError, ValueError):
+    CLAUDE_DAILY_COST_CAP_USD = 1.00
 
 # --- Call screening (the "phone screen") ----------------------------------
 # FirstBack texts back every missed caller. Two callers should NOT get that bot

@@ -14,11 +14,28 @@ from datetime import date
 import db
 from config import (
     PROVIDER, MINIMAX_API_KEY, MINIMAX_MODEL, MINIMAX_BASE_URL,
-    ANTHROPIC_API_KEY, CLAUDE_MODEL,
+    ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_DAILY_COST_CAP_USD,
 )
 # Provider plumbing (MiniMax/Claude/demo selection + the HTTP/SDK call) lives in the
 # trades_core kernel; this file keeps FirstBack's conversation + booking logic.
 from llm import active_provider as _active_provider, strip_think as _strip_think, complete as _complete
+
+# ---- Dollar daily cap (Phase 1 cost spine) ----
+# Returns True when the tenant is over their daily spend cap and the AI path should
+# be paused. Cap of 0 means no cap (always allow). CLAUDE_DAILY_COST_CAP_USD is the
+# app-wide default; individual businesses inherit it (per-business cap deferred).
+def is_over_daily_cap(business_id):
+    """True when this business has exceeded today's dollar daily cap on the AI path."""
+    cap = CLAUDE_DAILY_COST_CAP_USD
+    if not cap or cap <= 0:
+        return False
+    return db.get_llm_spend_today(business_id) >= cap
+
+
+_CAP_SMS_REPLY = (
+    "We're resting for a moment. Text us again in a little while and we'll pick "
+    "right back up."
+)
 
 # Marker the AI emits when it wants to book a slot. We parse it out so the
 # product can create a real appointment, then strip it from the visible text.
@@ -114,9 +131,18 @@ def _minimax_reply(business, history, slots):
                      max_tokens=512, temperature=1.0)
 
 
-def _claude_reply(business, history, slots):
-    return _complete("claude", _system_prompt(business, slots), _to_turns(history),
-                     max_tokens=300)
+def _claude_reply(business, history, slots, lead_id=None):
+    """Call Claude for an SMS reply and log token usage to the ledger."""
+    text, usage = _complete("claude", _system_prompt(business, slots), _to_turns(history),
+                            max_tokens=300, return_usage=True)
+    try:
+        db.log_llm_usage(business["id"], "sms", usage.get("model", CLAUDE_MODEL),
+                         usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+                         usage.get("cost_usd", 0.0), lead_id=lead_id)
+    except Exception as _e:
+        import sys
+        print(f"[firstback] log_llm_usage failed: {_e}", file=sys.stderr, flush=True)
+    return text
 
 
 # --------------------------------------------------------------------------
@@ -392,16 +418,20 @@ def _clean_punct(text):
     return text.strip()
 
 
-def generate_reply(business, history, exclude_slot_ids=None):
+def generate_reply(business, history, exclude_slot_ids=None, lead_id=None):
     """Returns (visible_text, booking_slot_or_None). `exclude_slot_ids` is an
     optional set of slot ids from a connected external calendar to treat as
-    unavailable (so the AI never offers a window the contractor is already busy)."""
+    unavailable (so the AI never offers a window the contractor is already busy).
+    `lead_id` threads the conversation's lead into the LLM usage ledger."""
+    # Dollar daily cap gate: degrade honestly rather than silently.
+    if is_over_daily_cap(business["id"]):
+        return _CAP_SMS_REPLY, None
     slots = _open_slots(business["id"], exclude_ids=exclude_slot_ids)
     provider = _active_provider()
     raw = None
     try:
         if provider == "claude":
-            raw = _claude_reply(business, history, slots)
+            raw = _claude_reply(business, history, slots, lead_id=lead_id)
         elif provider == "minimax":
             raw = _minimax_reply(business, history, slots)
     except Exception as e:

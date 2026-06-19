@@ -405,6 +405,25 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_pending_confirms_biz
             ON pending_confirms(business_id, token_id);
+        -- Phase 5g -- S-5 voice metering: one row per outbound AI voice call.
+        -- cost_cents is filled by the /webhooks/twilio/voice/status webhook
+        -- from real Twilio CallDuration (metered at VOICE_CREDIT_RATE_CENTS per
+        -- 30-second block). Nothing here activates voice; the gate is VOICE_PUBLIC_URL.
+        CREATE TABLE IF NOT EXISTS voice_calls (
+            id               INTEGER PRIMARY KEY,
+            biz_id           INTEGER NOT NULL,
+            lead_id          INTEGER,
+            twilio_sid       TEXT,
+            started_at       TEXT,
+            ended_at         TEXT,
+            duration_seconds INTEGER,
+            turns            INTEGER DEFAULT 0,
+            outcome          TEXT DEFAULT 'in_progress',
+            cost_cents       INTEGER DEFAULT 0,
+            created_at       TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_voice_calls_biz
+            ON voice_calls(biz_id, started_at);
         """
     )
     # Migration: add `urgent` to older databases that predate the column.
@@ -3600,3 +3619,72 @@ def mark_flush_skipped(blocked_send_id, reason):
         (now_iso(), reason, blocked_send_id))
     conn.commit()
     conn.close()
+
+
+# ---- Phase 5g S-5: AI voice call metering ----------------------------------------
+# voice_calls rows are opened at dial time and closed by the Twilio status webhook.
+# Cost is real-metered from Twilio CallDuration; nothing here activates voice.
+
+def insert_voice_call(biz_id, lead_id, twilio_sid):
+    """Open a voice_calls row at the moment place_call fires. Returns the row id.
+    outcome starts as 'in_progress'; update_voice_call_outcome closes it."""
+    ts = now_iso()
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO voice_calls (biz_id, lead_id, twilio_sid, started_at, created_at)"
+        " VALUES (?,?,?,?,?)",
+        (biz_id, lead_id, twilio_sid, ts, ts))
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return row_id
+
+
+def update_voice_call_outcome(twilio_sid, outcome, duration, cost_cents):
+    """Close a voice_calls row after the call ends. Called by the Twilio status
+    webhook with real CallDuration so cost is metered from actual seconds spoken."""
+    ts = now_iso()
+    conn = get_conn()
+    conn.execute(
+        "UPDATE voice_calls SET outcome=?, duration_seconds=?, cost_cents=?, ended_at=?"
+        " WHERE twilio_sid=?",
+        (outcome, duration, cost_cents, ts, twilio_sid))
+    conn.commit()
+    conn.close()
+
+
+def last_voice_call_at(biz_id, caller_number):
+    """Return the ISO started_at of the most recent voice call to `caller_number`
+    for this business, or None if no call exists. None-safe: returns None if the
+    voice_calls table is empty or the number has never been called. Used for the
+    60-minute de-dupe guard before placing a new AI voice call.
+
+    Resolves caller_number -> lead via leads.phone (last 10 digits match), then
+    joins to voice_calls on lead_id + biz_id."""
+    key = re.sub(r"\D", "", str(caller_number or ""))[-10:]
+    if not key:
+        return None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT vc.started_at FROM voice_calls vc"
+        " JOIN leads l ON l.id = vc.lead_id"
+        " WHERE vc.biz_id = ?"
+        "   AND substr(replace(replace(replace(replace(replace("
+        "       l.phone,'+',''),'-',''),'(',''),')',''),' ',''), -10) = ?"
+        " ORDER BY vc.started_at DESC LIMIT 1",
+        (biz_id, key)).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def voice_spend_this_month(biz_id):
+    """Sum of cost_cents for biz_id where started_at is on or after the first
+    day of the current calendar month (UTC). Returns 0 when no calls exist."""
+    first_of_month = date.today().replace(day=1).isoformat()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COALESCE(SUM(cost_cents), 0) FROM voice_calls"
+        " WHERE biz_id=? AND started_at >= ?",
+        (biz_id, first_of_month)).fetchone()
+    conn.close()
+    return int(row[0]) if row else 0

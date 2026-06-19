@@ -139,11 +139,11 @@ def format_message(kind, context):
         estimated = " (estimated)" if is_estimated else ""
         s = "s" if count != 1 else ""
         base = (f"Good morning. {count} text{s} ready: {plays_summary}. "
-                f"~{total_str} on the table{estimated}. "
+                f"{total_str} on the table{estimated}. "
                 f"Reply GO to send all, SKIP to hold.")
         # Cap at 320 chars; truncate plays_summary first (keep the GO/SKIP line).
         if len(base) > 320:
-            instr = (f"~{total_str} on the table{estimated}. "
+            instr = (f"{total_str} on the table{estimated}. "
                      f"Reply GO to send all, SKIP to hold.")
             prefix = f"Good morning. {count} text{s} ready: "
             budget = 320 - len(prefix) - len(instr) - 2  # 2 for ". "

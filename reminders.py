@@ -448,6 +448,15 @@ def scan_followups(now=None):
                                                   send_at, body)
                 if t1_id is not None:
                     queued += 1
+                    # Phase 6c W6: an automated Touch-1 just went out -- cancel any PENDING
+                    # quote_followup growth touch for this lead so they don't get two similar
+                    # texts. Pending-only: a HELD tray play (awaiting the owner's GO) is left
+                    # untouched, so this never overrides an owner decision.
+                    try:
+                        db.cancel_lead_growth_touches(lead["id"], ("quote_followup",))
+                    except Exception as _w6e:
+                        print(f"[firstback] W6 quote_followup exclusion failed "
+                              f"(lead {lead.get('id')}): {_w6e}", file=sys.stderr, flush=True)
                     # S5: Queue Touch-2 immediately -- 5 days after Touch-1, quiet-hours
                     # deferred. Import at call site per spec (do NOT edit growth.py).
                     if not lead.get("has_followup_2"):
@@ -845,6 +854,7 @@ def tick_once(now=None):
     send everything due. Always writes a heartbeat to meta (SF-3), even on partial
     failure, so the /health/ticker endpoint can report staleness accurately."""
     now = now or db.now_iso()
+    _tick_started = time.monotonic()   # Phase 6c W4: measure the pass for the soft-budget warn
     # Phase 6b: read the PREVIOUS heartbeat before overwriting it (stale-ticker detection).
     _prev_tick_utc = db.get_meta("last_tick_utc")
     # Record the heartbeat FIRST so a partial failure still timestamps the tick.
@@ -917,6 +927,16 @@ def tick_once(now=None):
     except Exception as e:
         print(f"[firstback] contacts nightly sync tick failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
+    # Phase 6c W4 (observability): a tick that runs long risks delaying the next pass's
+    # sends. Log a one-line warning when it exceeds a soft budget (80% of the interval,
+    # min 30s) so a slow tick is VISIBLE in logs. (Staggering scans / a separate
+    # contacts-sync cron / Redis rate-limits are deferred until multi-tenant scale.)
+    _tick_elapsed = time.monotonic() - _tick_started
+    _tick_budget = max(30, int(TICK_SECONDS * 0.8))
+    if _tick_elapsed > _tick_budget:
+        print(f"[firstback] WARNING: tick_once ran {_tick_elapsed:.1f}s "
+              f"(soft budget {_tick_budget}s) -- scheduler may lag at higher tenant volume.",
+              file=sys.stderr, flush=True)
     return {"queued": queued, "growth_queued": growth_queued, "sent": sent,
             "contacts_synced": contacts_synced}
 

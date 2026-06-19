@@ -752,21 +752,28 @@ def init_db():
             "CREATE UNIQUE INDEX IF NOT EXISTS uniq_followup_2 "
             "ON scheduled_messages(lead_id) WHERE kind='followup_2'")
     # One ACTIVE growth touch per (lead, kind) -- the same race-safe dedupe for the
-    # Phase 3 growth engine. Partial on status!='canceled' so a touch can be re-queued
-    # after it's canceled (e.g. a reschedule), but never double-queued while in flight.
+    # Phase 3 growth engine. Partial on the ACTIVE predicate (see _GROWTH_ACTIVE below) so a
+    # touch can be re-queued once it's canceled (e.g. a reschedule) or failed, but is never
+    # double-queued while in flight (pending/held/sent).
     # Phase 2: sms_retry and morning_reminder are NOT growth touches -- sms_retry rows
     # stack per-lead (one per attempt); morning_reminder dedupes via find_scheduled_message.
     # Drop and recreate the index to add these exclusions if it already exists.
     _GROWTH_EXCLUSION = "('reminder','followup','sms_retry','morning_reminder')"
+    # Phase 6c W5: a touch counts as occupying the (lead, kind) slot only while ACTIVE.
+    # 'failed' is now EXCLUDED alongside 'canceled' -- otherwise a failed touch held the
+    # slot forever and the lead could never be re-queued for that kind in a later cycle.
+    _GROWTH_ACTIVE = "status NOT IN ('canceled','failed')"
     _needs_growth_idx_rebuild = False
     if "uniq_growth_touch_per_lead" not in sched_idx:
         _needs_growth_idx_rebuild = True
     else:
-        # Check if the existing index uses the old exclusion list (missing sms_retry).
+        # Rebuild if the existing index uses an older predicate -- missing 'sms_retry' in
+        # the exclusion list, OR (6c) missing 'failed' in the status filter.
         _idx_sql = c.execute(
             "SELECT sql FROM sqlite_master WHERE type='index' AND name='uniq_growth_touch_per_lead'"
         ).fetchone()
-        if _idx_sql and "sms_retry" not in (_idx_sql[0] or ""):
+        _sql = (_idx_sql[0] or "") if _idx_sql else ""
+        if _idx_sql and ("sms_retry" not in _sql or "failed" not in _sql):
             _needs_growth_idx_rebuild = True
             c.execute("DROP INDEX IF EXISTS uniq_growth_touch_per_lead")
 
@@ -775,14 +782,14 @@ def init_db():
         # UNIQUE index can't fail to build on an already-populated DB.
         c.execute(
             f"DELETE FROM scheduled_messages WHERE kind NOT IN {_GROWTH_EXCLUSION} "
-            "AND status!='canceled' AND id NOT IN ("
+            f"AND {_GROWTH_ACTIVE} AND id NOT IN ("
             f"  SELECT MIN(id) FROM scheduled_messages "
-            f"  WHERE kind NOT IN {_GROWTH_EXCLUSION} AND status!='canceled' "
+            f"  WHERE kind NOT IN {_GROWTH_EXCLUSION} AND {_GROWTH_ACTIVE} "
             "  GROUP BY lead_id, kind)")
         c.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uniq_growth_touch_per_lead "
             f"ON scheduled_messages(lead_id, kind) "
-            f"WHERE kind NOT IN {_GROWTH_EXCLUSION} AND status!='canceled'")
+            f"WHERE kind NOT IN {_GROWTH_EXCLUSION} AND {_GROWTH_ACTIVE}")
     # Speed the growth-engine per-lead aggregates (growth_candidates correlated subqueries).
     c.execute("CREATE INDEX IF NOT EXISTS idx_messages_lead "
               "ON messages(lead_id, direction, created_at)")
@@ -2597,12 +2604,15 @@ def growth_candidates(business_id):
 
 
 def growth_touch_index(business_id):
-    """Map lead_id -> set of growth `kind`s already in flight (status != canceled), so
-    plays()/scan() never re-offer or re-queue a touch already pending or sent, in one query."""
+    """Map lead_id -> set of growth `kind`s already in flight, so plays()/scan() never
+    re-offer or re-queue a touch already pending/held/sent, in one query. Phase 6c W5:
+    'failed' is excluded alongside 'canceled' -- a touch whose only attempt FAILED is no
+    longer 'in flight', so the lead can be re-offered/re-queued in a later cycle (this is
+    the application-layer half of the same fix made to the uniq_growth_touch_per_lead index)."""
     conn = get_conn()
     rows = conn.execute(
         "SELECT lead_id, kind FROM scheduled_messages "
-        "WHERE business_id=? AND status!='canceled' "
+        "WHERE business_id=? AND status NOT IN ('canceled','failed') "
         "AND kind NOT IN ('reminder','followup')", (business_id,)).fetchall()
     conn.close()
     idx = {}
@@ -2903,6 +2913,12 @@ def cancel_appointment(business_id, appointment_id):
         conn.close()
         return None
     conn.execute("UPDATE appointments SET status='canceled' WHERE id=?", (appointment_id,))
+    # Phase 6c W7: cancel the appointment's pending reminders on the SAME connection +
+    # transaction so a crash between the two writes can't leave the appointment canceled
+    # but its reminders orphaned-pending (cosmetic 'skipped' rows). One atomic commit.
+    conn.execute("UPDATE scheduled_messages SET status='canceled' "
+                 "WHERE appointment_id=? AND kind='reminder' AND status='pending'",
+                 (appointment_id,))
     lead_id = row["lead_id"]
     still_booked = conn.execute(
         "SELECT 1 FROM appointments WHERE business_id=? AND lead_id=? AND status='booked' "
@@ -2912,7 +2928,6 @@ def cancel_appointment(business_id, appointment_id):
         conn.execute("UPDATE leads SET status='new' WHERE id=?", (lead_id,))
     conn.commit()
     conn.close()
-    cancel_appointment_reminders(appointment_id)  # pending reminders -> canceled
     return dict(row)
 
 

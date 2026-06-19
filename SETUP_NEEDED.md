@@ -354,6 +354,24 @@ The unified 8am owner digest, ticker LLM timeout, and an in-app stale-ticker ale
 - (No new required env var. The digest is default-ON per tenant via `alert_on_daily_digest`;
   the owner can mute just the morning buzz in Settings without losing real-time lead/booking alerts.)
 
+## Pre-deploy audit (2026-06-19) — owner-ops + fast-follows
+A 10-agent pre-deploy sweep (`phase6/audit/PREDEPLOY-*`) verified the product and fixed 12
+launch-blockers in code (commit cbfa24d). Remaining items that are NOT code:
+- **HOW THE FIRST $99 IS COLLECTED — there is no wired "Subscribe" button in the UI.** The
+  billing backend is complete (checkout session, webhook, grants — all tested) but nothing in
+  the shipped pages POSTs to `/billing/checkout`. For launch, either (a) collect via a Stripe
+  **Payment Link** out-of-band, or (b) wire a subscribe/upgrade button whose form includes
+  `{{ csrf_token }}` (the routes are now CSRF-guarded). Decide this before "first $99".
+- **External cron** → `POST /tasks/run-due` every 60s (gated fail-closed by `FIRSTBACK_TASKS_SECRET`).
+  The in-process ticker works, but a Render dyno recycle delays scheduled sends until the next
+  tick; the cron is the durable path. (Already in the go-live list.)
+- **External uptime monitor on `/health/ticker`** (catches total scheduler death — see Phase 6b note above).
+- **Fast-follows (not launch-blocking, documented in PREDEPLOY-SYNTHESIS):** harden the login
+  rate-limit (it trusts `X-Forwarded-For`; add ProxyFix / email-keying); finish the
+  defense-in-depth `_csrf` sweep on the remaining authenticated config forms (SameSite=Lax
+  covers them today); make the Stripe `seen`+`mark` atomic (`INSERT OR IGNORE`) before running
+  multiple workers.
+
 ## Optional cleanup flagged by the audit
 - Delete the dead, unrouted `landing.html` (still contains the old Jobber/Housecall/Angi
   logos; harmless since it isn't served, but worth removing — roadmap already flags it).

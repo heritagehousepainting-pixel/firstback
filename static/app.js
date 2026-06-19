@@ -94,6 +94,30 @@ function addMeta(container, text) {
   container.appendChild(el);
 }
 
+// Renders a visually distinct error card inside the chat pane (not a faint timestamp).
+// retryFn: optional — if provided, a "Tap to retry" button is shown.
+function addErrorTurn(container, message, retryFn) {
+  clearEmpty(container);
+  const el = document.createElement("div");
+  el.className = "chat-error-turn";
+  const txt = document.createElement("span");
+  txt.textContent = message;
+  el.appendChild(txt);
+  if (retryFn) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-ghost btn-sm";
+    btn.textContent = "Tap to retry";
+    btn.addEventListener("click", function () {
+      el.remove();
+      retryFn();
+    });
+    el.appendChild(btn);
+  }
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
 // ---------- Simulator (the demo) ----------
 (function () {
   const trigger = document.getElementById("trigger");
@@ -274,6 +298,15 @@ function addMeta(container, text) {
     if (flagSpamBtn) { flagSpamBtn.disabled = false; flagSpamBtn.textContent = "Mark as spam"; }
     if (notesEl) notesEl.innerHTML = '<p class="ln-loading">Loading notes…</p>';
     convo.innerHTML = "";
+    // On a phone the lead list and the conversation stack vertically; after tapping a
+    // card, bring the conversation panel into view so the owner isn't left on the list.
+    if (window.innerWidth <= 640) {
+      const convoCard = convo.closest(".card");
+      if (convoCard) {
+        const reduce = window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+        convoCard.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      }
+    }
     try {
       const data = await apiFetch(`/api/leads/${row.dataset.id}/messages`);
       const lead = data.lead || {};
@@ -293,7 +326,8 @@ function addMeta(container, text) {
       });
     } catch (err) {
       if (notesEl) notesEl.innerHTML = "";
-      addMeta(convo, "Could not load this lead. " + err.message);
+      addErrorTurn(convo, "Could not load this conversation. " + err.message,
+        function () { openLead(row); });
     }
   }
 
@@ -301,12 +335,23 @@ function addMeta(container, text) {
     row.addEventListener("click", () => openLead(row));
     // Keyboard support: rows are role="button" tabindex="0" — Enter/Space activate.
     row.addEventListener("keydown", (e) => {
+      // Only the row/card itself activates on Enter/Space. If focus is on a child
+      // (the tel: link), let the browser handle it so keyboard dialing still works.
+      if (e.target !== row) return;
       if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
         e.preventDefault();
         openLead(row);
       }
     });
   });
+
+  // Deep-link: /pipeline?lead_id=X auto-opens that lead's thread (briefing deep-links land here).
+  // Digits only — defends the querySelector string from a crafted lead_id.
+  const urlLead = (new URLSearchParams(location.search).get("lead_id") || "").replace(/[^0-9]/g, "");
+  if (urlLead) {
+    const autoRow = document.querySelector('.dt-row[data-id="' + urlLead + '"]');
+    if (autoRow) { autoRow.scrollIntoView({ block: "nearest" }); openLead(autoRow); }
+  }
 })();
 
 // ---------- Dashboard: cancel a booked estimate ----------

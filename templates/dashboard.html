@@ -50,11 +50,14 @@
 <div class="dash-2col">
   {% call card(title='Leads', flush=true) %}
     {% if leads %}
+      {# Desktop: the data table (hidden < 640px). The .dt-row[data-id] selector that app.js
+         uses to open a conversation matches both these <tr> rows and the mobile cards below. #}
+      <div class="leads-table-wrap">
       {% call data_table(['Customer','Phone','Stage','Received']) %}
         {% for l in leads %}
-        <tr class="dt-row" data-id="{{ l.id }}" role="button" tabindex="0" aria-pressed="false" aria-label="Open conversation with {{ l.name }}">
+        <tr class="dt-row{% if l.urgent %} is-urgent{% endif %}" data-id="{{ l.id }}" role="button" tabindex="0" aria-pressed="false" aria-label="Open conversation with {{ l.name }}">
           <td class="dt-strong">{{ l.name }}</td>
-          <td class="dt-muted">{{ l.phone|phone }}</td>
+          <td class="dt-muted"><a href="tel:{{ l.phone }}" class="tel-link">{{ l.phone|phone }}</a></td>
           <td>
             {% if l.stage == 'scheduled' %}{{ pill('Scheduled','booked') }}
             {% elif l.stage == 'warm' %}{{ pill('Warm','warning') }}
@@ -65,6 +68,32 @@
         </tr>
         {% endfor %}
       {% endcall %}
+      </div>
+      {# Mobile (< 640px): the same leads as tappable cards. Same data-id so the JS row-open
+         handler works unchanged. Phone is its own tel: tap (stopPropagation so it dials
+         instead of opening the thread). #}
+      <div class="lead-cards" aria-label="Leads">
+        {% for l in leads %}
+        <div class="lead-card dt-row{% if l.urgent %} is-urgent{% endif %}" data-id="{{ l.id }}"
+             role="button" tabindex="0" aria-pressed="false" aria-label="Open conversation with {{ l.name }}">
+          <div class="lead-card-main">
+            <span class="lead-card-name">{{ l.name }}</span>
+            {% if l.urgent %}<span class="lead-card-dot" aria-label="Urgent" title="Urgent"></span>{% endif %}
+          </div>
+          <div class="lead-card-row2">
+            <a href="tel:{{ l.phone }}" class="tel-link lead-card-phone" aria-label="Call {{ l.name }}" onclick="event.stopPropagation()">{{ l.phone|phone }}</a>
+            <span class="lead-card-meta">{{ l.created_at|nicedate }}</span>
+          </div>
+          <div class="lead-card-row3">
+            {% if l.stage == 'scheduled' %}{{ pill('Scheduled','booked') }}
+            {% elif l.stage == 'warm' %}{{ pill('Warm','warning') }}
+            {% else %}{{ pill('New','neutral') }}{% endif %}
+            {% if l.urgent %} {{ pill('Urgent','urgent') }}{% endif %}
+          </div>
+          <svg class="lead-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </div>
+        {% endfor %}
+      </div>
     {% else %}
       {{ empty_state('No leads yet', 'When a missed call comes in, FirstBack texts the caller and the new lead lands right here.', action_label='Try the live demo', action_href='/simulator') }}
     {% endif %}
@@ -86,7 +115,7 @@
     {% call data_table(['When','Customer','Phone','Reminder','']) %}
       {% for a in appointments %}
       {% set rs = reminder_state.get(a.id) %}
-      <tr><td class="dt-strong">{{ (a.day|slotwhen(a.slot_time)) or a.scheduled_for }}</td><td>{{ a.lead_name }}</td><td class="dt-muted">{{ a.lead_phone|phone }}</td>
+      <tr><td class="dt-strong">{{ (a.day|slotwhen(a.slot_time)) or a.scheduled_for }}</td><td>{{ a.lead_name }}</td><td class="dt-muted"><a href="tel:{{ a.lead_phone }}" class="tel-link">{{ a.lead_phone|phone }}</a></td>
       <td>{% if rs and rs.status == 'sent' %}{{ pill('Reminder sent','booked') }}{% elif rs and rs.status == 'simulated' %}{{ pill('Reminder simulated','neutral') }}{% elif rs and rs.status == 'pending' %}{{ pill('Reminder set','neutral') }}{% elif rs and rs.status == 'skipped' %}{{ pill('No reminder','warning') }}{% elif rs and rs.status == 'failed' %}{{ pill('Reminder failed','urgent') }}{% else %}<span class="dt-muted">—</span>{% endif %}</td>
       <td class="dt-actions"><button type="button" class="btn btn-ghost btn-sm appt-cancel" data-id="{{ a.id }}" data-when="{{ (a.day|slotwhen(a.slot_time)) or a.scheduled_for }}" aria-label="Cancel estimate for {{ a.lead_name }}">Cancel</button></td></tr>
       {% endfor %}
@@ -116,7 +145,7 @@
   {% call data_table(['Caller','Why','When','']) %}
     {% for c in screened %}
     <tr>
-      <td class="dt-strong">{{ c.from_number|phone }}{% if c.times and c.times > 1 %} <span class="dt-muted">· {{ c.times }} calls</span>{% endif %}</td>
+      <td class="dt-strong"><a href="tel:{{ c.from_number }}" class="tel-link">{{ c.from_number|phone }}</a>{% if c.times and c.times > 1 %} <span class="dt-muted">· {{ c.times }} calls</span>{% endif %}</td>
       <td>
         {% if c.screen_status == 'screened_spam' %}{{ pill('Spam', 'urgent') }}{% if c.spam_score %} <span class="dt-muted">· score {{ c.spam_score }}</span>{% endif %}
           {% if c.screen_reasons %}<div class="dt-muted screen-why">{{ c.screen_reasons }}</div>{% endif %}

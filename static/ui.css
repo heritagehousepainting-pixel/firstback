@@ -148,6 +148,13 @@ textarea.field-control{min-height:96px;line-height:1.5;resize:vertical}
 .chat{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-6);background:var(--bg)}
 .chat-meta{align-self:center;margin:var(--space-1) 0;font-size:var(--text-xs);
   color:var(--ink-faint);text-transform:uppercase;letter-spacing:.06em}
+/* Failed loads/sends render as a distinct error card (not a faint timestamp) so a
+   non-tech owner can tell a failure from a divider, with an optional retry. */
+.chat-error-turn{align-self:stretch;display:flex;align-items:center;justify-content:space-between;
+  gap:var(--space-3);padding:var(--space-3) var(--space-4);margin:var(--space-2) 0;
+  background:var(--danger-bg);border:1px solid var(--danger-ring);border-left:3px solid var(--danger);
+  border-radius:var(--radius);font-size:var(--text-sm);color:var(--danger);line-height:1.4}
+.chat-error-turn .btn{flex:0 0 auto;color:var(--danger);border-color:var(--danger-ring)}
 .msg{display:flex;align-items:flex-end;gap:var(--space-2);max-width:78%}
 .msg-agent{align-self:flex-end;flex-direction:row-reverse}
 .msg-customer{align-self:flex-start}

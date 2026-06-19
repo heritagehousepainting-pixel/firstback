@@ -724,6 +724,25 @@ def demo_sim_reply():
     return jsonify(reply=reply, booked=booked, urgent=urgent, _demo=True)
 
 
+def _time_ago(iso):
+    """Human 'Xh/Xd/Xw ago' from an ISO timestamp, or None if missing/unparseable.
+    Never raises -- callers use it for a best-effort orientation line."""
+    if not iso:
+        return None
+    try:
+        then = datetime.fromisoformat(iso)
+        now = datetime.now(then.tzinfo) if then.tzinfo else datetime.now()
+        secs = (now - then).total_seconds()
+        if secs < 3600:
+            return "just now"
+        if secs < 86400:
+            return f"{int(secs // 3600)}h ago"
+        days = int(secs // 86400)
+        return f"{days}d ago" if days < 14 else f"{days // 7}w ago"
+    except Exception:
+        return None
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -732,14 +751,20 @@ def dashboard():
     hour = datetime.now(app_tz()).hour
     part = "Morning" if hour < 12 else ("Afternoon" if hour < 17 else "Evening")
     biz = current_business()
+    if not biz:
+        return redirect("/login")
     owner = (biz.get("owner_name") or "").strip() if biz else ""
     hello = f"{part}, {owner.split()[0]}." if owner else f"{part}."
     brief, chips, feed_sig = _command_feed(biz)
+    # Orientation line for the 'all clear' state: the most recent lead, if any.
+    _last = db.last_lead(biz["id"])
     return render_template("command.html", hello=hello,
                            briefing=brief, feed_sig=feed_sig,
                            digest=convos.digest(biz["id"]),
                            golive=connections.golive_summary(biz),
-                           suggestions=chips)
+                           suggestions=chips,
+                           last_lead_name=(_last["name"] if _last else None),
+                           last_lead_ago=(_time_ago(_last["created_at"]) if _last else None))
 
 
 def _command_feed(biz):

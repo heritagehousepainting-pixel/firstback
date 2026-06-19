@@ -1409,6 +1409,17 @@ def leads_with_stage(business_id):
     return out
 
 
+def last_lead(business_id):
+    """The single most recent lead (name + created_at) for the command-center 'all clear'
+    orientation line. Returns a dict or None when the tenant has no leads yet."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT name, created_at FROM leads WHERE business_id=? ORDER BY id DESC LIMIT 1",
+        (business_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def mark_lead_urgent(lead_id, business_id=None):
     # business_id is optional for back-compat, but production callers pass it: defense-in-depth
     # tenant scoping so a stray lead_id can never flip another tenant's lead.

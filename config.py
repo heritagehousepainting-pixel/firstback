@@ -214,6 +214,22 @@ except ValueError:
     VOICE_SERVICE_PORT = 8810
 CONVERSATIONRELAY_VOICE = os.environ.get("FIRSTBACK_VOICE_TTS", "")
 
+# Voice metering constants (Slice 2 / Slice 3 / Slice 4 cost enforcement).
+# VOICE_MONTHLY_CAP_CENTS: maximum voice spend per business per calendar month
+#   before calls are halted and the owner is alerted. Default = $20 (2000 cents).
+# VOICE_CREDIT_RATE_CENTS: cost per 30-second billing block. Default = 25 cents.
+# Both are env-overridable so the owner can adjust without a code deploy.
+try:
+    VOICE_MONTHLY_CAP_CENTS = int(
+        os.environ.get("FIRSTBACK_VOICE_MONTHLY_CAP_CENTS", "") or "2000")
+except (TypeError, ValueError):
+    VOICE_MONTHLY_CAP_CENTS = 2000
+try:
+    VOICE_CREDIT_RATE_CENTS = int(
+        os.environ.get("FIRSTBACK_VOICE_CREDIT_RATE_CENTS", "") or "25")
+except (TypeError, ValueError):
+    VOICE_CREDIT_RATE_CENTS = 25
+
 # The voice service runs as a SEPARATE process/Render service and cannot share the
 # web app's SQLite disk, so it relays each spoken turn to the web app's
 # /internal/voice/turn endpoint rather than writing the DB directly — keeping booking

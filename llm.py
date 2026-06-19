@@ -10,7 +10,7 @@ Edit trades_core/llm.py, then run `python3 trades_core/sync.py`.
 import json as _json
 import re
 
-from config import (PROVIDER, ANTHROPIC_API_KEY, CLAUDE_MODEL,
+from config import (PROVIDER, ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MODEL_VOICE,
                     MINIMAX_API_KEY, MINIMAX_MODEL, MINIMAX_BASE_URL)
 
 # Phase 1 — Claude pricing (per 1 M tokens, USD) so we can compute cost without
@@ -37,6 +37,22 @@ def _claude_cost(model, input_tokens, output_tokens):
         + output_tokens / 1_000_000 * out_rate, 8
     )
 
+
+# M-4: Confirmation-echo instruction injected into the voice system prompt (Slice 2).
+# Slice 4 /internal/voice/stream appends this to the booking brain system prompt so the
+# AI always speaks the slot back and waits for a verbal yes before writing [[BOOK]].
+# This is a prompt-only guard -- no code branch; see PHASE5G-SPEC.md Risk 5.
+VOICE_CONFIRM_BOOKING_PROMPT = (
+    "Before you write [[BOOK]], speak the exact booking slot back to the caller "
+    "and confirm they said yes. For example: 'So that is Thursday the 19th at "
+    "2 PM -- does that work for you?' Only write [[BOOK]] after they confirm. "
+    "Keep every reply to 1 to 2 sentences. Speak naturally -- say 'uh-huh', "
+    "'got it', 'sure' where a real person would. If the caller says 'um', 'uh', "
+    "or other ASR fillers, treat them as thinking time and wait for the real "
+    "utterance. If your previous reply appears cut off, treat it as complete "
+    "and respond to the caller's new utterance without re-completing the prior "
+    "response."
+)
 
 # ---- Provider message/tool mappers (shared by the blocking + streaming tool calls) -------
 def _claude_msgs(messages):
@@ -233,7 +249,7 @@ def tool_complete(provider, system, messages, tools, *, max_tokens=700, temperat
 
 
 def tool_complete_stream(provider, system, messages, tools, *, max_tokens=700,
-                         temperature=0.4):
+                         temperature=0.4, model=None):
     """Streaming sibling of tool_complete for ONE tool-use round. A generator that yields
     ('text', delta) as the model produces visible text, then exactly one ('result', {text,
     tool_calls}) when the round is complete -- the same normalized shape tool_complete returns.
@@ -241,14 +257,18 @@ def tool_complete_stream(provider, system, messages, tools, *, max_tokens=700,
     Live token streaming is implemented for Claude via the Anthropic SDK's messages.stream
     (Opus 4.8: no temperature/top_p/budget_tokens -- adaptive thinking only). For any other
     provider there is no live token stream here: the caller computes the reply and streams it
-    over the SSE channel itself, so this yields a single ('result', ...) with no text deltas."""
+    over the SSE channel itself, so this yields a single ('result', ...) with no text deltas.
+
+    `model` overrides CLAUDE_MODEL for the Claude path (e.g. CLAUDE_MODEL_VOICE for Haiku).
+    When None (default), CLAUDE_MODEL is used -- existing callers are unchanged."""
     if provider == "claude":
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        _model = model or CLAUDE_MODEL
         # Prompt caching: ephemeral on the shared system-prompt block (streaming path).
         system_block = [{"type": "text", "text": system,
                          "cache_control": {"type": "ephemeral"}}]
-        with client.messages.stream(model=CLAUDE_MODEL, max_tokens=max_tokens,
+        with client.messages.stream(model=_model, max_tokens=max_tokens,
                                      system=system_block, messages=_claude_msgs(messages),
                                      tools=_claude_tools(tools)) as stream:
             for event in stream:
@@ -260,10 +280,43 @@ def tool_complete_stream(provider, system, messages, tools, *, max_tokens=700,
         inp = getattr(final.usage, "input_tokens", 0) or 0
         out = getattr(final.usage, "output_tokens", 0) or 0
         result["usage"] = {"input_tokens": inp, "output_tokens": out,
-                           "cost_usd": _claude_cost(CLAUDE_MODEL, inp, out),
-                           "model": CLAUDE_MODEL}
+                           "cost_usd": _claude_cost(_model, inp, out),
+                           "model": _model}
         yield ("result", result)
         return
     # No live stream for this provider: hand back the blocking result, no deltas.
     yield ("result", tool_complete(provider, system, messages, tools,
                                    max_tokens=max_tokens, temperature=temperature))
+
+
+def complete_stream_voice(system, messages, *, max_tokens=150, _provider=None):
+    """Voice-path streaming completion. Yields raw text-delta strings (no tuples).
+
+    Always uses CLAUDE_MODEL_VOICE (Haiku) for latency + cost reasons. No tools --
+    the voice path is conversational-only; booking writes go through /internal/voice/turn
+    at stream END, not mid-stream (see PHASE5G-SPEC.md P0-2).
+
+    Provider-safe: when provider is 'demo' or no API key is set, yields nothing so the
+    voice path silently gets an empty reply rather than crashing. The caller (Slice 1
+    voice_service.py or Slice 4 /internal/voice/stream) decides how to handle an empty
+    stream (e.g. send a filler or fall back to the blocking path).
+
+    `_provider` is an internal-only override used by tests to exercise the Claude path
+    without changing the module-level PROVIDER constant. Production callers omit it.
+    """
+    provider = _provider if _provider is not None else PROVIDER
+    if provider == "claude" and ANTHROPIC_API_KEY:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        system_block = [{"type": "text", "text": system,
+                         "cache_control": {"type": "ephemeral"}}]
+        with client.messages.stream(model=CLAUDE_MODEL_VOICE, max_tokens=max_tokens,
+                                     system=system_block,
+                                     messages=_claude_msgs(messages)) as stream:
+            for event in stream:
+                if event.type == "content_block_delta" \
+                        and getattr(event.delta, "type", "") == "text_delta":
+                    yield event.delta.text
+        return
+    # demo / minimax / no key: yield nothing; caller handles the empty stream.
+    return

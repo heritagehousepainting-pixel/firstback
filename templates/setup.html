@@ -80,7 +80,7 @@
             {{ field('Owner name', name='owner_name', value=business.owner_name or '') }}
             {{ field('Service area', name='service_area', value=business.service_area or '') }}
             {{ field('Legal business name', name='legal_business_name', value=business.legal_business_name or business.name or '', help='The exact legal name on your tax paperwork. The phone carriers verify it.') }}
-            {{ field('EIN (business tax ID)', name='ein', value=business.ein or '', placeholder='12-3456789', required=true, help='Required by U.S. carriers to send business texts. A sole proprietor can register with their EIN.') }}
+            {{ field('EIN (business tax ID)', name='ein', value=business.ein or '', placeholder='12-3456789', help='Sole proprietors can skip this — we register with your name and address. LLC or corporation? Enter your EIN here.') }}
             {{ field('Business address', name='business_address', value=business.business_address or '', required=true, placeholder='Street, City, State ZIP') }}
             {{ field('Website (optional)', name='website', value=business.website or '', type='url', placeholder='https://yourbusiness.com') }}
           </div>

@@ -542,7 +542,9 @@ function addMeta(container, text) {
       tile(t.booked, "Estimates booked", t.leads ? t.conversion + "% conversion" : null, t.booked ? "good" : "") +
       tile(t.conversion + "%", "Conversion rate") +
       tile(hasRev ? money(t.revenue) : "—", "Est. revenue recovered",
-           hasRev ? "at " + money(d.avg_job_value) + "/job" : "Set avg job value in Settings",
+           hasRev ? (d.avg_source === "owner" ? "at " + money(d.avg_job_value) + "/job"
+                                               : "industry avg — set yours in Settings")
+                  : "Set avg job value in Settings",
            hasRev ? "good" : "");
   }
   function renderChart(series) {

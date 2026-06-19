@@ -29,7 +29,7 @@ import messaging
 
 ALERT_KINDS = ("lead", "booking", "urgent", "canceled", "sms_fail", "forwarding_lost",
                "roi_milestone", "vic_morning", "vic_stall", "screening_graduated",
-               "growth_tray", "daily_digest", "tick_stale")
+               "growth_tray", "daily_digest", "tick_stale", "a2p_approved")
 # Collapse identical alerts (same business + event) within this many seconds.
 ALERT_DEDUPE_SECONDS = 120
 # Proactive daily pushes (day-stamped keys) collapse over the whole local day, not 120s --
@@ -59,7 +59,10 @@ _TOGGLE_COL = {"lead": "alert_on_lead", "booking": "alert_on_booking",
                # buzz without losing real-time lead/booking alerts.
                "daily_digest": "alert_on_daily_digest",
                # Phase 6b ops alert: scheduler stalled -> rides the urgent toggle (no new column).
-               "tick_stale": "alert_on_urgent"}
+               "tick_stale": "alert_on_urgent",
+               # Tier-0 F8: "you're live" when A2P approves -- a one-time, must-see event;
+               # rides the lead toggle so the owner who wants lead alerts gets it.
+               "a2p_approved": "alert_on_lead"}
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -200,6 +203,11 @@ def format_message(kind, context):
         if len(base) > 320:
             base = base[:317].rstrip() + "..."
         return base
+    if kind == "a2p_approved":
+        # Tier-0 F8: the go-live moment. Honest -- texting is now actually on, and any calls
+        # that came in during the carrier wait have had their queued text-backs replayed.
+        return ("You're live! FirstBack is now texting your missed calls back. Any callers "
+                "from while you were getting approved have just been texted -- check your leads.")
     if kind == "tick_stale":
         # Ops alert to the operator: the scheduler hasn't run -- texts/reminders may lag.
         gap = context.get("gap_minutes", 0)
@@ -225,7 +233,8 @@ def _subject(kind):
             "screening_graduated": "Spam Shield is now active -- FirstBack",
             "growth_tray": "Your morning growth tray -- FirstBack",
             "daily_digest": "Your morning summary -- FirstBack",
-            "tick_stale": "Scheduler may be down -- FirstBack"}.get(kind, "FirstBack alert")
+            "tick_stale": "Scheduler may be down -- FirstBack",
+            "a2p_approved": "You're live -- FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):

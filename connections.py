@@ -529,6 +529,15 @@ def a2p_sync(business):
             except Exception as _fe:
                 print(f"[firstback] a2p_sync flush error (biz {biz['id']}): {_fe}",
                       file=sys.stderr, flush=True)
+            # F8: tell the owner they're LIVE -- the most important moment in the lifecycle
+            # was previously silent. Lazy import + isolated try/except so a failed alert can
+            # never break the sync loop (this runs on the cron tick for every pending tenant).
+            try:
+                import alerts
+                alerts.notify_async(biz, "a2p_approved", {})
+            except Exception as _ae:
+                print(f"[firstback] a2p_sync alert error (biz {biz['id']}): {_ae}",
+                      file=sys.stderr, flush=True)
         return mapped
     return current
 

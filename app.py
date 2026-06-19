@@ -1139,6 +1139,7 @@ def settings():
             "alert_on_booking": 1 if request.form.get("alert_on_booking") else 0,
             "alert_on_urgent": 1 if request.form.get("alert_on_urgent") else 0,
             "alert_on_daily_digest": 1 if request.form.get("alert_on_daily_digest") else 0,
+            "alert_on_roi_milestone": 1 if request.form.get("alert_on_roi_milestone") else 0,
         })
         try:
             lead_hours = int(float(request.form.get("reminder_lead_hours") or 24))
@@ -2616,8 +2617,14 @@ def _missed_call_textback(biz, caller, call_sid="", dial_status=""):
     # re-introduce us (the owner is still alerted via the 'lead' alert + call log).
     if not db.get_messages(lead["id"]):
         reply = open_conversation(biz, lead)    # records the thread + alerts the owner
-        messaging.send_sms(biz, caller, reply)  # transmit (already recorded)
-    return True
+        result = messaging.send_sms(biz, caller, reply)  # transmit (already recorded)
+        # F1 (honesty): the voice prompt keys off this return. True ONLY when a text
+        # actually went out this call. When the send is blocked (A2P not yet approved),
+        # suppressed (opted out), deferred, or errors, no text reached the caller -- the
+        # lead is still captured + the owner alerted, and a blocked send flushes on A2P
+        # approval -- but the caller must NOT be told "we sent you a text."
+        return (result or {}).get("status") in ("sent", "simulated")
+    return False   # repeat call on an existing thread: no NEW text went out this call
 
 
 @app.route("/webhooks/twilio/voice/inbound", methods=["POST"])
@@ -2651,7 +2658,9 @@ def twilio_voice_inbound():
     if engaged:
         return _twiml("<Response><Say>Sorry we missed you. We just sent you a text "
                       "message. Goodbye.</Say><Hangup/></Response>")
-    return _twiml("<Response><Hangup/></Response>")
+    # No text went out (screened, opted out, or A2P not yet live) -- stay honest + warm.
+    return _twiml("<Response><Say>Sorry we missed you. We will be in touch "
+                  "soon. Goodbye.</Say><Hangup/></Response>")
 
 
 @app.route("/webhooks/twilio/voice/dial-status", methods=["POST"])
@@ -2667,6 +2676,8 @@ def twilio_voice_dial_status():
         if engaged:
             return _twiml("<Response><Say>Sorry we missed you. We just sent you a text "
                           "message. Goodbye.</Say><Hangup/></Response>")
+        return _twiml("<Response><Say>Sorry we missed you. We will be in touch "
+                      "soon. Goodbye.</Say><Hangup/></Response>")
     return _twiml("<Response><Hangup/></Response>")
 
 

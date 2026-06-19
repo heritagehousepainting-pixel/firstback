@@ -2396,7 +2396,7 @@ def update_alert_prefs(business_id, fields):
     """Persist a business's owner-alert preferences (Settings 'Owner alerts' card).
     Only the alert columns are touched, so it never disturbs the profile fields."""
     cols = ["alert_email", "alert_sms", "alert_on_lead", "alert_on_booking",
-            "alert_on_urgent", "alert_on_daily_digest"]
+            "alert_on_urgent", "alert_on_daily_digest", "alert_on_roi_milestone"]
     present = [col for col in cols if col in fields]
     if not present:
         return

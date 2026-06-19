@@ -3,7 +3,6 @@
 {% set is_signup = (mode == 'signup') %}
 {% set is_forgot = (mode == 'forgot') %}
 {% set is_reset  = (mode == 'reset') %}
-{% set star %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.56l-5.9 3.1 1.13-6.57L2.45 9.44l6.6-.96z"/></svg>{% endset %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -29,9 +28,7 @@
       <p class="au-art-sub">FirstBack texts every missed caller in seconds, answers their questions, and books the estimate -- so the job doesn't go to the next contractor.</p>
     </div>
     <div class="au-proof">
-      <span class="au-stars" aria-label="5 out of 5">{{ star }}{{ star }}{{ star }}{{ star }}{{ star }}</span>
-      <p class="au-quote">Catch every missed call, book the job, and never chase a lead by hand again.</p>
-      <p class="au-by">-- FirstBack</p>
+      <p class="au-quote">Up and running in a day. Flat rate. No contracts.</p>
     </div>
     <p class="au-foot">© {{ app_name }}</p>
   </aside>
@@ -88,6 +85,12 @@
           {% if is_signup %}{{ field('Your name', name='owner', value=request.form.get('owner',''), placeholder='Jonathan') }}{% endif %}
           {{ field('Work email', name='email', type='email', value=request.form.get('email',''), placeholder='you@yourcompany.com', required=true, autocomplete='email') }}
           {{ field('Password', name='password', type='password', placeholder='••••••••', required=true, minlength=('8' if is_signup else ''), autocomplete=('new-password' if is_signup else 'current-password')) }}
+          {% if is_signup %}
+          {# Carry the phone typed on the landing hero (GET ?phone=) through to the POST so day-one owner alerts work. #}
+          <input type="hidden" name="phone" value="{{ request.args.get('phone', '') | e }}">
+          {# Sole-prop is the default; checking this marks the business an LLC/corp so the EIN step applies. #}
+          <label class="au-check"><input type="checkbox" name="has_ein" value="1"> I have an EIN — my business is an LLC or corporation</label>
+          {% endif %}
           {% if not is_signup %}<a class="au-forgot" href="/auth/forgot">Forgot password?</a>{% endif %}
           {{ button('Create account' if is_signup else 'Sign in', type='submit', block=true) }}
         </form>

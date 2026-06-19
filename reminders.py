@@ -710,6 +710,36 @@ def scan_screening_graduation(now=None):
     return promoted
 
 
+def google_contacts_sync_all(now=None):
+    """5f: nightly per-business Google Contacts re-sync (cadence-gated once/UTC day).
+    INERT if google_contacts.configured() is False -- no log, no DB write, no error.
+    Returns {businesses_checked, businesses_synced, suggestions_created}."""
+    import google_contacts
+    if not google_contacts.configured():
+        return {"businesses_checked": 0, "businesses_synced": 0, "suggestions_created": 0}
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    checked = synced = created = 0
+    for biz in db.list_businesses():
+        bid = biz.get("id")
+        if not bid:
+            continue
+        checked += 1
+        if not google_contacts.is_connected(bid):
+            continue
+        cadence_key = f"contacts_sync_date:{bid}"
+        if db.get_meta(cadence_key) == today_utc:
+            continue  # already ran today for this business
+        try:
+            result = google_contacts.sync(bid)
+            db.set_meta(cadence_key, today_utc)
+            synced += 1
+            created += result.get("suggested", 0)
+        except Exception as e:
+            print(f"[firstback] contacts nightly sync failed (biz {bid}): {e}",
+                  file=sys.stderr, flush=True)
+    return {"businesses_checked": checked, "businesses_synced": synced, "suggestions_created": created}
+
+
 def tick_once(now=None):
     """One scheduler pass: refresh caller-triage suggestions, queue follow-ups, then
     send everything due. Always writes a heartbeat to meta (SF-3), even on partial
@@ -762,8 +792,16 @@ def tick_once(now=None):
         scan_screening_graduation(now)
     except Exception as e:
         print(f"[firstback] screening graduation tick failed: {e}", file=sys.stderr, flush=True)
+    # 5f: nightly Google Contacts re-sync (per-business, cadence-gated).
+    contacts_synced = 0
+    try:
+        _cs = google_contacts_sync_all(now)
+        contacts_synced = _cs.get("businesses_synced", 0)
+    except Exception as e:
+        print(f"[firstback] contacts nightly sync tick failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
-    return {"queued": queued, "growth_queued": growth_queued, "sent": sent}
+    return {"queued": queued, "growth_queued": growth_queued, "sent": sent,
+            "contacts_synced": contacts_synced}
 
 
 def ticker_is_stale(max_age_s=600):

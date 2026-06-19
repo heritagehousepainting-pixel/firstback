@@ -686,12 +686,38 @@ function addMeta(container, text) {
     bulkBar.hidden = n === 0;
     if (!n) return;
     bulkCount.textContent = n + " selected";
-    bulkActions.innerHTML = tab === "pending"
-      ? '<button type="button" class="btn btn-primary btn-sm" data-bulk="accept">Accept selected</button>'
+    if (tab === "pending") {
+      const allN = items.length;
+      bulkActions.innerHTML =
+        '<button type="button" class="btn btn-primary btn-sm" data-bulk="accept">Accept selected</button>'
         + '<button type="button" class="btn btn-ghost btn-sm" data-bulk="dismiss">Dismiss selected</button>'
-      : '<button type="button" class="btn btn-ghost btn-sm" data-bulk="reopen">Undo selected</button>';
-    bulkActions.querySelectorAll("[data-bulk]").forEach((b) =>
-      b.addEventListener("click", () => bulk(b.dataset.bulk)));
+        + (allN > 0
+          ? '<button type="button" class="btn btn-secondary btn-sm" id="cl-accept-all"'
+            + ' title="Accepts each caller with the suggested category shown.">Accept all ' + allN + '</button>'
+          : '');
+      bulkActions.querySelectorAll("[data-bulk]").forEach((b) =>
+        b.addEventListener("click", () => bulk(b.dataset.bulk)));
+      const acceptAllBtn = document.getElementById("cl-accept-all");
+      if (acceptAllBtn) acceptAllBtn.addEventListener("click", () => bulkAll("accept"));
+    } else {
+      bulkActions.innerHTML =
+        '<button type="button" class="btn btn-ghost btn-sm" data-bulk="reopen">Undo selected</button>';
+      bulkActions.querySelectorAll("[data-bulk]").forEach((b) =>
+        b.addEventListener("click", () => bulk(b.dataset.bulk)));
+    }
+  }
+  async function bulkAll(action) {
+    const ids = items.map((s) => s.id);
+    if (!ids.length) return;
+    try {
+      await apiFetch("/api/suggestions/bulk", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, action }),
+      });
+      selected.clear();
+      await loadTab();
+      loadDirectory();
+    } catch (e) { window.alert(e.message); }
   }
   async function act(url, body, tr, id) {
     if (tr) tr.querySelectorAll("button").forEach((b) => (b.disabled = true));

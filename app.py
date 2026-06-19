@@ -2315,6 +2315,21 @@ def api_contacts_import():
         print(f"[firstback] contact import parse failed: {e}", file=sys.stderr, flush=True)
         return jsonify(error="Could not read that file. Export a vCard (.vcf) or a CSV."), 400
     if not contacts:
+        # S3: distinguish "no contact records at all" (400) from "contacts found but
+        # none had phone numbers" (422 -- human-readable; owner needs to check their export).
+        try:
+            text = raw.decode("utf-8", errors="replace")
+        except Exception:
+            text = ""
+        has_records = (
+            text.upper().count("BEGIN:VCARD") > 0
+            or sum(1 for ln in text.splitlines() if ln.strip() and not ln.startswith(",")) > 1
+        )
+        if has_records:
+            return jsonify(
+                error="Your contacts were found but none had a phone number. "
+                      "Try exporting your address book again with phone numbers included."
+            ), 422
         return jsonify(error="No contacts with phone numbers were found in that file."), 400
     summary = contact_import.ingest(biz["id"], contacts, source="import-file")
     return jsonify(ok=True, **summary)

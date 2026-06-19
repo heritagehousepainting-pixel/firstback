@@ -248,6 +248,34 @@
   </div>
 </form>
 
+<form method="post" action="/settings/growth_mode" class="settings-col" style="margin-top:var(--space-5)">
+  {% call card(anchor='set-growth', title='Growth Autopilot', subtitle='I draft texts to past customers overnight. Pick how much you want to control.') %}
+    {% if growth_saved %}<p class="provider-note provider-note-ok">Growth mode saved.</p>{% endif %}
+    <div class="radio-group" style="flex-direction:column;gap:var(--space-3)">
+      <label class="radio-label" style="align-items:flex-start;gap:var(--space-2)">
+        <input type="radio" name="mode" value="off"{{ ' checked' if growth_mode == 'off' else '' }}>
+        <span><strong>Off</strong> -- plays appear in Vic's feed only; you approve each one individually.</span>
+      </label>
+      <label class="radio-label" style="align-items:flex-start;gap:var(--space-2)">
+        <input type="radio" name="mode" value="tray"{{ ' checked' if growth_mode == 'tray' else '' }}>
+        <span><strong>Morning Tray</strong> -- I draft overnight, you get a text at 8am. Reply GO to send all.</span>
+      </label>
+      <label class="radio-label" style="align-items:flex-start;gap:var(--space-2);opacity:0.5;pointer-events:none" title="Unlocks after 7 consecutive morning approvals">
+        <input type="radio" name="mode" value="auto" disabled>
+        <span><strong>Auto</strong> (locked -- reply GO every morning for 7 days to unlock)</span>
+      </label>
+    </div>
+    <div style="margin-top:var(--space-4)">
+      {{ button('Save', type='submit', variant='secondary') }}
+    </div>
+    {% if growth_mode == 'tray' %}
+    <p style="margin-top:var(--space-3);font-size:0.88rem;color:var(--text-muted)">
+      Tray mode is on. <a href="/growth/tray">View your growth tray</a>
+    </p>
+    {% endif %}
+  {% endcall %}
+</form>
+
 <form method="post" action="/settings/password" class="settings-col" style="margin-top:var(--space-5)">
   {% call card(anchor='set-password', title='Password', subtitle='Change the password you use to sign in to FirstBack.') %}
     {% if pw %}<p class="provider-note provider-note-ok">Your password has been updated.</p>{% endif %}

@@ -1206,7 +1206,9 @@ def settings():
                            screen_sensitivity=_cur_preset,
                            screen_sensitivity_presets=list(_presets.keys()),
                            reputation_enabled=bool(biz.get("reputation_enabled")),
-                           screening_hold=bool(biz.get("screening_hold")))
+                           screening_hold=bool(biz.get("screening_hold")),
+                           growth_mode=db.growth_mode(biz["id"]),
+                           growth_saved=request.args.get("growth_saved"))
 
 
 @app.route("/settings/password", methods=["POST"])
@@ -1221,6 +1223,122 @@ def settings_password():
         return redirect("/settings?pwerror=short")
     db.update_user_password(user["id"], generate_password_hash(new))
     return redirect("/settings?pw=1")
+
+
+
+# ---- Phase 5d GAMMA: Growth tray routes ----
+
+def _parse_tray_reply(body):
+    """Parse an owner SMS into a tray command. Pure function -- no side effects.
+    Returns {"cmd": "go"} | {"cmd": "skip_all"} | {"cmd": "skip_n", "n": N} | None.
+    None means: not a tray command, fall through to normal inbound handler."""
+    import re as _re_tray
+    text = (body or "").strip()
+    upper = text.upper()
+    if upper == "GO":
+        return {"cmd": "go"}
+    if upper in ("SKIP", "SKIP ALL"):
+        return {"cmd": "skip_all"}
+    m = _re_tray.match(r"^SKIP\s+(\d+)$", text, _re_tray.IGNORECASE)
+    if m:
+        return {"cmd": "skip_n", "n": int(m.group(1))}
+    return None
+
+
+def _handle_tray_reply(biz, cmd):
+    """Execute a parsed tray command on behalf of the owner. Returns a TwiML Response.
+    Confirmation SMS goes to the owner cell only (gate=False, A2P-exempt).
+    NEVER sends to any customer number."""
+    owner_cell = messaging.to_e164((biz.get("alert_sms") or "").strip())
+    if cmd["cmd"] == "go":
+        result = db.release_growth_batch(biz["id"], approved_via="sms_go")
+        n = result["released"]
+        msg = f"{n} text{'s' if n != 1 else ''} queued. They will go out shortly."
+        if owner_cell:
+            messaging.send_sms(biz, owner_cell, msg, gate=False)
+    elif cmd["cmd"] == "skip_all":
+        held = db.list_held_messages(biz["id"])
+        for row in held:
+            db.cancel_growth_play(row["id"], biz["id"])
+        if owner_cell:
+            messaging.send_sms(biz, owner_cell, "Held for tomorrow.", gate=False)
+    elif cmd["cmd"] == "skip_n":
+        n_idx = cmd["n"]
+        held = db.list_held_messages(biz["id"])
+        # Cancel the Nth play (1-indexed, ordered by id -- same order as the digest)
+        if 1 <= n_idx <= len(held):
+            db.cancel_growth_play(held[n_idx - 1]["id"], biz["id"])
+            # Release the remaining held plays
+            remaining = [r for i, r in enumerate(held, 1) if i != n_idx]
+            for row in remaining:
+                db.release_growth_play(row["id"], biz["id"], approved_via="sms_go")
+            msg = f"Skipped #{n_idx}, sending the rest."
+        else:
+            msg = "Play not found. Reply GO to send all or SKIP to hold all."
+        if owner_cell:
+            messaging.send_sms(biz, owner_cell, msg, gate=False)
+    return _twiml("<Response/>")
+
+
+@app.route("/settings/growth_mode", methods=["POST"])
+@login_required
+def settings_growth_mode():
+    """Set growth mode for the business. 'auto' is rejected server-side (TCPA lock)
+    until L2 streak unlock ships in a later phase. Only 'off' and 'tray' accepted."""
+    biz = current_business()
+    mode = (request.form.get("mode") or "off").strip()
+    if mode not in ("off", "tray"):
+        # 'auto' and any unknown value coerced to 'off'. Non-negotiable TCPA gate.
+        mode = "off"
+    db.set_growth_mode(biz["id"], mode)
+    return redirect("/settings?growth_saved=1")
+
+
+@app.route("/growth/tray")
+@login_required
+def growth_tray():
+    """Show the growth tray: held plays awaiting Dave's one-tap approval."""
+    biz = current_business()
+    held = db.list_held_messages(biz["id"])
+    # Compute money total (estimated when avg_job_value is unset)
+    avg = biz.get("avg_job_value")
+    is_estimated = (avg is None or avg == 0)
+    try:
+        job_val = int(float(avg)) if avg else 0
+    except (TypeError, ValueError):
+        job_val = 0
+    if job_val <= 0:
+        # Trade-keyword fallback (same logic as growth._job_value)
+        try:
+            from growth import _job_value as _gv
+            job_val = _gv(biz)
+        except Exception:
+            job_val = 2000
+        is_estimated = True
+    total = job_val * len(held)
+    return render_template("growth_tray.html", business=biz, held=held,
+                           growth_mode=db.growth_mode(biz["id"]),
+                           total=total, is_estimated=is_estimated,
+                           released=request.args.get("released"))
+
+
+@app.route("/growth/tray/release", methods=["POST"])
+@login_required
+def growth_tray_release():
+    """One-tap batch release: flip all held plays to pending. Dave taps Send All,
+    release_growth_batch IS the approval event (writes growth_approvals audit rows)."""
+    biz = current_business()
+    result = db.release_growth_batch(biz["id"], approved_via="ui_tap")
+    return redirect(f"/growth/tray?released={result['released']}")
+
+
+@app.route("/growth/tray/skip/<int:sched_id>", methods=["POST"])
+@login_required
+def growth_tray_skip(sched_id):
+    """Cancel one held play (skip this round; dedupe allows it to resurface next cycle)."""
+    biz = current_business()
+    db.cancel_growth_play(sched_id, biz["id"])
+    return redirect("/growth/tray")
 
 
 # ---- Go-Live wizard: a contractor connects their phone without a shell or the
@@ -2519,6 +2637,17 @@ def twilio_sms_inbound():
         return _twiml(f"<Response><Message>You have been re-subscribed to messages from "
                       f"{_xesc(biz.get('name') or 'FirstBack')}. Reply STOP to "
                       f"unsubscribe again.</Message></Response>")
+    # Growth tray reply: GO / SKIP / SKIP N from the business owner's cell only.
+    # Runs BEFORE the normal handler so the owner's command is processed immediately.
+    # R2 guard: if owner_cell is empty or unnormalized, is_owner stays False.
+    owner_cell = messaging.to_e164((biz.get("alert_sms") or "").strip())
+    is_owner = bool(owner_cell and caller and messaging.to_e164(caller) == owner_cell)
+    if not owner_cell:
+        is_owner = False
+    if is_owner:
+        tray_cmd = _parse_tray_reply(body)
+        if tray_cmd:
+            return _handle_tray_reply(biz, tray_cmd)
     contact = db.get_contact(biz["id"], caller)
     if (contact and contact.get("category") == "blocked") or \
             db.is_suppressed(biz["id"], caller) or not body:

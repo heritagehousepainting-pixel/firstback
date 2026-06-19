@@ -1,0 +1,95 @@
+{% extends "app_shell.html" %}
+{% from "components/ui/button.html" import button %}
+{% from "components/ui/card.html" import card %}
+{% from "components/ui/badge.html" import pill %}
+
+{% block title %}Growth Tray{% endblock %}
+{% block page_title %}Growth Tray{% endblock %}
+{% block page_sub %}<p class="page-sub">Texts drafted overnight and waiting for your go-ahead.</p>{% endblock %}
+
+{% set _kind_labels = {
+  "review_request": "Review",
+  "winback": "Win-back",
+  "quote_followup": "Follow-up",
+  "referral": "Referral",
+  "reactivation": "Reactivation",
+  "membership": "Membership"
+} %}
+
+{% block content %}
+
+{% if released %}
+<div class="provider-note provider-note-ok" style="margin-bottom:var(--space-4)">
+  {{ released }} text{{ 's' if released|int != 1 else '' }} queued and will go out shortly.
+</div>
+{% endif %}
+
+{% if held %}
+
+<div style="display:flex;align-items:center;gap:var(--space-4);flex-wrap:wrap;margin-bottom:var(--space-5)">
+  <div>
+    <h2 style="margin:0;font-size:1.5rem;font-weight:700">
+      {{ held|length }} text{{ 's' if held|length != 1 else '' }} ready --
+      ~${{ "{:,}".format(total) }}{% if is_estimated %} <span style="font-weight:400;font-size:0.9rem;color:var(--text-muted)">(estimated)</span>{% endif %} on the table
+    </h2>
+    <p style="margin:var(--space-1) 0 0;color:var(--text-muted)">Reply GO by SMS or tap Send All to release them.</p>
+  </div>
+  <form method="post" action="/growth/tray/release" style="margin-left:auto">
+    {{ button('Send All', variant='primary') }}
+  </form>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:var(--space-3)">
+{% for row in held[:10] %}
+{% set kind_label = _kind_labels.get(row.kind, row.kind|capitalize) %}
+{% set is_blocked = (row.get('sendable') == False or row.get('blocked_reason')) %}
+<div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-4);">
+  <div style="display:flex;align-items:flex-start;gap:var(--space-3);flex-wrap:wrap">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-2)">
+        <span style="font-weight:600">{{ row.lead_name or 'Unknown' }}</span>
+        {{ pill(kind_label, 'booked') }}
+        {% if row.get('tone_risk') %}
+        <span style="background:#fef3c7;color:#92400e;font-size:0.78rem;font-weight:600;padding:2px 8px;border-radius:9999px;border:1px solid #fde68a">Review thread first</span>
+        {% endif %}
+        {% if is_blocked %}
+        <span style="background:#f3f4f6;color:#6b7280;font-size:0.78rem;font-weight:600;padding:2px 8px;border-radius:9999px;border:1px solid #e5e7eb">Add Google Review link</span>
+        {% endif %}
+      </div>
+      <p style="margin:0;color:var(--text-muted);font-size:0.88rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:480px">
+        {{ (row.body or '')[:100] }}{% if (row.body or '')|length > 100 %}...{% endif %}
+      </p>
+    </div>
+    <div style="display:flex;align-items:center;gap:var(--space-3);flex-shrink:0">
+      {% if not is_blocked %}
+      <form method="post" action="/growth/tray/skip/{{ row.id }}">
+        {{ button('Skip', variant='secondary') }}
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% if held|length > 10 %}
+<p style="margin-top:var(--space-4);color:var(--text-muted);text-align:center">
+  Showing 10 of {{ held|length }} plays. Send All releases all {{ held|length }}.
+</p>
+{% endif %}
+
+{% else %}
+
+<div style="text-align:center;padding:var(--space-8) 0;color:var(--text-muted)">
+  <p style="font-size:1.1rem;margin-bottom:var(--space-3)">Nothing waiting.</p>
+  <p>Plays appear here once you turn on Morning Tray mode in
+    <a href="/settings#set-growth">Settings</a>.</p>
+</div>
+
+{% endif %}
+
+<p style="margin-top:var(--space-6)">
+  <a href="/command-center" style="color:var(--text-muted);font-size:0.9rem">&larr; Back to command center</a>
+</p>
+
+{% endblock %}

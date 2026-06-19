@@ -91,6 +91,8 @@
     <div class="page-body">{% block content %}{% endblock %}</div>
   </main>
 </div>
+{# Phase 6a D-1: CSRF token for app.js mutating POSTs (engage/rescue/flag-spam). #}
+<input type="hidden" id="csrfToken" value="{{ csrf_token }}">
 <script src="/static/app.js"></script>
 <script src="/static/motion.js"></script>
 </body>

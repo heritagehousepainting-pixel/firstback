@@ -14,10 +14,13 @@ Config (environment variables):
   FIRSTBACK_PUBLIC_URL  https://yourapp.com  (for success/cancel redirects)
 """
 import os
+import sys
+import threading
 import stripe
 
 import db
-from config import VOICE_PUBLIC_URL  # re-use the base URL pattern
+import mail
+from config import VOICE_PUBLIC_URL, SEED_OWNER_EMAIL  # re-use the base URL pattern
 
 # ── Config ────────────────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY     = os.environ.get("STRIPE_SECRET_KEY", "")
@@ -53,7 +56,28 @@ def _price_to_plan(price_id: str) -> str:
     for (plan, _interval), pid in PRICE_IDS.items():
         if pid and pid == price_id:
             return plan
-    return "starter"  # safe fallback — MUST have a valid price id in practice
+    # Phase 6a D-2: price_id matched no configured PRICE_IDS entry. If it is a real
+    # (non-empty) Stripe price ID, this is a missing STRIPE_PRICE_* env var on the
+    # server -- returning "starter" here would SILENTLY downgrade a paying Pro/Crew
+    # renewal. Still grant starter (safer than stranding the account), but make the
+    # misconfiguration LOUD so the operator fixes the env before the next renewal.
+    if price_id:
+        warning = (
+            f"[firstback] BILLING WARNING: unrecognized Stripe price_id {price_id!r} "
+            f"not in PRICE_IDS -- granting 'starter'. A Pro/Crew subscriber may be "
+            f"downgraded. Check the STRIPE_PRICE_* env vars on Render."
+        )
+        print(warning, file=sys.stderr, flush=True)
+        # Best-effort operator email, async so a slow SMTP never blocks the <=30s
+        # Stripe webhook response (mail.send_email swallows its own errors).
+        threading.Thread(
+            target=mail.send_email,
+            args=(SEED_OWNER_EMAIL,
+                  "BILLING WARNING: unrecognized Stripe price_id -- FirstBack",
+                  warning),
+            daemon=True,
+        ).start()
+    return "starter"  # safe fallback -- MUST have a valid price id in practice
 
 
 # ── Stripe client ─────────────────────────────────────────────────────────────

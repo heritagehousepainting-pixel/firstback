@@ -186,6 +186,49 @@ if _saved_env is not None:
     os.environ["FIRSTBACK_ENV"] = _saved_env
 
 
+# ============================================================
+# 7. Phase 6a D-8: prod refuses plaintext Google tokens (FIRSTBACK_TOKEN_KEY fail-fast)
+# Faithful test: actually import config in a clean subprocess under each env so we
+# exercise the REAL top-level guard, not a re-implementation.
+# ============================================================
+import subprocess
+
+def _import_config(extra_env):
+    """Run `import config` in a fresh interpreter with extra_env overlaid; return
+    (returncode, stderr)."""
+    env = dict(os.environ)
+    for k in ("FIRSTBACK_HTTPS", "FIRSTBACK_ENV", "FIRSTBACK_SECRET",
+              "FIRSTBACK_TOKEN_KEY", "FIRSTBACK_OWNER_PASSWORD"):
+        env.pop(k, None)
+    env.update(extra_env)
+    p = subprocess.run([sys.executable, "-c", "import config"],
+                       capture_output=True, text=True, env=env,
+                       cwd=os.path.dirname(os.path.abspath(__file__)))
+    return p.returncode, (p.stderr or "")
+
+# Prod + a real secret + a real owner pw, but NO token key -> hard fail on TOKEN_KEY.
+_rc, _err = _import_config({
+    "FIRSTBACK_HTTPS": "1",
+    "FIRSTBACK_SECRET": "a-long-random-prod-secret-value-xyz",
+    "FIRSTBACK_OWNER_PASSWORD": "a-real-owner-pw-123",
+})
+check("D-8 prod with no FIRSTBACK_TOKEN_KEY raises at import",
+      _rc != 0 and "FIRSTBACK_TOKEN_KEY" in _err)
+
+# Same prod env but WITH a token key -> config imports cleanly.
+_rc2, _err2 = _import_config({
+    "FIRSTBACK_HTTPS": "1",
+    "FIRSTBACK_SECRET": "a-long-random-prod-secret-value-xyz",
+    "FIRSTBACK_OWNER_PASSWORD": "a-real-owner-pw-123",
+    "FIRSTBACK_TOKEN_KEY": "a-real-token-key-456",
+})
+check("D-8 prod WITH FIRSTBACK_TOKEN_KEY imports cleanly", _rc2 == 0)
+
+# Not prod (no HTTPS/ENV), no token key -> inert (local dev / tests keep working).
+_rc3, _err3 = _import_config({})
+check("D-8 non-prod with no token key is inert (import succeeds)", _rc3 == 0)
+
+
 # ---- Cleanup ----
 try:
     os.unlink(_TMP.name)

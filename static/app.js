@@ -35,6 +35,27 @@ async function apiFetch(url, options) {
   return res.json();
 }
 
+// Phase 6a D-1: CSRF token for mutating POSTs, read from the hidden #csrfToken
+// field in app_shell.html (matches the server-side _csrf_ok() form check).
+const APP_CSRF = (document.getElementById("csrfToken") || {}).value || "";
+
+// A form-encoded body with the CSRF token pre-set. Pass {k:v} for extra fields.
+function csrfBody(extra) {
+  const p = new URLSearchParams();
+  p.set("_csrf", APP_CSRF);
+  if (extra) Object.entries(extra).forEach(([k, v]) => p.set(k, v));
+  return p;
+}
+
+// Standard options for a mutating POST that carries the CSRF token.
+function csrfPost(extra) {
+  return {
+    method: "POST",
+    body: csrfBody(extra),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  };
+}
+
 // Mirrors the chat_bubble macro: agent (right, dark, spark) vs customer (left, light, initial).
 function addBubble(container, { text, who, time, initial }) {
   clearEmpty(container);
@@ -232,7 +253,7 @@ function addMeta(container, text) {
       flagSpamBtn.disabled = true;
       flagSpamBtn.textContent = "Marking…";
       try {
-        await apiFetch("/api/leads/" + openLeadId + "/flag-spam", { method: "POST" });
+        await apiFetch("/api/leads/" + openLeadId + "/flag-spam", csrfPost());
         window.location.reload();
       } catch (err) {
         flagSpamBtn.disabled = false;
@@ -952,7 +973,7 @@ function addMeta(container, text) {
       btn.disabled = true;
       btn.textContent = "Texting…";
       try {
-        await apiFetch("/api/calls/" + btn.dataset.id + "/engage", { method: "POST" });
+        await apiFetch("/api/calls/" + btn.dataset.id + "/engage", csrfPost());
         window.location.reload();
       } catch (err) {
         btn.disabled = false;
@@ -975,7 +996,7 @@ function addMeta(container, text) {
       btn.disabled = true;
       btn.textContent = "Texting…";
       try {
-        await apiFetch("/api/calls/" + btn.dataset.id + "/real", { method: "POST" });
+        await apiFetch("/api/calls/" + btn.dataset.id + "/real", csrfPost());
         window.location.reload();
       } catch (err) {
         btn.disabled = false;
@@ -996,7 +1017,7 @@ function addMeta(container, text) {
       btn.disabled = true;
       btn.textContent = "Marking…";
       try {
-        await apiFetch("/api/calls/" + btn.dataset.id + "/flag-spam", { method: "POST" });
+        await apiFetch("/api/calls/" + btn.dataset.id + "/flag-spam", csrfPost());
         window.location.reload();
       } catch (err) {
         btn.disabled = false;

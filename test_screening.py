@@ -159,14 +159,17 @@ check("a number 3 businesses flagged is engaged-but-flagged for review (not sile
 # ---- 'Mark spam' override: blocks locally + feeds the cross-tenant ledger ----
 client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
                             "password": config.SEED_OWNER_PASSWORD})
-flag_res = client.post(f"/api/calls/{cg['id']}/flag-spam")
+# Phase 6a D-1: seed the session CSRF token so mutating-family POSTs pass _csrf_ok().
+with client.session_transaction() as _s:
+    _s["csrf_token"] = "test_csrf"
+flag_res = client.post(f"/api/calls/{cg['id']}/flag-spam", data={"_csrf": "test_csrf"})
 check("flag-spam returns ok", flag_res.status_code == 200 and flag_res.get_json().get("ok"))
 check("flag-spam blocks the number for this business",
       (db.get_contact(1, GOOD) or {}).get("category") == "blocked")
 check("flag-spam records a cross-tenant spam flag",
       db.global_spam_count(GOOD) >= 1)
 check("flag-spam 404s on an unknown call id",
-      client.post("/api/calls/999999/flag-spam").status_code == 404)
+      client.post("/api/calls/999999/flag-spam", data={"_csrf": "test_csrf"}).status_code == 404)
 
 
 # ---- the dashboard surfaces the screened spammer + the stat -----------------
@@ -204,6 +207,9 @@ app.SCREEN_MODE = "enforce"                           # restore
 # ---- Simulator demo: spam/known show the screen WITHOUT creating a lead ------
 client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
                             "password": config.SEED_OWNER_PASSWORD})
+# Re-seed CSRF: the second login cleared the session (fixation guard).
+with client.session_transaction() as _s:
+    _s["csrf_token"] = "test_csrf"
 _before = len(db.list_leads(1))
 sd = client.post("/api/sim/incoming", json={"scenario": "spam"}).get_json()
 check("sim spam returns a screened spam verdict",
@@ -223,16 +229,17 @@ check("simulator page renders the spam/known demo buttons",
 # ---- 'Mark spam' from the conversation panel (lead-centric) -----------------
 LEADSPAM = "+13125559000"
 _lsid = db.create_lead(1, "Pushy Vendor", LEADSPAM)
-fl = client.post(f"/api/leads/{_lsid}/flag-spam")
+fl = client.post(f"/api/leads/{_lsid}/flag-spam", data={"_csrf": "test_csrf"})
 check("lead flag-spam returns ok", fl.status_code == 200 and fl.get_json().get("ok"))
 check("lead flag-spam blocks the lead's number",
       (db.get_contact(1, LEADSPAM) or {}).get("category") == "blocked")
 check("lead flag-spam feeds the cross-tenant ledger", db.global_spam_count(LEADSPAM) >= 1)
-check("lead flag-spam 404s on an unknown lead", client.post("/api/leads/999999/flag-spam").status_code == 404)
+check("lead flag-spam 404s on an unknown lead",
+      client.post("/api/leads/999999/flag-spam", data={"_csrf": "test_csrf"}).status_code == 404)
 # Cross-tenant: a lead that belongs to business 2 must 404 for business 1.
 _other = db.create_lead(2, "Other Biz Lead", "+13125559111")
 check("lead flag-spam rejects a cross-tenant lead id (404)",
-      client.post(f"/api/leads/{_other}/flag-spam").status_code == 404)
+      client.post(f"/api/leads/{_other}/flag-spam", data={"_csrf": "test_csrf"}).status_code == 404)
 check("conversation panel renders the Mark-as-spam control",
       "convo-flag-spam" in client.get("/pipeline").get_data(as_text=True))
 check("dashboard JS wires the lead flag-spam endpoint",

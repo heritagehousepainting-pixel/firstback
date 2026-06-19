@@ -286,6 +286,16 @@ if _is_prod and SECRET_KEY == _SECRET_KEY_DEFAULT:
 # the refresh tokens in the database file. Rotating it makes existing encrypted
 # tokens unreadable -- affected businesses simply reconnect (see SETUP_NEEDED.md).
 TOKEN_ENC_KEY = os.environ.get("FIRSTBACK_TOKEN_KEY", "").strip()
+# Phase 6a D-8: in production, refuse to run with Google OAuth tokens stored in
+# plaintext. Reuses the same _is_prod signal as the SECRET_KEY fail-fast above, so
+# it is inert in local dev / tests (neither FIRSTBACK_HTTPS nor FIRSTBACK_ENV set).
+# An operator launching text-only (no Google) can satisfy this with any non-empty value.
+if _is_prod and not TOKEN_ENC_KEY:
+    raise RuntimeError(
+        "CRITICAL: FIRSTBACK_TOKEN_KEY is not set. Google OAuth refresh tokens would "
+        "be stored in plaintext in the database. Set a long random value before deploying "
+        "(any non-empty string if you are not connecting Google yet)."
+    )
 
 # Cookie hardening. SameSite=Lax (applied in app.py) keeps the session cookie off
 # cross-site POSTs (CSRF). Secure = HTTPS-only; it stays OFF so local http dev and

@@ -103,8 +103,8 @@
        it never blocks the command bar. Hidden until data arrives. #}
     <div id="usageGauge" class="usage-gauge" aria-live="polite" hidden></div>
   </div>
-
-  <input type="hidden" id="csrfToken" value="{{ csrf_token }}">
+  {# CSRF token now lives in app_shell.html (Phase 6a D-1) — assistant.js reads the
+     same #csrfToken element from the shell, so the duplicate here was removed. #}
 </section>
 <style>
 .usage-gauge{font-size:.78rem;color:var(--ink-faint);text-align:center;padding:.25rem 0 .1rem;letter-spacing:.01em}

@@ -131,6 +131,9 @@ check("learn_customer never overrides an owner's personal tag",
 # ---- owner-facing routes (signed in as the seeded owner) -------------------
 client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
                             "password": config.SEED_OWNER_PASSWORD})
+# Phase 6a D-1: seed the session CSRF token so mutating-family POSTs pass _csrf_ok().
+with client.session_transaction() as _s:
+    _s["csrf_token"] = "test_csrf"
 r = client.post("/api/contacts",
                 json={"number": "+1 312 555 7777", "category": "vendor", "name": "Paint Supply"})
 check("POST /api/contacts tags a screened number", r.status_code == 200)
@@ -150,7 +153,7 @@ check("pipeline renders the 'Screened calls' strip",
       "Screened calls" in client.get("/pipeline").get_data(as_text=True))
 vendor_call = [s for s in db.recent_screened_calls(1, 8) if s["category"] == "vendor"][0]
 # ...and the one-tap override engages them: forgets the tag, creates the lead, texts back.
-eng = client.post(f"/api/calls/{vendor_call['id']}/engage").get_json()
+eng = client.post(f"/api/calls/{vendor_call['id']}/engage", data={"_csrf": "test_csrf"}).get_json()
 check("engage override links/creates a lead", bool(eng) and eng.get("lead_id"))
 check("engage override forgets the screen tag", db.get_contact(1, VENDOR) is None)
 _eng_lead = db.get_lead_by_phone(1, VENDOR)

@@ -35,6 +35,7 @@
     <p style="margin:var(--space-1) 0 0;color:var(--text-muted)">Reply GO by SMS or tap Send All to release them.</p>
   </div>
   <form method="post" action="/growth/tray/release" style="margin-left:auto">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     {{ button('Send All', variant='primary') }}
   </form>
 </div>
@@ -63,6 +64,7 @@
     <div style="display:flex;align-items:center;gap:var(--space-3);flex-shrink:0">
       {% if not is_blocked %}
       <form method="post" action="/growth/tray/skip/{{ row.id }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
         {{ button('Skip', variant='secondary') }}
       </form>
       {% endif %}

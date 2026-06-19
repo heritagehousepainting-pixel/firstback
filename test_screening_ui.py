@@ -48,6 +48,10 @@ messaging.send_sms = lambda b, to, body, **k: (_sends.append((to, body)),
 biz = db.get_business(1)
 client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
                             "password": config.SEED_OWNER_PASSWORD})
+# Phase 6a D-1: seed the session CSRF token so mutating-family POSTs pass _csrf_ok().
+with client.session_transaction() as _s:
+    _s["csrf_token"] = "test_csrf"
+CSRF = {"_csrf": "test_csrf"}
 
 
 def _screened_call(number, status="screened_spam"):
@@ -64,7 +68,7 @@ RESCUE = "+15557770001"
 cid = _screened_call(RESCUE)
 _fp_before = (db.get_business(1).get("screening_false_positives") or 0)
 _sends.clear()
-r = client.post(f"/api/calls/{cid}/real")
+r = client.post(f"/api/calls/{cid}/real", data=CSRF)
 check("rescue endpoint returns ok", r.status_code == 200 and r.get_json().get("ok"))
 check("rescued number is now a trusted customer contact",
       (db.get_contact(1, RESCUE) or {}).get("category") == "customer")
@@ -73,7 +77,7 @@ check("rescue incremented the false-positive counter",
 check("rescue texted the caller back exactly once", len(_sends) == 1 and _sends[0][0] == RESCUE)
 # a second rescue tap must not re-open + re-text (thread now exists)
 _sends.clear()
-client.post(f"/api/calls/{cid}/real")
+client.post(f"/api/calls/{cid}/real", data=CSRF)
 check("a second rescue tap does not double-text", len(_sends) == 0)
 
 # --- 2) rescue resets the graduation window (the safety-valve seam) ---
@@ -85,7 +89,7 @@ OPT = "+15557770002"
 cid_opt = _screened_call(OPT)
 db.set_opt_out(1, OPT, source="test")
 _sends.clear()
-r = client.post(f"/api/calls/{cid_opt}/real")
+r = client.post(f"/api/calls/{cid_opt}/real", data=CSRF)
 check("an opted-out caller cannot be rescued (no re-text)",
       r.status_code == 400 and len(_sends) == 0)
 
@@ -137,6 +141,51 @@ d = client.get("/pipeline")
 html = d.get_data(as_text=True)
 check("cockpit renders 200 with the screening surfaces", d.status_code == 200)
 check("cockpit exposes the Spam Shield card", "Spam Shield" in html)
+
+# --- 7) Phase 6a D-1: CSRF guard on the mutating API family ---
+# A logged-in owner whose POST carries no _csrf (or a wrong one) is rejected 403 BEFORE
+# any state change -- defends the rescue/engage/flag-spam family against cross-site POSTs.
+_csrf_cid = _screened_call("+15557770007")
+check("D-1 /real without _csrf -> 403",
+      client.post(f"/api/calls/{_csrf_cid}/real").status_code == 403)
+check("D-1 /real with a WRONG _csrf -> 403",
+      client.post(f"/api/calls/{_csrf_cid}/real", data={"_csrf": "nope"}).status_code == 403)
+check("D-1 /engage without _csrf -> 403",
+      client.post(f"/api/calls/{_csrf_cid}/engage").status_code == 403)
+check("D-1 /calls/<id>/flag-spam without _csrf -> 403",
+      client.post(f"/api/calls/{_csrf_cid}/flag-spam").status_code == 403)
+_csrf_lead = db.create_lead(1, "Csrf Lead", "+15557770008")
+check("D-1 /leads/<id>/flag-spam without _csrf -> 403",
+      client.post(f"/api/leads/{_csrf_lead}/flag-spam").status_code == 403)
+# The CSRF guard fires WITHOUT mutating: the number is not blocked by the rejected call.
+check("D-1 rejected flag-spam did NOT block the number",
+      (db.get_contact(1, "+15557770008") or {}).get("category") != "blocked")
+
+# --- 8) Phase 6a D-4: MAX_CONTENT_LENGTH caps oversize bodies at 413 ---
+# The global ceiling is 6 MB (just above the 5 MB /api/contacts/import limit). A body
+# past it is rejected before the handler runs.
+_big = "x" * (6 * 1024 * 1024 + 1024)   # 6 MB + 1 KB, over the cap
+check("D-4 an over-6MB POST body is rejected 413",
+      client.post(f"/api/calls/{_csrf_cid}/real",
+                  data={"_csrf": "test_csrf", "pad": _big}).status_code == 413)
+
+# --- 9) D-5 regression: mark_call_engaged with a mismatched business_id is a no-op ---
+_eng_cid = _screened_call("+15557770009")
+db.mark_call_engaged(_eng_cid, None, business_id=2)   # wrong tenant
+check("D-5 mark_call_engaged(wrong tenant) does NOT flip engaged",
+      (db.get_call(_eng_cid, 1) or {}).get("engaged") == 0)
+db.mark_call_engaged(_eng_cid, None, business_id=1)   # correct tenant
+check("D-5 mark_call_engaged(correct tenant) flips engaged",
+      (db.get_call(_eng_cid, 1) or {}).get("engaged") == 1)
+
+# --- 10) D-3 regression: set_confirm_result with a mismatched business_id is a no-op ---
+db.issue_confirm_token(1, "tok_d3_test", "text_lead", {"message": "hi"}, "hash")
+db.set_confirm_result("tok_d3_test", '{"leak":true}', business_id=2)   # wrong tenant
+check("D-3 set_confirm_result(wrong tenant) did NOT write result_json",
+      not (db.get_confirm_token(1, "tok_d3_test") or {}).get("result_json"))
+db.set_confirm_result("tok_d3_test", '{"ok":true}', business_id=1)     # correct tenant
+check("D-3 set_confirm_result(correct tenant) wrote result_json",
+      bool((db.get_confirm_token(1, "tok_d3_test") or {}).get("result_json")))
 
 print(f"\n{_pass} passed, {_fail} failed")
 raise SystemExit(1 if _fail else 0)

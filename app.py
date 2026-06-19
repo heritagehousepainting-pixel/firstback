@@ -52,6 +52,13 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 # is gated on FIRSTBACK_HTTPS so local http dev / the preview keep working.
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = SESSION_COOKIE_SECURE
+# Phase 6a D-4: bound request bodies (Flask default is UNBOUNDED). The cap must clear the
+# largest legitimate request: /api/contacts/import accepts a 5 MB vCard/CSV (see
+# _MAX_IMPORT_BYTES) which it size-checks itself with a friendly message — so the global
+# ceiling sits just above that (multipart overhead) and the import route keeps its precise
+# 5 MB limit. Everything else (assistant/confirm args_json, Stripe webhooks ~10 KB) is far
+# smaller; the win is killing the unbounded-body abuse vector. Werkzeug returns 413 on oversize.
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
 db.init_db()
 db.start_backup_daemon()   # durable local-disk mode: snapshot to the network disk on a timer + at exit
 
@@ -1327,6 +1334,10 @@ def growth_tray():
 def growth_tray_release():
     """One-tap batch release: flip all held plays to pending. Dave taps Send All,
     release_growth_batch IS the approval event (writes growth_approvals audit rows)."""
+    # Phase 6a D-1: CSRF guard — a forged release fires marketing SMS to real customers
+    # (a TCPA event), so this is the highest-consequence owner action in the product.
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     result = db.release_growth_batch(biz["id"], approved_via="ui_tap")
     return redirect(f"/growth/tray?released={result['released']}")
@@ -1336,6 +1347,8 @@ def growth_tray_release():
 @login_required
 def growth_tray_skip(sched_id):
     """Cancel one held play (skip this round; dedupe allows it to resurface next cycle)."""
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     db.cancel_growth_play(sched_id, biz["id"])
     return redirect("/growth/tray")
@@ -2133,6 +2146,8 @@ def api_engage_screened_call(call_id):
     (open the conversation + send the text-back). Refuses an opted-out number, so the
     override can never re-text someone who replied STOP."""
     biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     call = db.get_call(call_id, biz["id"])  # tenant-scoped
     if not call:
         return jsonify(error="Call not found."), 404
@@ -2160,6 +2175,8 @@ def api_rescue_screened_call(call_id):
     conversation + send the text-back if the thread is empty, mark the call engaged.
     Tenant-scoped; refuses an opted-out number (never re-text a STOP)."""
     biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     call = db.get_call(call_id, biz["id"])   # tenant-scoped
     if not call:
         return jsonify(error="Call not found."), 404
@@ -2194,6 +2211,8 @@ def _mark_number_spam(biz_id, number):
 def api_flag_call_spam(call_id):
     """'Mark spam' from the dashboard screened-calls strip."""
     biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     call = db.get_call(call_id, biz["id"])   # tenant-scoped
     if not call:
         return jsonify(error="Call not found."), 404
@@ -2210,6 +2229,8 @@ def api_flag_lead_spam(lead_id):
     """'Mark spam' from the conversation panel: block the lead's number + feed the
     cross-tenant ledger, so FirstBack stops cold-pitching this caller. Tenant-scoped."""
     biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     lead = db.get_lead(lead_id, biz["id"])   # ownership-scoped
     if not lead:
         return jsonify(error="Lead not found."), 404

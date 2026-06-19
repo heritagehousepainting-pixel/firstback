@@ -382,6 +382,38 @@ check("canceled → subscription_active False",
 check("past_due → subscription_active False",
       not compliance.subscription_active({"subscription_status": "past_due"}))
 
+# ── 15: Phase 6a D-2 — unrecognized price_id is LOUD, not a silent downgrade ───
+print("\n=== D-2: unrecognized price_id fail-loud ===")
+import io as _io
+import contextlib as _ctx
+
+# A recognized price still maps cleanly with no noise.
+_buf = _io.StringIO()
+with mock.patch.object(billing.mail, "send_email") as _m_ok, _ctx.redirect_stderr(_buf):
+    _plan_ok = billing._price_to_plan("price_pro_test")
+check("D-2 recognized price_id maps to its plan", _plan_ok == "pro")
+check("D-2 recognized price_id emits no BILLING WARNING", "BILLING WARNING" not in _buf.getvalue())
+check("D-2 recognized price_id does not email the operator", not _m_ok.called)
+
+# A real-but-unconfigured price_id: still grant starter (safe) BUT warn loudly + email.
+_buf2 = _io.StringIO()
+with mock.patch.object(billing.mail, "send_email") as _m_bad, _ctx.redirect_stderr(_buf2):
+    _plan_bad = billing._price_to_plan("price_LIVE_BUT_UNCONFIGURED_999")
+    import time as _t
+    _t.sleep(0.2)   # let the daemon email thread run
+check("D-2 unrecognized price_id still grants starter (safe fallback)", _plan_bad == "starter")
+check("D-2 unrecognized price_id emits a BILLING WARNING to stderr",
+      "BILLING WARNING" in _buf2.getvalue() and "price_LIVE_BUT_UNCONFIGURED_999" in _buf2.getvalue())
+check("D-2 unrecognized price_id emails the operator (best-effort)", _m_bad.called)
+
+# An empty price_id is the caller-filtered case → quiet starter, no false alarm.
+_buf3 = _io.StringIO()
+with mock.patch.object(billing.mail, "send_email") as _m_empty, _ctx.redirect_stderr(_buf3):
+    _plan_empty = billing._price_to_plan("")
+check("D-2 empty price_id is quiet (no warning, no email)",
+      _plan_empty == "starter" and "BILLING WARNING" not in _buf3.getvalue() and not _m_empty.called)
+
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 print(f"\n{'='*50}")
 print(f"Results: {_pass} passed, {_fail} failed")

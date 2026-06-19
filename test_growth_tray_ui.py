@@ -63,6 +63,9 @@ messaging.send_sms = _cap_send
 
 client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
                             "password": config.SEED_OWNER_PASSWORD})
+# Phase 6a D-1: seed the CSRF token so the tray release/skip form POSTs pass _csrf_ok().
+with client.session_transaction() as _s:
+    _s["csrf_token"] = "test_csrf"
 
 
 # ---- Helpers ---------------------------------------------------------------
@@ -172,7 +175,12 @@ lid4 = _make_lead("Release Lead", "+15559994001")
 sid4a = _insert_held(lid4, kind="review_request")
 sid4b = _insert_held(lid4, kind="winback", body="Winback msg")
 
-r = client.post("/growth/tray/release", follow_redirects=False)
+# D-1: a forged release (no CSRF) is rejected 403 BEFORE any play is released.
+_csrf_reject = client.post("/growth/tray/release", follow_redirects=False)
+check("test4: release without _csrf -> 403", _csrf_reject.status_code == 403)
+check("test4: rejected release did NOT flip plays to pending", _status_of(sid4a) == "held")
+
+r = client.post("/growth/tray/release", data={"_csrf": "test_csrf"}, follow_redirects=False)
 check("test4: redirects", r.status_code in (301, 302))
 check("test4: first play is now pending", _status_of(sid4a) == "pending")
 check("test4: second play is now pending", _status_of(sid4b) == "pending")
@@ -187,7 +195,7 @@ lid5 = _make_lead("Skip Lead", "+15559995001")
 sid5a = _insert_held(lid5, kind="review_request", body="Skip me")
 sid5b = _insert_held(lid5, kind="winback", body="Keep me held")
 
-r = client.post(f"/growth/tray/skip/{sid5a}", follow_redirects=False)
+r = client.post(f"/growth/tray/skip/{sid5a}", data={"_csrf": "test_csrf"}, follow_redirects=False)
 check("test5: redirects", r.status_code in (301, 302))
 check("test5: skipped play is canceled", _status_of(sid5a) == "canceled")
 check("test5: other play still held", _status_of(sid5b) == "held")

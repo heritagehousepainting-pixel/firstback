@@ -1758,6 +1758,14 @@ def handle_inbound(biz, lead, body):
     notes off the hot path). Returns (reply, booked, urgent)."""
     lead_id = lead["id"]
     db.add_message(lead_id, "in", body)
+    # Phase 5e S4: Lead re-engaged -- cancel any queued follow-up touches so they
+    # don't fire after the customer has already replied.
+    try:
+        db.cancel_pending_followup_touches(lead_id)
+    except Exception as _cfe:
+        import sys as _sys
+        print(f"[firstback] cancel_pending_followup_touches failed (lead {lead_id}): {_cfe}",
+              file=_sys.stderr, flush=True)
     urgent = ai.detect_urgency(body)
     if urgent:
         db.mark_lead_urgent(lead_id, biz["id"])
@@ -1821,6 +1829,14 @@ def handle_inbound(biz, lead, body):
             # They booked: stop any queued growth chase (quote follow-up / reactivation),
             # same auto-pause the command-center booking does.
             db.cancel_lead_growth_touches(lead_id, ("quote_followup", "reactivation"))
+            # Phase 5e S4: Also cancel any pending follow-up touches -- belt-and-suspenders
+            # with the live-status check in run_due_once.
+            try:
+                db.cancel_pending_followup_touches(lead_id)
+            except Exception as _cfe2:
+                import sys as _sys2
+                print(f"[firstback] cancel_pending_followup_touches (booking) failed (lead {lead_id}): {_cfe2}",
+                      file=_sys2.stderr, flush=True)
             # Reschedule: now that the new slot is held, release the lead's old
             # estimate(s) so a re-book never double-books or orphans a slot.
             for a in prior:

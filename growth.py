@@ -64,15 +64,54 @@ def _parse_date(d):
         return None
 
 
+# Phase 5d: trade-keyword default job values (used when avg_job_value is unset/0).
+# Never show $0 to the owner (P0 gate). Label as "(estimated)" in the tray digest.
+_TRADE_DEFAULT_VALUE = {
+    "paint": 2500, "roof": 8000, "hvac": 3500, "plumb": 1200,
+    "landscap": 1500, "lawn": 1500,
+}
+
+
 def _job_value(business):
+    """Return the job value for money framing. Uses real avg_job_value when set;
+    falls back to trade-keyword defaults; never returns 0 (P0: dollar framing honest)."""
     try:
-        return int(business.get("avg_job_value") or 0)
+        v = int(business.get("avg_job_value") or 0)
+        if v > 0:
+            return v
     except (ValueError, TypeError):
-        return 0
+        pass
+    trade = (business.get("trade") or "").lower()
+    for key, default in _TRADE_DEFAULT_VALUE.items():
+        if key in trade:
+            return default
+    return 2000  # generic default; never show $0 to Dave
 
 
 # Placeholder "names" we must never address a customer by (mirrors reminders._PLACEHOLDER_NAMES).
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller", "new"}
+
+# Phase 5d: negative-signal keywords for tone-risk detection (A6).
+# A lead whose recent inbound messages contain any of these signals gets tone_risk=True
+# so the play is always held for Dave to review before sending.
+_TONE_RISK_KEYWORDS = [
+    "terrible", "awful", "unhappy", "disappointed", "complaint",
+    "never again", "rip off",
+]
+
+
+def _tone_risk(lead_id):
+    """True if the lead's last 5 inbound messages contain a negative-signal keyword.
+    Loads via db.get_last_n_inbound (targeted query, no N+1)."""
+    try:
+        msgs = db.get_last_n_inbound(lead_id, n=5)
+    except Exception:
+        return False
+    for msg in msgs:
+        body = (msg.get("body") or "").lower()
+        if any(kw in body for kw in _TONE_RISK_KEYWORDS):
+            return True
+    return False
 
 
 def _first(name):
@@ -154,7 +193,8 @@ def _copy_membership(first, business):
 
 # ---- one opportunity dict ----
 def _opp(kind, lead_id, first, phone, tier, *, title, why, tone, label, money,
-         draft="", sendable=True, compliance="", action=None):
+         draft="", sendable=True, compliance="", action=None,
+         tone_risk=False, blocked_reason=None):
     return {
         "kind": kind, "play_id": f"{kind}:{lead_id}" if lead_id else kind,
         "title": title, "why": why, "tone": tone, "label": label,
@@ -166,6 +206,9 @@ def _opp(kind, lead_id, first, phone, tier, *, title, why, tone, label, money,
                              else "show my leads"),
         "lead_id": lead_id, "lead_name": first, "lead_phone": phone,
         "tier": tier, "compliance_note": compliance,
+        # Phase 5d tray metadata
+        "tone_risk": tone_risk,
+        "blocked_reason": blocked_reason,
     }
 
 
@@ -207,15 +250,30 @@ def plays(business):
             zip_counts[z] = zip_counts.get(z, 0) + 1
 
         job_done = bool(booked and last_appt and last_appt < today)
+        # Phase 5d: tone-risk flag for tray (A6). Scan last 5 inbound messages once per lead.
+        tr = _tone_risk(lid)
 
         # CONVERT -- review request: every completed job, no sentiment branch (compliant).
         # Only on RECENTLY completed jobs (<=90d): a review ask on a years-old job reads as
         # spam and Google weights recency. (referral below uses the same recency-window pattern.)
         if job_done and (today - last_appt).days <= 90 and "review_request" not in kinds:
-            out.append(_opp("review_request", lid, who, phone, "convert",
-                            title=f"Ask {who} for a review", why="job's done, ask while it's fresh",
-                            tone="hot", label="Review", money=val, draft=_copy_review(first, business),
-                            compliance="Asks every customer. Never filtered by rating (FTC + Google)."))
+            # Phase 5d A8: if the review link is a placeholder, surface as a blocked play
+            # (sendable=False, blocked_reason) for tray visibility -- but NEVER queue.
+            _review_draft = _copy_review(first, business)
+            if "[" in _review_draft:
+                out.append(_opp("review_request", lid, who, phone, "convert",
+                                title=f"Ask {who} for a review (add your review link first)",
+                                why="job's done, but review link is missing",
+                                tone="hot", label="Review", money=val, draft=_review_draft,
+                                sendable=False, blocked_reason="add_review_link",
+                                compliance="Asks every customer. Never filtered by rating (FTC + Google).",
+                                tone_risk=tr))
+            else:
+                out.append(_opp("review_request", lid, who, phone, "convert",
+                                title=f"Ask {who} for a review", why="job's done, ask while it's fresh",
+                                tone="hot", label="Review", money=val, draft=_review_draft,
+                                compliance="Asks every customer. Never filtered by rating (FTC + Google).",
+                                tone_risk=tr))
 
         # CONVERT -- quote follow-up vs GROW -- reactivation, by how cold the quiet quote is.
         quiet = status != "booked" and last_out and (not last_in or last_in < last_out)
@@ -236,10 +294,13 @@ def plays(business):
         if booked and last_appt:
             months = (today.year - last_appt.year) * 12 + (today.month - last_appt.month)
             if 12 <= months <= 18 and "winback" not in kinds:
-                out.append(_opp("winback", lid, who, phone, "grow",
-                                title=f"Win back {who}", why=f"last job about {months} months ago",
-                                tone="new", label="Win-back", money=val * 2,
-                                draft=_copy_winback(first, business)))
+                play_wb = _opp("winback", lid, who, phone, "grow",
+                               title=f"Win back {who}", why=f"last job about {months} months ago",
+                               tone="new", label="Win-back", money=val * 2,
+                               draft=_copy_winback(first, business), tone_risk=tr)
+                # Phase 5d A7: pass has_inbound so scan() can apply TCPA narrowing.
+                play_wb["has_inbound"] = bool(c.get("has_inbound"))
+                out.append(play_wb)
 
         # GROW -- referral at the goodwill peak (job wrapped in the last few days).
         if job_done and (today - last_appt).days <= 3 and "referral" not in kinds:
@@ -326,15 +387,18 @@ _DELAY_MIN = {"review_request": 105, "quote_followup": 0, "reactivation": 0,
 
 
 def scan(now=None):
-    """Enqueue due growth touches for opted-in businesses onto scheduled_messages. The
-    existing reminders.run_due_once sends them through the gate (simulated until live).
-    Dedupe is enforced by the partial unique index, so a re-scan never double-queues.
+    """Enqueue due growth touches for opted-in businesses onto scheduled_messages.
+    Phase 5d: inserts as 'held' (tray mode, or auto for non-review plays, or tone-risk
+    plays). Dave must release via release_growth_batch / release_growth_play before
+    reminders.run_due_once will pick them up (due_scheduled_messages queries status=pending
+    only -- held rows never auto-fire). Dedupe index blocks double-queueing.
     Returns {'queued': n}."""
     now = now or db.now_iso()
     base = _parse(now) or _now()
     queued = 0
     for biz in db.list_businesses():
-        if not growth_on(biz):
+        mode = db.growth_mode(biz["id"])  # 'off' | 'tray' | 'auto'
+        if mode == 'off':
             continue
         # Don't queue doomed touches: once Twilio is configured, hold until A2P is approved
         # (an A2P-blocked send would mark the touch 'failed' and the dedupe index would then
@@ -342,15 +406,42 @@ def scan(now=None):
         if messaging.configured() and not compliance.a2p_ready(biz):
             continue
         for p in plays(biz):
+            # Never queue non-sendable or plays missing required fields
             if not p.get("sendable") or p.get("lead_id") is None or not p.get("draft_body"):
                 continue
+            # Hard guard: never queue a body with an unfilled placeholder
             if "[" in p["draft_body"]:
-                continue                      # unfilled placeholder (e.g. review link) -- never auto-send
+                continue
+            lead_id = p["lead_id"]
+            # Phase 5d A5: frequency cap gate (G3)
+            # 30-day cross-kind cap: never text a customer who was already touched recently.
+            if db.recent_growth_touch(biz["id"], lead_id, within_days=30):
+                continue
+            # 12-month rolling cap: max 2 touches per customer per year.
+            if db.growth_touch_count_12mo(biz["id"], lead_id) >= 2:
+                continue
+            # Phase 5d A7: win-back TCPA narrowing -- only leads who sent at least one
+            # inbound message. Cold-only leads are excluded; EBR is weaker for them.
+            # (plays() still surfaces winbacks for display; scan() gates the actual queue.)
+            if p["kind"] == "winback" and not p.get("has_inbound"):
+                continue
+            # Phase 5d A3: determine insert status based on mode + tone-risk
+            # Tone-risk plays always go 'held' regardless of mode (P0: Dave must review).
+            if p.get("tone_risk"):
+                insert_status = 'held'
+            elif mode == 'auto' and p["kind"] == 'review_request':
+                # Auto mode: only review_request (the lowest-risk play) goes 'pending';
+                # all other kinds go 'held' (win-backs, referrals, reactivations).
+                insert_status = 'pending'
+            else:
+                # tray mode: everything held. auto mode non-review: held.
+                insert_status = 'held'
             delay = _DELAY_MIN.get(p["kind"], 0)
             send_at = (base.timestamp() + delay * 60)
             send_at_iso = datetime.fromtimestamp(send_at, timezone.utc).isoformat()
-            sid = db.add_scheduled_message(biz["id"], p["lead_id"], None, p["kind"],
-                                           send_at_iso, p["draft_body"])
+            sid = db.add_scheduled_message(biz["id"], lead_id, None, p["kind"],
+                                           send_at_iso, p["draft_body"],
+                                           status=insert_status)
             if sid:
                 queued += 1
     return {"queued": queued}

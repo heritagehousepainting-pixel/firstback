@@ -531,9 +531,13 @@ def init_db():
             # Phase 3 growth engine: the owner's public review link (used in review-request
             # copy) and the opt-in flag for auto-queued growth touches (default OFF -- the
             # feed + one-tap gated sends are always live; auto-texting is explicit opt-in).
-            ("review_link", "TEXT"), ("growth_on", "INTEGER DEFAULT 0")):
+            ("review_link", "TEXT"), ("growth_on", "INTEGER DEFAULT 0"),
+            # Phase 5d: growth mode supersedes growth_on. off|tray|auto; growth_on kept for backward compat.
+            ("growth_mode", "TEXT DEFAULT 'off'")):
         if col not in biz_cols:
             c.execute(f"ALTER TABLE businesses ADD COLUMN {col} {ddl}")
+    # Phase 5d backfill: existing growth_on=1 rows get growth_mode='tray' (idempotent).
+    c.execute("UPDATE businesses SET growth_mode='tray' WHERE growth_on=1 AND growth_mode='off'")
     # messages gain delivery tracking for real (Twilio) SMS.
     msg_cols = [r[1] for r in c.execute("PRAGMA table_info(messages)").fetchall()]
     for col in ("provider_sid", "delivery_status"):
@@ -653,6 +657,40 @@ def init_db():
             detail      TEXT,
             created_at  TEXT
         );
+    """)
+
+    # Phase 5d -- growth_touch_log: audit log of actual growth SMS deliveries.
+    # Written by reminders.run_due_once on every sent/simulated growth-kind message.
+    # Powers the frequency cap (recent_growth_touch / growth_touch_count_12mo).
+    c.executescript("""
+        CREATE TABLE IF NOT EXISTS growth_touch_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL,
+            lead_id     INTEGER NOT NULL,
+            kind        TEXT NOT NULL,
+            sent_at     TEXT NOT NULL,
+            outcome     TEXT DEFAULT 'sent',
+            source      TEXT DEFAULT 'batch_approved'
+        );
+        CREATE INDEX IF NOT EXISTS idx_gtl_biz_lead
+            ON growth_touch_log(business_id, lead_id, sent_at);
+    """)
+
+    # Phase 5d -- growth_approvals: audit trail for every batch/play release.
+    # One row per released play; groups all plays from one GO by batch_id.
+    c.executescript("""
+        CREATE TABLE IF NOT EXISTS growth_approvals (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id     INTEGER NOT NULL,
+            batch_id        TEXT NOT NULL,
+            lead_id         INTEGER NOT NULL,
+            kind            TEXT NOT NULL,
+            approved_at     TEXT NOT NULL,
+            approved_via    TEXT NOT NULL,
+            consent_basis   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_gappr_biz
+            ON growth_approvals(business_id, approved_at);
     """)
 
     # usage_grants: written by billing.py on invoice.paid.
@@ -952,10 +990,16 @@ def set_chaperone_dismissed(business_id, when):
 
 def set_growth_on(business_id, on):
     """Opt a business in/out of auto-queued growth touches (Phase 3). Kept out of the
-    Settings-form path (_BUSINESS_COLS) so a profile save never flips it by omission."""
+    Settings-form path (_BUSINESS_COLS) so a profile save never flips it by omission.
+    Phase 5d compat: also sets growth_mode='tray' when turning on, so both the old
+    growth_on boolean and the new growth_mode column stay in sync."""
     conn = get_conn()
-    conn.execute("UPDATE businesses SET growth_on=? WHERE id=?",
-                 (1 if on else 0, business_id))
+    if on:
+        conn.execute("UPDATE businesses SET growth_on=1, growth_mode='tray' WHERE id=?",
+                     (business_id,))
+    else:
+        conn.execute("UPDATE businesses SET growth_on=0, growth_mode='off' WHERE id=?",
+                     (business_id,))
     conn.commit()
     conn.close()
 
@@ -2390,17 +2434,20 @@ def update_reminder_prefs(business_id, fields):
     conn.close()
 
 
-def add_scheduled_message(business_id, lead_id, appointment_id, kind, send_at, body):
-    """Queue an outbound message (reminder/followup). Returns its id, or None if a
+def add_scheduled_message(business_id, lead_id, appointment_id, kind, send_at, body,
+                          status='pending'):
+    """Queue an outbound message (reminder/followup/growth). Returns its id, or None if a
     duplicate follow-up was blocked by the one-per-lead unique index (so a second
     scheduler driver racing the first can't double-queue a nudge). Reminders are
-    unaffected by that index (it's WHERE kind='followup')."""
+    unaffected by that index (it's WHERE kind='followup'). Phase 5d: pass
+    status='held' for growth plays awaiting batch approval; default stays 'pending'
+    so all existing callers are unaffected (R4)."""
     conn = get_conn()
     try:
         cur = conn.execute(
             "INSERT INTO scheduled_messages (business_id, lead_id, appointment_id, kind, "
-            "send_at, body, status, created_at) VALUES (?,?,?,?,?,?, 'pending', ?)",
-            (business_id, lead_id, appointment_id, kind, send_at, body, now_iso()))
+            "send_at, body, status, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (business_id, lead_id, appointment_id, kind, send_at, body, status, now_iso()))
         conn.commit()
         sid = cur.lastrowid
     except sqlite3.IntegrityError:
@@ -2449,6 +2496,7 @@ def due_scheduled_messages(now_iso_str):
         "a.day AS appt_day, a.slot_time AS appt_slot, a.status AS appt_status "
         "FROM scheduled_messages s JOIN leads l ON l.id = s.lead_id "
         "LEFT JOIN appointments a ON a.id = s.appointment_id "
+        "/* status='pending' excludes 'held' (growth batch awaiting approval), 'sent', etc. */ "
         "WHERE s.status='pending' AND s.send_at <= ? ORDER BY s.send_at",
         (now_iso_str,)).fetchall()
     conn.close()
@@ -2492,7 +2540,10 @@ def growth_candidates(business_id):
         "(SELECT COUNT(*) FROM appointments a "
         "   WHERE a.lead_id=l.id AND a.status='booked') AS booked_count, "
         "(SELECT MAX(a.day) FROM appointments a "
-        "   WHERE a.lead_id=l.id AND a.status='booked') AS last_appt_day "
+        "   WHERE a.lead_id=l.id AND a.status='booked') AS last_appt_day, "
+        # Phase 5d: inbound flag for win-back TCPA narrowing (no N+1: correlated subquery).
+        "EXISTS(SELECT 1 FROM messages m WHERE m.lead_id=l.id AND m.direction='in') "
+        "AS has_inbound "
         "FROM leads l WHERE l.business_id=?",
         (business_id,)).fetchall()
     conn.close()
@@ -2527,6 +2578,172 @@ def cancel_lead_growth_touches(lead_id, kinds):
                  (lead_id, *kinds))
     conn.commit()
     conn.close()
+
+
+# ---- Phase 5d growth tray: mode control + batch release + audit log ----
+import secrets as _secrets
+
+
+def set_growth_mode(business_id, mode):
+    """Set growth mode: 'off'|'tray'|'auto'. Invalid values reset to 'off'."""
+    if mode not in ('off', 'tray', 'auto'):
+        mode = 'off'
+    conn = get_conn()
+    conn.execute("UPDATE businesses SET growth_mode=? WHERE id=?", (mode, business_id))
+    conn.commit()
+    conn.close()
+
+
+def growth_mode(business_id):
+    """Return 'off'|'tray'|'auto' for the business. Default 'off'."""
+    conn = get_conn()
+    row = conn.execute("SELECT growth_mode FROM businesses WHERE id=?", (business_id,)).fetchone()
+    conn.close()
+    if not row:
+        return 'off'
+    return row[0] if row[0] in ('off', 'tray', 'auto') else 'off'
+
+
+def list_held_messages(business_id):
+    """All status='held' scheduled_messages rows for a business, with lead name+phone."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT s.*, l.name AS lead_name, l.phone AS lead_phone "
+        "FROM scheduled_messages s JOIN leads l ON l.id = s.lead_id "
+        "WHERE s.business_id=? AND s.status='held' ORDER BY s.id",
+        (business_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def release_growth_batch(business_id, approved_via='ui_tap'):
+    """Atomically flip all status='held' -> status='pending' for the business.
+    Also writes growth_approvals rows (one per play, same batch_id).
+    Returns {'released': n, 'batch_id': hex}."""
+    batch_id = _secrets.token_hex(8)
+    approved_at = now_iso()
+    conn = get_conn()
+    held_rows = conn.execute(
+        "SELECT id, lead_id, kind FROM scheduled_messages "
+        "WHERE business_id=? AND status='held'",
+        (business_id,)).fetchall()
+    if not held_rows:
+        conn.close()
+        return {'released': 0, 'batch_id': batch_id}
+    conn.execute(
+        "UPDATE scheduled_messages SET status='pending' "
+        "WHERE business_id=? AND status='held'",
+        (business_id,))
+    for row in held_rows:
+        basis = consent_basis_for_lead(business_id, row[1])
+        conn.execute(
+            "INSERT INTO growth_approvals "
+            "(business_id, batch_id, lead_id, kind, approved_at, approved_via, consent_basis) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (business_id, batch_id, row[1], row[2], approved_at, approved_via, basis))
+    conn.commit()
+    conn.close()
+    return {'released': len(held_rows), 'batch_id': batch_id}
+
+
+def release_growth_play(scheduled_message_id, business_id, approved_via='ui_tap'):
+    """Flip a single 'held' row to 'pending'. Scoped by business_id (no cross-tenant).
+    Writes one growth_approvals row. Returns True if released."""
+    approved_at = now_iso()
+    batch_id = _secrets.token_hex(8)
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, lead_id, kind FROM scheduled_messages "
+        "WHERE id=? AND business_id=? AND status='held'",
+        (scheduled_message_id, business_id)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    conn.execute(
+        "UPDATE scheduled_messages SET status='pending' WHERE id=? AND business_id=?",
+        (scheduled_message_id, business_id))
+    basis = consent_basis_for_lead(business_id, row[1])
+    conn.execute(
+        "INSERT INTO growth_approvals "
+        "(business_id, batch_id, lead_id, kind, approved_at, approved_via, consent_basis) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (business_id, batch_id, row[1], row[2], approved_at, approved_via, basis))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def cancel_growth_play(scheduled_message_id, business_id):
+    """Set status='canceled' for one held play. Scoped by business_id.
+    A canceled play is removed from the dedupe index (status!=canceled), allowing
+    it to re-surface on the next scan cycle (intentional: cancel = skip this round)."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE scheduled_messages SET status='canceled' "
+        "WHERE id=? AND business_id=? AND status='held'",
+        (scheduled_message_id, business_id))
+    conn.commit()
+    conn.close()
+
+
+def recent_growth_touch(business_id, lead_id, within_days):
+    """True if any growth_touch_log row for (biz, lead) is within the last within_days days."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=within_days)).isoformat()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM growth_touch_log "
+        "WHERE business_id=? AND lead_id=? AND sent_at >= ? LIMIT 1",
+        (business_id, lead_id, cutoff)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def growth_touch_count_12mo(business_id, lead_id):
+    """Count of growth_touch_log rows for (biz, lead) in the past 365 days."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM growth_touch_log "
+        "WHERE business_id=? AND lead_id=? AND sent_at >= ?",
+        (business_id, lead_id, cutoff)).fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
+def add_growth_touch_log(business_id, lead_id, kind, outcome='sent', source='batch_approved'):
+    """Write one row to growth_touch_log at delivery time."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO growth_touch_log (business_id, lead_id, kind, sent_at, outcome, source) "
+        "VALUES (?,?,?,?,?,?)",
+        (business_id, lead_id, kind, now_iso(), outcome, source))
+    conn.commit()
+    conn.close()
+
+
+def consent_basis_for_lead(business_id, lead_id):
+    """Return a consent_basis string by inspecting appointments + messages for the lead.
+    Precedence: EBR:last_job (booked appt) > EBR:quote (outbound msg) > EBR:inbound."""
+    conn = get_conn()
+    # Strongest: completed booked appointment
+    row = conn.execute(
+        "SELECT MAX(day) AS last_day FROM appointments "
+        "WHERE business_id=? AND lead_id=? AND status='booked'",
+        (business_id, lead_id)).fetchone()
+    if row and row[0]:
+        conn.close()
+        return f"EBR:last_job:{row[0]}"
+    # Next: last outbound message (quote sent)
+    row2 = conn.execute(
+        "SELECT MAX(created_at) AS last_out FROM messages "
+        "WHERE lead_id=? AND direction='out'",
+        (lead_id,)).fetchone()
+    if row2 and row2[0]:
+        conn.close()
+        ts = row2[0][:10]  # YYYY-MM-DD
+        return f"EBR:quote:{ts}"
+    conn.close()
+    return "EBR:inbound"
 
 
 def followup_candidate_rows(business_id):
@@ -2745,6 +2962,17 @@ def set_dispatcher_call_at(lead_id, ts):
     conn.execute("UPDATE leads SET dispatcher_call_last_at=? WHERE id=?", (ts, lead_id))
     conn.commit()
     conn.close()
+
+
+def get_last_n_inbound(lead_id, n=5):
+    """Return the last n inbound message dicts for a lead (newest first). Used by
+    growth._tone_risk() to scan for negative-sentiment signals without N+1 queries."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM messages WHERE lead_id=? AND direction='in' "
+        "ORDER BY id DESC LIMIT ?", (lead_id, n)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_last_inbound_message(lead_id):

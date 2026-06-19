@@ -488,6 +488,17 @@ _fb_empty = reminders.followup_body_contextual("Dave", "Acme Painting", "Need a 
 check("followup_body_contextual falls back on empty LLM output",
       _fb_empty == _generic)
 
+# 6b W3: the ticker call must pass a bounded timeout so a slow Sonnet can't stall the
+# scheduler. Capture the kwargs handed to llm.complete.
+_captured_kw = {}
+def _capture_complete(*a, **kw):
+    _captured_kw.update(kw)
+    return "Hi Dave, following up on your deck -- want to lock in a time? - Acme"
+_llm_mod.complete = _capture_complete
+reminders.followup_body_contextual("Dave", "Acme Painting", "deck")
+check("followup_body_contextual passes a bounded timeout to llm.complete (W3)",
+      _captured_kw.get("timeout") == 10)
+
 _llm_mod.complete = _orig_complete
 _llm_mod.active_provider = _orig_active
 

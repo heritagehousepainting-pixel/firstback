@@ -199,6 +199,7 @@
       {{ alert_toggle('alert_on_lead', 'A new lead comes in', business.alert_on_lead) }}
       {{ alert_toggle('alert_on_booking', 'An estimate gets booked', business.alert_on_booking) }}
       {{ alert_toggle('alert_on_urgent', 'A lead is flagged urgent', business.alert_on_urgent) }}
+      {{ alert_toggle('alert_on_daily_digest', 'One morning digest (leads, ready texts, and your top stall in a single 8am summary)', business.alert_on_daily_digest) }}
     </div>
     {% if not sms_configured and not email_configured %}
     <p class="provider-note provider-note-soft">Texting and email aren’t connected yet, so alerts are recorded <strong>in-app</strong> only — you’ll see them on your dashboard. Add Twilio or SMTP to also get them by text or email.</p>

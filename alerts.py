@@ -29,13 +29,13 @@ import messaging
 
 ALERT_KINDS = ("lead", "booking", "urgent", "canceled", "sms_fail", "forwarding_lost",
                "roi_milestone", "vic_morning", "vic_stall", "screening_graduated",
-               "growth_tray")
+               "growth_tray", "daily_digest", "tick_stale")
 # Collapse identical alerts (same business + event) within this many seconds.
 ALERT_DEDUPE_SECONDS = 120
 # Proactive daily pushes (day-stamped keys) collapse over the whole local day, not 120s --
 # the ticker fires every few minutes, so a short window would re-send them on each pass.
 _DAILY_DEDUPE_SECONDS = 26 * 3600
-_DAILY_DEDUPE_KINDS = ("vic_morning", "vic_stall", "growth_tray")
+_DAILY_DEDUPE_KINDS = ("vic_morning", "vic_stall", "growth_tray", "daily_digest", "tick_stale")
 # Graduation fires once per business lifetime (the mode flips once), so dedupe
 # over a very long window to prevent any edge-case re-fire.
 _LONG_DEDUPE_SECONDS = 365 * 24 * 3600
@@ -54,7 +54,12 @@ _TOGGLE_COL = {"lead": "alert_on_lead", "booking": "alert_on_booking",
                # rides the urgent toggle (owner needs to know their filter went live).
                "screening_graduated": "alert_on_urgent",
                # Growth tray digest (5d BETA): rides the lead-alert toggle -- no new column needed.
-               "growth_tray": "alert_on_lead"}
+               "growth_tray": "alert_on_lead",
+               # Phase 6b unified 8am digest: its OWN toggle so the owner can mute the morning
+               # buzz without losing real-time lead/booking alerts.
+               "daily_digest": "alert_on_daily_digest",
+               # Phase 6b ops alert: scheduler stalled -> rides the urgent toggle (no new column).
+               "tick_stale": "alert_on_urgent"}
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -153,6 +158,57 @@ def format_message(kind, context):
             else:
                 base = prefix.rstrip() + ". " + instr
         return base
+    if kind == "daily_digest":
+        # Phase 6b: ONE honest 8am summary absorbing leads + held growth plays + top stall.
+        # Never "tap to send" for leads (the in-app one-tap owns that). GO/SKIP is for the
+        # held growth texts only. Estimated money is labeled. Never claims a customer text
+        # was sent. Caps at 320 chars (truncate the plays detail first, then the stall).
+        n_leads = context.get("n_leads", 0)
+        money = (context.get("money") or "").strip()
+        is_estimated = context.get("is_estimated", False)
+        plays_count = context.get("plays_count", 0)
+        plays_summary = (context.get("plays_summary") or "").strip()
+        top_stall_name = (context.get("top_stall_name") or "").strip()
+        top_stall_hours = context.get("top_stall_hours", 0)
+        # Leads segment -- omitted entirely when there are no open leads (never "0 leads").
+        leads_seg = ""
+        if n_leads:
+            lead_word = "lead needs" if n_leads == 1 else "leads need"
+            money_part = f", ~{money} on the table" if money else ""
+            est = " (est.)" if (money and is_estimated) else ""
+            leads_seg = f" {n_leads} {lead_word} you{money_part}{est}."
+        # Held growth plays segment (only when plays exist).
+        def _plays_seg(include_summary):
+            if not plays_count:
+                return ""
+            s = "s" if plays_count != 1 else ""
+            detail = f" {plays_summary}" if (include_summary and plays_summary) else ""
+            return f" {plays_count} text{s} ready:{detail} Reply GO to send all, SKIP to hold."
+        # Top-stall segment (only when present).
+        stall_seg = ""
+        if top_stall_name:
+            try:
+                stall_h = int(round(float(top_stall_hours)))
+            except (TypeError, ValueError):
+                stall_h = 0
+            stall_seg = f" One stall: {top_stall_name} {stall_h}h."
+        base = ("Good morning." + leads_seg + _plays_seg(True) + stall_seg).rstrip()
+        if len(base) > 320:  # drop the per-play detail, keep the GO/SKIP line
+            base = ("Good morning." + leads_seg + _plays_seg(False) + stall_seg).rstrip()
+        if len(base) > 320:  # drop the stall line
+            base = ("Good morning." + leads_seg + _plays_seg(False)).rstrip()
+        if len(base) > 320:
+            base = base[:317].rstrip() + "..."
+        return base
+    if kind == "tick_stale":
+        # Ops alert to the operator: the scheduler hasn't run -- texts/reminders may lag.
+        gap = context.get("gap_minutes", 0)
+        try:
+            gap = int(round(float(gap)))
+        except (TypeError, ValueError):
+            gap = 0
+        return (f"FirstBack's scheduler hasn't run in ~{gap}m -- texts and reminders "
+                f"may be delayed. Check the Render cron / restart the service.")
     return f"FirstBack alert ({kind})."
 
 
@@ -167,7 +223,9 @@ def _subject(kind):
             "vic_morning": "Your morning briefing -- FirstBack",
             "vic_stall": "Lead still waiting -- FirstBack",
             "screening_graduated": "Spam Shield is now active -- FirstBack",
-            "growth_tray": "Your morning growth tray -- FirstBack"}.get(kind, "FirstBack alert")
+            "growth_tray": "Your morning growth tray -- FirstBack",
+            "daily_digest": "Your morning summary -- FirstBack",
+            "tick_stale": "Scheduler may be down -- FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):
@@ -195,6 +253,15 @@ def _dedupe_key(kind, context):
         # Day-stamped: one digest per business per local calendar day (26h window).
         day = (context.get("local_day") or "").strip()
         return f"growth_tray:{day}"
+    if kind == "daily_digest":
+        # Day-stamped: one unified morning digest per business per local day (26h window).
+        day = (context.get("local_day") or "").strip()
+        return f"daily_digest:{day}"
+    if kind == "tick_stale":
+        # Day-stamped: at most one "scheduler stalled" alert per day, so a sustained
+        # outage (the cron retries every 60s) can't become an SMS storm.
+        day = (context.get("local_day") or "").strip()
+        return f"tick_stale:{day}"
     if kind == "screening_graduated":
         return "screening_graduated"
     base = f"{kind}:{context.get('lead_id')}"

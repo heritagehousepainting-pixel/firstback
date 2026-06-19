@@ -337,6 +337,7 @@ def signup():
             "alert_on_lead": 1,
             "alert_on_booking": 1,
             "alert_on_urgent": 1,
+            "alert_on_daily_digest": 1,
         })
         # Phase 3 SF-8: set business_type from the "Do you have an EIN?" checkbox.
         # has_ein present (any truthy value) -> "llc"; absent -> "sole_prop".
@@ -1137,6 +1138,7 @@ def settings():
             "alert_on_lead": 1 if request.form.get("alert_on_lead") else 0,
             "alert_on_booking": 1 if request.form.get("alert_on_booking") else 0,
             "alert_on_urgent": 1 if request.form.get("alert_on_urgent") else 0,
+            "alert_on_daily_digest": 1 if request.form.get("alert_on_daily_digest") else 0,
         })
         try:
             lead_hours = int(float(request.form.get("reminder_lead_hours") or 24))

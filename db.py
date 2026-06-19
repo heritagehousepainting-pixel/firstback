@@ -836,6 +836,11 @@ def init_db():
     # toggle write would hit a missing column.
     if "alert_on_roi_milestone" not in biz_cols:
         c.execute("ALTER TABLE businesses ADD COLUMN alert_on_roi_milestone INTEGER DEFAULT 1")
+    # Phase 6b: the unified 8am morning digest toggle (alerts._TOGGLE_COL maps
+    # "daily_digest" -> this column). Default ON so existing tenants get the single
+    # digest without any opt-in; the 26h dedupe prevents double-sends.
+    if "alert_on_daily_digest" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN alert_on_daily_digest INTEGER DEFAULT 1")
     # Phase 4 — Dispatcher-call rate-limit is PER LEAD (one urgency call per caller,
     # not one per business), so the timestamp lives on the lead row.
     lead_cols = [r[1] for r in c.execute("PRAGMA table_info(leads)").fetchall()]
@@ -2380,7 +2385,7 @@ def update_alert_prefs(business_id, fields):
     """Persist a business's owner-alert preferences (Settings 'Owner alerts' card).
     Only the alert columns are touched, so it never disturbs the profile fields."""
     cols = ["alert_email", "alert_sms", "alert_on_lead", "alert_on_booking",
-            "alert_on_urgent"]
+            "alert_on_urgent", "alert_on_daily_digest"]
     present = [col for col in cols if col in fields]
     if not present:
         return

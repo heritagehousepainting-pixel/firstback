@@ -93,6 +93,45 @@ body = r3.data.decode()
 for forbidden in ("phone", "email", "name", "lead", "business", "user"):
     check(f"no '{forbidden}' key in /health/ticker response", f'"{forbidden}"' not in body)
 
+# ---- 7. 6b: stale-ticker gap detection fires a tick_stale alert ----
+import alerts as _alerts
+_orig_notify = _alerts.notify
+_stale_calls = []
+def _capture_notify(business, kind, context):
+    if kind == "tick_stale":
+        _stale_calls.append(context)
+    return []
+_alerts.notify = _capture_notify
+try:
+    # A fresh tick with no prior heartbeat must NOT fire tick_stale.
+    db.set_meta("last_tick_utc", "")
+    _stale_calls.clear()
+    reminders.tick_once()
+    check("6b: no tick_stale when there is no prior heartbeat", len(_stale_calls) == 0)
+
+    # A heartbeat 20 min ago -> the next tick detects the gap and fires once.
+    db.set_meta("last_tick_utc",
+                (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat())
+    _stale_calls.clear()
+    reminders.tick_once()
+    check("6b: tick_stale fires after a >15min heartbeat gap", len(_stale_calls) == 1)
+    check("6b: tick_stale carries the gap (~20 min)",
+          bool(_stale_calls) and 18 <= float(_stale_calls[0].get("gap_minutes", 0)) <= 22)
+
+    # A normal ~60s gap does NOT fire.
+    db.set_meta("last_tick_utc",
+                (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat())
+    _stale_calls.clear()
+    reminders.tick_once()
+    check("6b: no tick_stale on a normal ~60s gap", len(_stale_calls) == 0)
+finally:
+    _alerts.notify = _orig_notify
+
+# tick_stale copy is honest + short.
+_ts_body = _alerts.format_message("tick_stale", {"gap_minutes": 18, "local_day": "2026-06-19"})
+check("6b: tick_stale copy names the delay + the scheduler",
+      "18m" in _ts_body and "scheduler" in _ts_body.lower() and len(_ts_body) <= 200)
+
 # ---- summary ----
 print(f"\n{_pass} passed, {_fail} failed")
 try:

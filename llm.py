@@ -132,7 +132,7 @@ def strip_think(text):
 
 
 def complete(provider, system, messages, *, max_tokens, temperature=0.8,
-             model=None, return_usage=False):
+             model=None, return_usage=False, timeout=None):
     """One completion. `system` is the system prompt; `messages` is the conversation
     WITHOUT the system message (a list of {role, content}) — for a single-shot call
     pass [{"role": "user", "content": user_text}]. MiniMax gets the system prepended
@@ -163,7 +163,15 @@ def complete(provider, system, messages, *, max_tokens, temperature=0.8,
         return text
     if provider == "claude":
         import anthropic  # imported lazily so the other paths need no install
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        # Phase 6b W3: a caller (e.g. the ticker's followup copy) may pass an explicit
+        # per-call timeout so a slow Sonnet can't block the scheduler. When unset we keep
+        # the SDK default (existing request-thread callers are unchanged).
+        if timeout is not None:
+            import httpx
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY,
+                                         timeout=httpx.Timeout(timeout, connect=5.0))
+        else:
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         _model = model or CLAUDE_MODEL
         # Prompt caching: mark the shared system-prompt block ephemeral so repeated
         # calls with the same system prompt hit Anthropic's cache (cheaper + faster).

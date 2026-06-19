@@ -416,17 +416,36 @@ _OWN = "+15550009999"
 def _own_nudges():
     return sum(1 for r in _ALL_SMS_RECIPIENTS if r == _OWN)
 _before = _own_nudges()
-reminders.scan_stall_nudges()
+# 6b: stall nudges are afternoon-only now (gated on the biz LOCAL hour). Build an
+# afternoon timestamp in the business's own timezone (>= now, so the 50h-idle lead stays
+# well past the 24h threshold), then hand it to the scan as UTC.
+_btz = reminders._biz_tz(db.get_business(_rb))
+_aft_local = datetime.now(_btz)
+if _aft_local.hour < 13:
+    _aft_local = _aft_local.replace(hour=14, minute=0, second=0, microsecond=0)
+_aft = _aft_local.astimezone(timezone.utc).isoformat()
+reminders.scan_stall_nudges(_aft)
 _after_first = _own_nudges()
 _bconn = db.get_conn()
 _back = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
 _bconn.execute("UPDATE alerts SET created_at=? WHERE dedupe_key LIKE ?", (_back, f"vic_stall:{_rl}:%"))
 _bconn.commit(); _bconn.close()
-reminders.scan_stall_nudges()   # 10 min later -> must STILL dedupe
+reminders.scan_stall_nudges(_aft)   # 10 min later -> must STILL dedupe
 _after_second = _own_nudges()
 check("stall nudge fired once for the idle lead", _after_first - _before == 1)
 check("daily dedupe holds across a >120s ticker gap (no re-send)",
       _after_second == _after_first)
+
+# 6b: a stall nudge is SUPPRESSED in the morning (local hour < 12) -- the unified 8am
+# digest covers the top stall, so per-lead morning nudges would double-buzz the owner.
+_mconn = db.get_conn()  # clear the dedupe row so only the hour gate can block it
+_mconn.execute("DELETE FROM alerts WHERE dedupe_key LIKE ?", (f"vic_stall:{_rl}:%",))
+_mconn.commit(); _mconn.close()
+_morn_local = datetime.now(_btz).replace(hour=9, minute=0, second=0, microsecond=0)
+_before_morn = _own_nudges()
+reminders.scan_stall_nudges(_morn_local.astimezone(timezone.utc).isoformat())
+check("stall nudge suppressed in the morning (local hour 9)",
+      _own_nudges() == _before_morn)
 
 
 # ---- Results ----------------------------------------------------------------

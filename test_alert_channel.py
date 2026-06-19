@@ -120,7 +120,8 @@ check("signup redirects to /setup",
 # Find the newly created business.
 conn = db.get_conn()
 row = conn.execute(
-    "SELECT b.id, b.alert_email, b.alert_sms, b.alert_on_lead, b.alert_on_booking, b.alert_on_urgent "
+    "SELECT b.id, b.alert_email, b.alert_sms, b.alert_on_lead, b.alert_on_booking, "
+    "b.alert_on_urgent, b.alert_on_daily_digest "
     "FROM businesses b JOIN users u ON u.business_id = b.id "
     "WHERE u.email = ?",
     ("alice@testpainter.example",)
@@ -135,6 +136,8 @@ check("new signup row has alert_on_booking = 1",
       row is not None and row["alert_on_booking"] == 1)
 check("new signup row has alert_on_urgent = 1",
       row is not None and row["alert_on_urgent"] == 1)
+check("new signup row has alert_on_daily_digest = 1 (6b default ON)",
+      row is not None and row["alert_on_daily_digest"] == 1)
 
 
 # ---- Test 3: ALERT_FROM_NUMBER unset => fallback to tenant number ------------

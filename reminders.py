@@ -400,9 +400,12 @@ def followup_body_contextual(name, biz_name, last_in_text):
             f"Their last message: {(last_in_text or '').strip()[:200] or '(none)'}. "
             "Write the follow-up SMS."
         )
+        # Phase 6b W3: bound this call (timeout=10) so a slow Sonnet can't stall the
+        # ticker / delay run_due_once. On timeout the except below falls back to the
+        # generic template -- the contextual copy is a nice-to-have, never load-bearing.
         text = _llm.complete(provider, system,
                              [{"role": "user", "content": user_msg}],
-                             max_tokens=80, temperature=0.7)
+                             max_tokens=80, temperature=0.7, timeout=10)
         text = (text or "").strip()[:160]
         if text:
             return text
@@ -610,6 +613,12 @@ def scan_stall_nudges(now=None):
             except (TypeError, ValueError):
                 now_local = datetime.now(tz)
             local_day = now_local.strftime("%Y-%m-%d")
+            # Phase 6b W2: afternoon-only. The unified 8am digest already surfaces the
+            # most-urgent stall, so per-lead morning nudges would duplicate it. Skipping
+            # before noon keeps the morning to ONE SMS while still catching leads that go
+            # cold later in the day. The per-(lead, local-day) dedupe is unaffected.
+            if now_local.hour < 12:
+                continue
             # Find warm leads idle >24h (not urgent, replied, not booked).
             idle_leads = db.warm_leads_idle(biz["id"], 24)
             avg_val = biz.get("avg_job_value")
@@ -634,6 +643,97 @@ def scan_stall_nudges(now=None):
                           file=sys.stderr, flush=True)
         except Exception as e:
             print(f"[firstback] stall scan failed (biz {biz.get('id')}): {e}",
+                  file=sys.stderr, flush=True)
+    return fired
+
+
+# Kind labels for the held-play summary line in the unified digest (mirrors scan_growth_tray).
+_DIGEST_KIND_LABEL = {
+    "review_request": "review", "quote_followup": "follow-up",
+    "reactivation": "reactivation", "winback": "win-back",
+    "referral": "referral", "membership": "membership",
+}
+
+
+def scan_daily_digest(now=None):
+    """Phase 6b W2: fire ONE unified 8am digest SMS per business per local day,
+    REPLACING the separate vic_morning + growth_tray morning sends. It combines:
+      (a) leads-need-you count + money (from assistant.briefing -- DB-only, no LLM),
+      (b) held growth plays count + summary + 'Reply GO to send all',
+      (c) the single most-urgent stalled lead.
+    Goes ONLY to business['alert_sms'] (owner cell) via alerts.notify (gate=False,
+    A2P-exempt). NEVER sends to a customer and NEVER releases plays (the owner's GO
+    reply / in-app tap is the approval event). Deduped via the 'daily_digest' kind
+    (day-stamped, 26h). Skips a business entirely when there's nothing to report.
+    Returns the count of digests fired."""
+    now = now or db.now_iso()
+    fired = 0
+    for biz in db.list_businesses():
+        try:
+            tz = _biz_tz(biz)
+            try:
+                now_local = datetime.fromisoformat(now).astimezone(tz)
+            except (TypeError, ValueError):
+                now_local = datetime.now(tz)
+            # 8am window -- mirrors scan_growth_tray's [8, 9).
+            if not (8 <= now_local.hour < 9):
+                continue
+            local_day = now_local.strftime("%Y-%m-%d")
+            # (a) Leads-need-you from the DB-only briefing card.
+            try:
+                import assistant as _assistant
+                card = _assistant.briefing(biz)
+            except Exception:
+                card = {}
+            headline = (card.get("headline") or "").strip()
+            import re as _re
+            n_match = _re.search(r"(\d+)\s+lead", headline, _re.I)
+            n_leads = int(n_match.group(1)) if n_match else 0
+            money_match = _re.search(r"~?\$[\d,]+", headline)
+            money = money_match.group(0).lstrip("~") if money_match else ""
+            is_estimated = biz.get("avg_job_value") is None
+            # (b) Held growth plays awaiting owner approval.
+            try:
+                held_rows = db.list_held_messages(biz["id"])[:10]
+            except Exception:
+                held_rows = []
+            plays_count = len(held_rows)
+            parts = []
+            for i, r in enumerate(held_rows, 1):
+                nm = (r.get("lead_name") or "Lead").split()[0]
+                label = _DIGEST_KIND_LABEL.get(r.get("kind", ""), r.get("kind", ""))
+                parts.append(f"{i}) {nm} ({label})")
+            plays_summary = ", ".join(parts)
+            # (c) Top stall: most-idle warm lead (warm_leads_idle is NOT pre-sorted).
+            try:
+                stalls = db.warm_leads_idle(biz["id"], 24)
+                stalls.sort(key=lambda r: r.get("idle_hours", 0) or 0, reverse=True)
+            except Exception:
+                stalls = []
+            top_stall_name = ""
+            top_stall_hours = 0
+            if stalls:
+                raw = (stalls[0].get("name") or "").strip()
+                top_stall_name = raw.split()[0] if raw else "a lead"
+                top_stall_hours = stalls[0].get("idle_hours", 0)
+            # Nothing to report -> don't wake the owner with an empty digest.
+            if n_leads == 0 and plays_count == 0 and not top_stall_name:
+                continue
+            ctx = {
+                "n_leads": n_leads,
+                "money": money,
+                "is_estimated": is_estimated,
+                "plays_count": plays_count,
+                "plays_summary": plays_summary,
+                "top_stall_name": top_stall_name,
+                "top_stall_hours": top_stall_hours,
+                "local_day": local_day,
+            }
+            result = alerts.notify(biz, "daily_digest", ctx)
+            if result:
+                fired += 1
+        except Exception as e:
+            print(f"[firstback] daily digest scan failed (biz {biz.get('id')}): {e}",
                   file=sys.stderr, flush=True)
     return fired
 
@@ -745,12 +845,32 @@ def tick_once(now=None):
     send everything due. Always writes a heartbeat to meta (SF-3), even on partial
     failure, so the /health/ticker endpoint can report staleness accurately."""
     now = now or db.now_iso()
+    # Phase 6b: read the PREVIOUS heartbeat before overwriting it (stale-ticker detection).
+    _prev_tick_utc = db.get_meta("last_tick_utc")
     # Record the heartbeat FIRST so a partial failure still timestamps the tick.
     _tick_utc = datetime.now(timezone.utc).isoformat()
     try:
         db.set_meta("last_tick_utc", _tick_utc)
     except Exception as e:
         print(f"[firstback] heartbeat write failed: {e}", file=sys.stderr, flush=True)
+    # Phase 6b stale-ticker alert: if the gap since the previous tick exceeds the
+    # threshold, the scheduler had an outage -- warn the operator. Because the external
+    # cron drives /tasks/run-due -> tick_once, this fires on the recovery tick even when
+    # the in-process thread died. (Total death, cron+thread both down, needs an external
+    # uptime monitor on /health/ticker -- owner-ops, can't self-detect.) Never crashes the tick.
+    try:
+        if _prev_tick_utc:
+            _prev_dt = datetime.fromisoformat(_prev_tick_utc)
+            if _prev_dt.tzinfo is None:
+                _prev_dt = _prev_dt.replace(tzinfo=timezone.utc)
+            _gap_s = (datetime.now(timezone.utc) - _prev_dt).total_seconds()
+            if _gap_s > 900:  # 15 min -- generous vs a 60s tick, tight enough to catch a stall
+                alerts.notify(db.get_business(1), "tick_stale", {
+                    "gap_minutes": round(_gap_s / 60, 1),
+                    "local_day": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                })
+    except Exception as e:
+        print(f"[firstback] tick_stale check failed: {e}", file=sys.stderr, flush=True)
     try:
         import triage
         triage.scan_all_suggestions()  # observe callers -> refresh the review queue
@@ -772,17 +892,14 @@ def tick_once(now=None):
         connections.check_forwarding_health()
     except Exception as e:
         print(f"[firstback] forwarding health check failed: {e}", file=sys.stderr, flush=True)
-    # P1-2: morning digest (proactive owner push).
+    # Phase 6b W2: ONE unified 8am digest (absorbs the old vic_morning + growth_tray
+    # morning sends into a single owner SMS -- the functions remain for their unit tests
+    # but the ticker no longer fires them separately).
     try:
-        scan_morning_briefing(now)
+        scan_daily_digest(now)
     except Exception as e:
-        print(f"[firstback] morning briefing tick failed: {e}", file=sys.stderr, flush=True)
-    # 5d BETA B2: growth tray 8am digest (held plays awaiting owner approval).
-    try:
-        scan_growth_tray(now)
-    except Exception as e:
-        print(f"[firstback] growth tray scan failed: {e}", file=sys.stderr, flush=True)
-    # P1-3: warm-lead stall nudges (proactive owner push).
+        print(f"[firstback] daily digest tick failed: {e}", file=sys.stderr, flush=True)
+    # P1-3: warm-lead stall nudges (proactive owner push; afternoon-only since 6b).
     try:
         scan_stall_nudges(now)
     except Exception as e:

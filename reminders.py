@@ -43,6 +43,20 @@ def _biz_tz(business):
     except (ImportError, AttributeError):
         return app_tz()
 
+
+def _int_pref(business, key, default):
+    """Coerce an owner-pref column to int with a fallback (never raises). Treats a real 0
+    as 0 (e.g. 'mute' for the stall cap) -- only None/junk falls back. Duplicated from
+    alerts._int_pref to avoid an alerts<->reminders circular import."""
+    val = (business or {}).get(key)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -638,8 +652,16 @@ def scan_stall_nudges(now=None):
                 continue
             # Find warm leads idle >24h (not urgent, replied, not booked).
             idle_leads = db.warm_leads_idle(biz["id"], 24)
+            # Plan 05-2: cap the afternoon nudges per business so a pile of stalls can't
+            # bury the one that matters. Most-idle first, so the longest-waiting lead is
+            # never the one dropped; the rest still ride the 8am digest's top-stall slot.
+            idle_leads.sort(key=lambda r: r.get("idle_hours", 0) or 0, reverse=True)
+            cap = _int_pref(biz, "max_stall_alerts_day", 2)
+            nudged = 0
             avg_val = biz.get("avg_job_value")
             for lead in idle_leads:
+                if nudged >= cap:
+                    break
                 try:
                     name = (lead.get("name") or "").strip() or "They"
                     idle_h = lead.get("idle_hours", 0)
@@ -655,6 +677,7 @@ def scan_stall_nudges(now=None):
                     result = alerts.notify(biz, "vic_stall", ctx)
                     if result:
                         fired += 1
+                        nudged += 1
                 except Exception as e:
                     print(f"[firstback] stall nudge failed (lead {lead.get('id')}): {e}",
                           file=sys.stderr, flush=True)
@@ -733,8 +756,19 @@ def scan_daily_digest(now=None):
                 raw = (stalls[0].get("name") or "").strip()
                 top_stall_name = raw.split()[0] if raw else "a lead"
                 top_stall_hours = stalls[0].get("idle_hours", 0)
-            # Nothing to report -> don't wake the owner with an empty digest.
+            # Nothing to report. Default: stay silent. Plan 05-3: if the owner opted in,
+            # send a brief "all clear" so they know the system is alive (set-and-forget
+            # trust). Same daily_digest dedupe key -> still at most one morning text.
             if n_leads == 0 and plays_count == 0 and not top_stall_name:
+                if biz.get("alert_all_clear"):
+                    result = alerts.notify(biz, "daily_digest", {
+                        "n_leads": 0, "money": "", "is_estimated": False,
+                        "plays_count": 0, "plays_summary": "",
+                        "top_stall_name": "", "top_stall_hours": 0,
+                        "local_day": local_day, "all_clear": True,
+                    })
+                    if result:
+                        fired += 1
                 continue
             ctx = {
                 "n_leads": n_leads,
@@ -883,10 +917,15 @@ def tick_once(now=None):
                 _prev_dt = _prev_dt.replace(tzinfo=timezone.utc)
             _gap_s = (datetime.now(timezone.utc) - _prev_dt).total_seconds()
             if _gap_s > 900:  # 15 min -- generous vs a 60s tick, tight enough to catch a stall
-                alerts.notify(db.get_business(1), "tick_stale", {
-                    "gap_minutes": round(_gap_s / 60, 1),
-                    "local_day": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                })
+                # Plan 05-6: fan to every tenant -- each owner should know if the scheduler
+                # that powers THEIR texts/reminders stalled. The day-stamped dedupe is
+                # per-business (alert_recent filters by business_id), so no storm.
+                _stale_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                for _biz in db.list_businesses():
+                    alerts.notify(_biz, "tick_stale", {
+                        "gap_minutes": round(_gap_s / 60, 1),
+                        "local_day": _stale_day,
+                    })
     except Exception as e:
         print(f"[firstback] tick_stale check failed: {e}", file=sys.stderr, flush=True)
     try:

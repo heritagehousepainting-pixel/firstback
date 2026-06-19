@@ -201,6 +201,13 @@
       {{ alert_toggle('alert_on_urgent', 'A lead is flagged urgent', business.alert_on_urgent) }}
       {{ alert_toggle('alert_on_daily_digest', 'One morning digest (leads, ready texts, and your top stall in a single 8am summary)', business.alert_on_daily_digest) }}
       {{ alert_toggle('alert_on_roi_milestone', 'A milestone text when FirstBack pays for itself', business.alert_on_roi_milestone) }}
+      {{ alert_toggle('alert_all_clear', "A short 'all clear' text on quiet days, so you know it's working (needs the morning digest on)", business.alert_all_clear) }}
+    </div>
+    <div class="field-grid" style="margin-top:var(--space-4)">
+      {{ field('Quiet hours start (24h)', name='alert_quiet_start', value=(business.alert_quiet_start if business.alert_quiet_start is not none else 22), type='number', help='Hold non-urgent texts after this hour. Urgent alerts -- missed calls, delivery failures -- always go through.') }}
+      {{ field('Quiet hours end (24h)', name='alert_quiet_end', value=(business.alert_quiet_end if business.alert_quiet_end is not none else 7), type='number', help='Resume texts at this hour the next morning. Set start and end equal to disable quiet hours.') }}
+      {{ field('Max stall nudges per day', name='max_stall_alerts_day', value=(business.max_stall_alerts_day if business.max_stall_alerts_day is not none else 2), type='number', help="Cap on afternoon 'lead still waiting' texts. The rest ride your morning digest.") }}
+      {{ field('Webhook URL (Slack, Teams, Zapier)', name='alert_webhook_url', value=business.alert_webhook_url or '', type='url', placeholder='https://hooks.slack.com/...', help='Optional. We also POST a JSON alert to this URL.') }}
     </div>
     {% if not sms_configured and not email_configured %}
     <p class="provider-note provider-note-soft">Texting and email aren’t connected yet, so alerts are recorded <strong>in-app</strong> only — you’ll see them on your dashboard. Add Twilio or SMTP to also get them by text or email.</p>

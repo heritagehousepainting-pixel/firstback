@@ -22,6 +22,7 @@ and unit-tested without network or DB.
 """
 import sys
 import threading
+from datetime import datetime
 
 import db
 import mail
@@ -40,6 +41,32 @@ _DAILY_DEDUPE_KINDS = ("vic_morning", "vic_stall", "growth_tray", "daily_digest"
 # over a very long window to prevent any edge-case re-fire.
 _LONG_DEDUPE_SECONDS = 365 * 24 * 3600
 _LONG_DEDUPE_KINDS = ("screening_graduated",)
+# Plan 05-1: kinds that bypass owner quiet hours (fire-alarm level -- never held overnight).
+_URGENT_BYPASS_KINDS = frozenset({"urgent", "sms_fail", "forwarding_lost", "tick_stale"})
+
+
+def _biz_tz_for_alerts(business):
+    """Resolve a business dict to tzinfo. Lazy-imports config.biz_tz to avoid a circular
+    import at module load; falls back to UTC so a missing tz is always safe."""
+    try:
+        from config import biz_tz as _biz_tz
+        return _biz_tz(business)
+    except Exception:
+        from datetime import timezone
+        return timezone.utc
+
+
+def _int_pref(business, key, default):
+    """Coerce an owner-pref column to int with a fallback (never raises). Treats a real 0
+    as 0 (midnight quiet-hour, or 'mute' for a cap) -- only a missing/None value or junk
+    falls back to the default."""
+    val = (business or {}).get(key)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
 
 # A cancellation rides the same toggle as a booking (both are "your calendar changed").
 # sms_fail and forwarding_lost ride the urgent toggle (operational alerts the owner needs).
@@ -171,6 +198,9 @@ def format_message(kind, context):
         # Never "tap to send" for leads (the in-app one-tap owns that). GO/SKIP is for the
         # held growth texts only. Estimated money is labeled. Never claims a customer text
         # was sent. Caps at 320 chars (truncate the plays detail first, then the stall).
+        # Plan 05-3: opt-in "all clear" reassurance on a genuinely quiet day.
+        if context.get("all_clear"):
+            return "Good morning. Quiet day -- no leads waiting, nothing to approve. FirstBack is running."
         n_leads = context.get("n_leads", 0)
         money = (context.get("money") or "").strip()
         is_estimated = context.get("is_estimated", False)
@@ -352,6 +382,22 @@ def notify(business, kind, context):
             return []  # already alerted for this event recently
         db.add_alert(bid, kind, "inapp", "", "recorded", dedupe, body)
     attempted.append(("inapp", "recorded"))
+    # Owner quiet-hours gate (Plan 05-1). Urgent kinds always go through; everything else
+    # is held outside the owner's window. The in-app row above is ALWAYS written first, so
+    # the owner still sees it in the feed immediately -- only the SMS/email/webhook PUSH is
+    # deferred (the 8am daily digest summarizes overnight leads). This NEVER touches the
+    # customer TCPA backstop in messaging.send_sms -- that guards CUSTOMER texts; this guards
+    # the OWNER's own phone. q_start == q_end means "no quiet hours" (window is empty).
+    if kind not in _URGENT_BYPASS_KINDS:
+        local_h = datetime.now(_biz_tz_for_alerts(business)).hour
+        q_start = _int_pref(business, "alert_quiet_start", 22)
+        q_end = _int_pref(business, "alert_quiet_end", 7)
+        in_quiet = ((q_start > q_end and (local_h >= q_start or local_h < q_end))
+                    or (q_start < q_end and q_start <= local_h < q_end))
+        if in_quiet:
+            db.add_alert(bid, kind, "sms_held", (business.get("alert_sms") or "").strip(),
+                         "held_quiet", dedupe, body)
+            return attempted   # SMS/email/webhook deferred; in-app already recorded
     # SMS to the owner's cell. No lead_id: this goes to the OWNER, not onto the
     # customer's conversation thread.
     sms_to = (business.get("alert_sms") or "").strip()
@@ -369,7 +415,68 @@ def notify(business, kind, context):
         status = res.get("status", "?")
         db.add_alert(bid, kind, "email", email_to, status, dedupe, body)
         attempted.append(("email", status))
+    # Webhook channel (Plan 05-5): Slack/Teams/Zapier. Fire-and-forget, stdlib only.
+    # Held during quiet hours too (the early-return above skips it) -- no 11pm Slack pings.
+    webhook_url = (business.get("alert_webhook_url") or "").strip()
+    if webhook_url:
+        ok = _send_webhook(webhook_url, bid, kind, body, context)
+        attempted.append(("webhook", "sent" if ok else "failed"))
     return attempted
+
+
+def _webhook_url_allowed(url):
+    """SSRF guard for the owner-supplied webhook URL. We POST to it server-side, so it
+    must be https and resolve to a PUBLIC host -- never loopback/private/link-local/
+    reserved (which would let an owner probe our internal network). Best-effort: a DNS
+    that fails resolution is rejected. (Slack/Teams/Zapier webhooks are all public https.)"""
+    try:
+        import urllib.parse
+        import socket
+        import ipaddress
+        p = urllib.parse.urlparse(url)
+        if p.scheme != "https" or not p.hostname:
+            return False
+        for info in socket.getaddrinfo(p.hostname, p.port or 443, proto=socket.IPPROTO_TCP):
+            ip = ipaddress.ip_address(info[4][0])
+            if (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _send_webhook(url, business_id, kind, body, context):
+    """POST a JSON alert payload to the owner's webhook URL (Slack/Teams/Zapier).
+    Fire-and-forget: failures are logged but never crash the alert fan-out. Context is
+    sanitized to scalar-safe values before serializing. Stdlib only (no new dependency).
+    Returns True on a successful POST, False on any failure (so the caller records an
+    honest sent/failed status, never a fake 'sent')."""
+    if not _webhook_url_allowed(url):
+        print(f"[firstback] webhook blocked (not a public https URL): {url[:40]}",
+              file=sys.stderr, flush=True)
+        return False
+    try:
+        import urllib.request
+        import json as _json
+        payload = {
+            "business_id": business_id,
+            "kind": kind,
+            "body": body,
+            "context": {k: v for k, v in (context or {}).items()
+                        if isinstance(v, (str, int, float, bool, type(None)))},
+        }
+        data = _json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=data,
+                                     headers={"Content-Type": "application/json"},
+                                     method="POST")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            resp.read()
+        return True
+    except Exception as e:
+        print(f"[firstback] webhook alert failed ({url[:40]}): {e}",
+              file=sys.stderr, flush=True)
+        return False
 
 
 def notify_async(business, kind, context):

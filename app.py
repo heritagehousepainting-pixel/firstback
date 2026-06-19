@@ -338,6 +338,7 @@ def signup():
             "alert_on_booking": 1,
             "alert_on_urgent": 1,
             "alert_on_daily_digest": 1,
+            "alert_on_roi_milestone": 1,
         })
         # Phase 3 SF-8: set business_type from the "Do you have an EIN?" checkbox.
         # has_ein present (any truthy value) -> "llc"; absent -> "sole_prop".
@@ -1157,6 +1158,11 @@ def settings():
                   ["name", "trade", "service_area", "hours", "owner_name",
                    "phone", "ai_instructions"]}
         db.update_business(biz["id"], fields)
+        def _clamp_form_int(name, default, lo, hi):
+            try:
+                return max(lo, min(hi, int(request.form.get(name) or default)))
+            except (TypeError, ValueError):
+                return default
         db.update_alert_prefs(biz["id"], {
             "alert_email": request.form.get("alert_email", "").strip(),
             "alert_sms": request.form.get("alert_sms", "").strip(),
@@ -1165,6 +1171,12 @@ def settings():
             "alert_on_urgent": 1 if request.form.get("alert_on_urgent") else 0,
             "alert_on_daily_digest": 1 if request.form.get("alert_on_daily_digest") else 0,
             "alert_on_roi_milestone": 1 if request.form.get("alert_on_roi_milestone") else 0,
+            # Plan 05 (Batch D): set-and-forget prefs.
+            "alert_all_clear": 1 if request.form.get("alert_all_clear") else 0,
+            "alert_quiet_start": _clamp_form_int("alert_quiet_start", 22, 0, 23),
+            "alert_quiet_end": _clamp_form_int("alert_quiet_end", 7, 0, 23),
+            "max_stall_alerts_day": _clamp_form_int("max_stall_alerts_day", 2, 0, 10),
+            "alert_webhook_url": request.form.get("alert_webhook_url", "").strip(),
         })
         try:
             lead_hours = int(float(request.form.get("reminder_lead_hours") or 24))

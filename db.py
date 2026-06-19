@@ -848,6 +848,19 @@ def init_db():
     # digest without any opt-in; the 26h dedupe prevents double-sends.
     if "alert_on_daily_digest" not in biz_cols:
         c.execute("ALTER TABLE businesses ADD COLUMN alert_on_daily_digest INTEGER DEFAULT 1")
+    # Plan 05 (Batch D) — owner set-and-forget prefs. Quiet hours hold non-urgent owner
+    # pushes overnight; the stall cap bounds afternoon nudges; all-clear is an opt-in
+    # "quiet day" reassurance; the webhook pipes alerts to Slack/Teams/Zapier.
+    if "alert_quiet_start" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN alert_quiet_start INTEGER DEFAULT 22")  # 10pm local
+    if "alert_quiet_end" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN alert_quiet_end INTEGER DEFAULT 7")     # 7am local
+    if "max_stall_alerts_day" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN max_stall_alerts_day INTEGER DEFAULT 2")
+    if "alert_all_clear" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN alert_all_clear INTEGER DEFAULT 0")
+    if "alert_webhook_url" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN alert_webhook_url TEXT")
     # Phase 4 — Dispatcher-call rate-limit is PER LEAD (one urgency call per caller,
     # not one per business), so the timestamp lives on the lead row.
     lead_cols = [r[1] for r in c.execute("PRAGMA table_info(leads)").fetchall()]
@@ -2407,7 +2420,10 @@ def update_alert_prefs(business_id, fields):
     """Persist a business's owner-alert preferences (Settings 'Owner alerts' card).
     Only the alert columns are touched, so it never disturbs the profile fields."""
     cols = ["alert_email", "alert_sms", "alert_on_lead", "alert_on_booking",
-            "alert_on_urgent", "alert_on_daily_digest", "alert_on_roi_milestone"]
+            "alert_on_urgent", "alert_on_daily_digest", "alert_on_roi_milestone",
+            # Plan 05 (Batch D): quiet hours, stall cap, all-clear, webhook.
+            "alert_quiet_start", "alert_quiet_end", "max_stall_alerts_day",
+            "alert_all_clear", "alert_webhook_url"]
     present = [col for col in cols if col in fields]
     if not present:
         return

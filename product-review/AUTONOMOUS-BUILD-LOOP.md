@@ -24,9 +24,9 @@ surfaces: digest, screening report, customer book, review-delta, milestones, str
 ## Batch status
 - [x] A — Tier-0 (shipped, live `92aacde`)
 - [x] B — AI conversation + core loop (shipped, live `92aacde`)
-- [ ] C — Mobile + dashboard UX (plan 04) ← current
-- [ ] D — Alerts & set-and-forget (plan 05) — owns `alerts.py`
-- [ ] E — Make value VISIBLE (plans 06+08+07) — widest parallel fan-out
+- [x] C — Mobile + dashboard UX (plan 04) — shipped to staging `6d0b67c`; 66/66 green; UI+BE audit fixes applied
+- [x] D — Alerts & set-and-forget (plan 05) — 67/67 green; TCPA backstop confirmed untouched; SSRF guard + _int_pref(0) bug fixed in audit
+- [ ] E — Make value VISIBLE (plans 06+08+07) — widest parallel fan-out ← current
 - [ ] F — SEO/rename/ROI anchor, non-decision parts (plan 09)
 - [ ] G — voicemail→lead + web-chat widget, code-only (plan 10)
 - [ ] Audit pass 1 · [ ] Audit pass 2

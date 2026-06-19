@@ -277,7 +277,32 @@ async def ws(websocket: WebSocket):
     booked = False                      # M-5: did this call end in a booking?
     turn_count = 0                      # M-5: number of turns taken
     history = []                        # conversation history for /internal/voice/stream
-    clean_exit = False                  # set True when we close gracefully ourselves
+    cleanup_done = False                # guard so cleanup runs exactly once
+
+    async def _finalize(force_cutoff=False):
+        """Post the M-3 turn log + send the M-5 recovery SMS exactly once, on ANY
+        exit path. Centralized in a `finally` so the `error`-message `break` (5g P1)
+        no longer silently drops the transcript + recovery SMS. `force_cutoff` is the
+        M-2 graceful-close path which always sends the 'cut off' text."""
+        nonlocal cleanup_done
+        if cleanup_done:
+            return
+        cleanup_done = True
+        try:
+            await _post_turn_log(biz_id, lead_id, turn_log)
+        except Exception:
+            pass
+        if booked:
+            return  # booking confirmation already fired via handle_inbound
+        if force_cutoff or turn_count == 0:
+            body = ("Looks like we got cut off -- you can keep texting here "
+                    "or text 'call me' to try again.")
+        else:
+            body = "I enjoyed our chat -- any questions, just text here."
+        try:
+            await _send_recovery_sms(biz_id, lead_id, body)
+        except Exception:
+            pass
 
     try:
         while True:
@@ -301,19 +326,14 @@ async def ws(websocket: WebSocket):
                     consecutive_empty += 1
                     if consecutive_empty >= 5:
                         # Graceful close -- 5 consecutive empties
-                        clean_exit = True
                         try:
                             await websocket.send_text(
                                 _say("I'm having trouble hearing you. "
                                      "Feel free to text us any time.", last=True))
                         except Exception:
                             pass
-                        await _post_turn_log(biz_id, lead_id, turn_log)
-                        # Recovery SMS: send "cut off" style
-                        await _send_recovery_sms(
-                            biz_id, lead_id,
-                            "Looks like we got cut off -- you can keep texting here "
-                            "or text 'call me' to try again.")
+                        # Turn log + "cut off" recovery SMS, exactly once (guarded).
+                        await _finalize(force_cutoff=True)
                         await websocket.close()
                         return
                     elif consecutive_empty >= 3:
@@ -429,34 +449,14 @@ async def ws(websocket: WebSocket):
                 break
 
     except WebSocketDisconnect:
-        # M-3: post the turn log
-        await _post_turn_log(biz_id, lead_id, turn_log)
-
-        # M-5: post-call recovery SMS per outcome
-        if not clean_exit:
-            if booked:
-                # Standard booking confirmation already fired via handle_inbound path;
-                # no extra SMS needed.
-                pass
-            elif turn_count > 0:
-                # Had a conversation but did not book
-                await _send_recovery_sms(
-                    biz_id, lead_id,
-                    "I enjoyed our chat -- any questions, just text here.")
-            else:
-                # Mid-call drop before any real exchange
-                await _send_recovery_sms(
-                    biz_id, lead_id,
-                    "Looks like we got cut off -- you can keep texting here "
-                    "or text 'call me' to try again.")
-
+        pass
     except Exception as e:  # never let one call crash the worker
         print(f"[firstback] voice ws error: {e}", file=sys.stderr, flush=True)
-        # Best-effort: try to post the turn log on unexpected errors too
-        try:
-            await _post_turn_log(biz_id, lead_id, turn_log)
-        except Exception:
-            pass
+    finally:
+        # M-3 turn log + M-5 recovery SMS on EVERY exit path -- including the
+        # `error`-message `break` that previously fell through without cleanup (5g P1).
+        # Idempotent: the M-2 graceful-close path already ran _finalize.
+        await _finalize()
 
 
 if __name__ == "__main__":

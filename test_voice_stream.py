@@ -754,6 +754,78 @@ check("M-5: drop SMS body mentions 'cut off'",
 
 
 # ===========================================================================
+# 8. P1: a Twilio `error` relay message must NOT silently drop cleanup.
+# The error-message branch `break`s out of the loop; before the 5g fix that
+# exited without posting the turn log or sending the recovery SMS. The finally
+# block must now run _finalize on this path too.
+# ===========================================================================
+print("\n---- 8: error-message break still runs M-3 + M-5 cleanup ----")
+
+
+async def _run_ws_error_break_test():
+    posted = []
+    sms_sent = []
+
+    orig_post_tl = voice_service._post_turn_log
+    orig_send_sms = voice_service._send_recovery_sms
+    orig_stream = voice_service._stream_tokens
+    orig_web_url = voice_service.WEB_INTERNAL_URL
+
+    async def _fake_post_turn_log(biz_id, lead_id, turn_log):
+        posted.append(list(turn_log))
+
+    async def _fake_recovery_sms(biz_id, lead_id, body):
+        sms_sent.append(body)
+
+    async def _quick_stream(biz_id, lead_id, text, history):
+        yield ("__DONE__", "AI reply")
+
+    import requests
+    orig_requests_post = requests.post
+
+    class _FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"reply": "AI reply", "booked": False}
+
+    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
+        return _FakeResp()
+
+    try:
+        voice_service._post_turn_log = _fake_post_turn_log
+        voice_service._send_recovery_sms = _fake_recovery_sms
+        voice_service._stream_tokens = _quick_stream
+        voice_service.WEB_INTERNAL_URL = _FAKE_URL
+        requests.post = _fake_post
+
+        messages = [
+            json.dumps({"type": "setup", "customParameters": {"biz": "1", "lead": "1"}}),
+            json.dumps({"type": "prompt", "voicePrompt": "I need a quote"}),
+            json.dumps({"type": "error", "description": "relay session error"}),
+        ]
+        ws = _MockWebSocket(messages)
+        try:
+            await voice_service.ws(ws)
+        except Exception:
+            pass
+        return posted, sms_sent
+    finally:
+        voice_service._post_turn_log = orig_post_tl
+        voice_service._send_recovery_sms = orig_send_sms
+        voice_service._stream_tokens = orig_stream
+        voice_service.WEB_INTERNAL_URL = orig_web_url
+        requests.post = orig_requests_post
+
+
+_err_posted, _err_sms = asyncio.run(_run_ws_error_break_test())
+check("P1: error-message break still POSTs the turn log",
+      len(_err_posted) >= 1 and len(_err_posted[0]) == 1)
+check("P1: error-message break still sends a recovery SMS",
+      len(_err_sms) == 1)
+check("P1: error-path recovery SMS is the had-a-chat body (turn_count>0)",
+      _err_sms and "enjoyed" in _err_sms[0].lower())
+
+
+# ===========================================================================
 # Report
 # ===========================================================================
 import os as _os

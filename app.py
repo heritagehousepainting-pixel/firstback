@@ -2955,7 +2955,17 @@ def internal_voice_turn():
     lead = db.get_lead(lead_id, biz["id"]) if biz else None
     if not biz or not lead:
         return jsonify(error="Unknown business or lead."), 404
-    reply, booked, urgent = handle_inbound(biz, lead, (data.get("text") or "").strip())
+    text = (data.get("text") or "").strip()
+    # M-5 recovery-SMS relay (5g P1): the voice service has no Twilio creds, so it
+    # relays a post-call recovery text through here with a sentinel prefix. Detect it
+    # and send DIRECTLY via messaging -- never feed the sentinel into the booking brain
+    # (handle_inbound), which would record it as a customer utterance + burn an LLM call.
+    if text.startswith("__RECOVERY_SMS__:"):
+        body = text[len("__RECOVERY_SMS__:"):].strip()
+        if body and lead.get("phone"):
+            messaging.send_sms(biz, lead["phone"], body)
+        return jsonify(reply="", booked=False, urgent=False, recovery_sms=True)
+    reply, booked, urgent = handle_inbound(biz, lead, text)
     return jsonify(reply=reply, booked=booked, urgent=urgent)
 
 
@@ -3048,17 +3058,25 @@ def twilio_voice_status():
         duration = int(request.form.get("CallDuration") or 0)
     except (TypeError, ValueError):
         duration = 0
-    if answered_by in ("machine_start", "machine_end_silence", "machine_end_other"):
-        outcome = "voicemail"
-    elif status in ("no-answer", "busy"):
-        outcome = "no_answer"
-    elif status == "completed":
-        outcome = "completed"
-    else:
-        outcome = "error"
     blocks = _math.ceil(duration / 30) if duration > 0 else 0
     cost = blocks * config.VOICE_CREDIT_RATE_CENTS
-    db.update_voice_call_outcome(sid, outcome, duration, cost)
+    # AMD voicemail values include machine_end_beep (the most common reached-the-beep
+    # result) -- omitting it (5g P1) dropped voicemail calls into the "error"/no-recovery
+    # path. The AMD callback and the final completed callback share this URL, so on
+    # `completed` we must NOT clobber a voicemail/no_answer already classified by the AMD
+    # callback (5g P2): meter-only + bump in_progress->completed via update_voice_call_metering.
+    if answered_by in ("machine_start", "machine_end_silence",
+                       "machine_end_other", "machine_end_beep"):
+        outcome = "voicemail"
+        db.update_voice_call_outcome(sid, outcome, duration, cost)
+    elif status in ("no-answer", "busy", "failed", "canceled"):
+        outcome = "no_answer"
+        db.update_voice_call_outcome(sid, outcome, duration, cost)
+    else:
+        # completed, or an intermediate/human AMD callback: meter without clobbering a
+        # prior terminal classification. A clean finished call (still in_progress) -> completed.
+        outcome = "completed" if status == "completed" else ""
+        db.update_voice_call_metering(sid, duration, cost)
     # Voicemail: send recovery SMS to lead so no booking pitch goes into voicemail.
     if outcome == "voicemail" and sid:
         import sqlite3 as _sqlite3_vs

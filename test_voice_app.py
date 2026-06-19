@@ -486,6 +486,168 @@ messaging.send_sms = _orig_send_sms
 
 
 # ============================================================
+# R6 -- /internal/voice/turn __RECOVERY_SMS__ sentinel (5g P1, UN-MOCKED)
+# The voice service relays post-call recovery texts through /internal/voice/turn
+# with a sentinel prefix. The endpoint must send them DIRECTLY via messaging and
+# must NOT feed the sentinel into handle_inbound (booking brain). This test spies
+# at the app boundary (no _send_recovery_sms mock) so the bug can't be masked.
+# ============================================================
+print("\n---- R6: __RECOVERY_SMS__ sentinel routed to send_sms, not handle_inbound ----")
+
+_r6_caller = "+14155550800"
+_r6_lead_id = db.create_lead(1, "Recovery Lead", _r6_caller)
+
+_r6_sms = []
+_r6_hi_calls = []
+_orig_send_sms_r6 = messaging.send_sms
+_orig_hi_r6 = _app_ref.handle_inbound
+
+
+def _spy_send_sms_r6(biz, to, body, **kw):
+    _r6_sms.append({"to": to, "body": body})
+    return {"status": "simulated"}
+
+
+def _spy_hi_r6(biz, lead, text):
+    _r6_hi_calls.append(text)
+    return ("reply", False, False)
+
+
+messaging.send_sms = _spy_send_sms_r6
+_app_ref.handle_inbound = _spy_hi_r6
+
+_r6_body = "I enjoyed our chat -- any questions, just text here."
+r_recov = post_internal(
+    "/internal/voice/turn",
+    {"biz": 1, "lead": _r6_lead_id, "text": f"__RECOVERY_SMS__:{_r6_body}"},
+)
+check("R6 sentinel turn returns 200", r_recov.status_code == 200)
+_r6_json = r_recov.get_json()
+check("R6 response flags recovery_sms=True", bool(_r6_json.get("recovery_sms")))
+check("R6 handle_inbound NOT called on sentinel (no booking-brain corruption)",
+      len(_r6_hi_calls) == 0)
+check("R6 recovery SMS sent directly via messaging.send_sms",
+      len(_r6_sms) == 1)
+check("R6 SMS body is the stripped recovery text (sentinel removed)",
+      _r6_sms and _r6_sms[0]["body"] == _r6_body)
+check("R6 SMS addressed to the lead phone",
+      _r6_sms and _r6_caller[-10:] in _r6_sms[0]["to"])
+
+# Sanity: a NORMAL (non-sentinel) turn still reaches handle_inbound.
+_r6_sms.clear()
+_r6_hi_calls.clear()
+r_normal = post_internal(
+    "/internal/voice/turn",
+    {"biz": 1, "lead": _r6_lead_id, "text": "I need a quote for my fence"},
+)
+check("R6 normal turn returns 200", r_normal.status_code == 200)
+check("R6 normal turn DOES reach handle_inbound", len(_r6_hi_calls) == 1)
+check("R6 normal turn sends no recovery SMS", len(_r6_sms) == 0)
+
+messaging.send_sms = _orig_send_sms_r6
+_app_ref.handle_inbound = _orig_hi_r6
+
+
+# ============================================================
+# R7 -- AMD machine_end_beep is a voicemail value (5g P1)
+# machine_end_beep (reached-the-beep) previously fell through to the error/no-recovery
+# branch. It must classify as voicemail + fire a recovery SMS.
+# ============================================================
+print("\n---- R7: machine_end_beep -> voicemail + recovery SMS ----")
+
+_r7_caller = "+14155550810"
+_r7_lead_id = db.create_lead(1, "Beep Lead", _r7_caller)
+db.insert_voice_call(1, _r7_lead_id, "CA_beep_001")
+
+_r7_sms = []
+_orig_send_sms_r7 = messaging.send_sms
+
+
+def _spy_send_sms_r7(biz, to, body, **kw):
+    _r7_sms.append({"to": to, "body": body})
+    return {"status": "simulated"}
+
+
+messaging.send_sms = _spy_send_sms_r7
+
+r_beep = post_signed(
+    "/webhooks/twilio/voice/status",
+    {
+        "CallSid": "CA_beep_001",
+        "CallStatus": "in-progress",
+        "AnsweredBy": "machine_end_beep",
+        "CallDuration": "30",
+        "To": BIZ_NUM,
+        "From": _r7_caller,
+    },
+)
+check("R7 machine_end_beep returns 200", r_beep.status_code == 200)
+_conn_r7 = _sqlite3.connect(_TMP.name)
+_row_r7 = _conn_r7.execute(
+    "SELECT outcome FROM voice_calls WHERE twilio_sid=?", ("CA_beep_001",)
+).fetchone()
+_conn_r7.close()
+check("R7 machine_end_beep sets outcome=voicemail",
+      _row_r7 is not None and _row_r7[0] == "voicemail")
+check("R7 machine_end_beep fires a recovery SMS", len(_r7_sms) == 1)
+
+messaging.send_sms = _orig_send_sms_r7
+
+
+# ============================================================
+# R8 -- completed does NOT clobber a prior voicemail/no_answer (5g P2)
+# The AMD callback and the final completed callback share this URL. On `completed`
+# the webhook meters but must not overwrite a terminal outcome already set by AMD.
+# A clean finished call (still in_progress) becomes 'completed'.
+# ============================================================
+print("\n---- R8: completed callback does not clobber AMD outcome ----")
+
+_r8_caller = "+14155550820"
+_r8_lead = db.create_lead(1, "Clobber Lead", _r8_caller)
+db.insert_voice_call(1, _r8_lead, "CA_clobber_001")
+
+_orig_send_sms_r8 = messaging.send_sms
+messaging.send_sms = lambda *a, **k: {"status": "simulated"}
+
+# 1) AMD callback classifies voicemail.
+post_signed("/webhooks/twilio/voice/status", {
+    "CallSid": "CA_clobber_001", "CallStatus": "in-progress",
+    "AnsweredBy": "machine_end_beep", "CallDuration": "30",
+    "To": BIZ_NUM, "From": _r8_caller})
+# 2) Final completed callback (no AnsweredBy) -- must NOT clobber voicemail.
+post_signed("/webhooks/twilio/voice/status", {
+    "CallSid": "CA_clobber_001", "CallStatus": "completed",
+    "AnsweredBy": "", "CallDuration": "60",
+    "To": BIZ_NUM, "From": _r8_caller})
+
+_conn_r8 = _sqlite3.connect(_TMP.name)
+_row_r8 = _conn_r8.execute(
+    "SELECT outcome, duration_seconds, cost_cents FROM voice_calls "
+    "WHERE twilio_sid=?", ("CA_clobber_001",)).fetchone()
+_conn_r8.close()
+check("R8 completed does NOT clobber voicemail outcome",
+      _row_r8 is not None and _row_r8[0] == "voicemail")
+check("R8 metering still updated by completed (60s -> 50 cents)",
+      _row_r8 is not None and _row_r8[1] == 60 and _row_r8[2] == 50)
+
+# A clean finished call (no AMD) -> completed.
+_r8b_lead = db.create_lead(1, "Clean Lead", "+14155550821")
+db.insert_voice_call(1, _r8b_lead, "CA_clean_001")
+post_signed("/webhooks/twilio/voice/status", {
+    "CallSid": "CA_clean_001", "CallStatus": "completed",
+    "AnsweredBy": "", "CallDuration": "30",
+    "To": BIZ_NUM, "From": "+14155550821"})
+_conn_r8b = _sqlite3.connect(_TMP.name)
+_row_r8b = _conn_r8b.execute(
+    "SELECT outcome FROM voice_calls WHERE twilio_sid=?", ("CA_clean_001",)).fetchone()
+_conn_r8b.close()
+check("R8 clean completed call (no AMD) -> outcome=completed",
+      _row_r8b is not None and _row_r8b[0] == "completed")
+
+messaging.send_sms = _orig_send_sms_r8
+
+
+# ============================================================
 # Report
 # ============================================================
 print(f"\n==== {_pass} passed, {_fail} failed ====")

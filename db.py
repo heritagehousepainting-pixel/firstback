@@ -3653,6 +3653,23 @@ def update_voice_call_outcome(twilio_sid, outcome, duration, cost_cents):
     conn.close()
 
 
+def update_voice_call_metering(twilio_sid, duration, cost_cents):
+    """Close a voice_calls row for a `completed` (or intermediate) Twilio status
+    callback WITHOUT clobbering a terminal outcome already set by the AMD callback
+    (voicemail / no_answer). Updates metering always; bumps a still-open
+    'in_progress' row to 'completed' so a clean finished call has a terminal outcome.
+    Used by the status webhook to avoid the 5g 'completed clobbers voicemail' bug."""
+    ts = now_iso()
+    conn = get_conn()
+    conn.execute(
+        "UPDATE voice_calls SET duration_seconds=?, cost_cents=?, ended_at=?,"
+        " outcome=CASE WHEN outcome='in_progress' THEN 'completed' ELSE outcome END"
+        " WHERE twilio_sid=?",
+        (duration, cost_cents, ts, twilio_sid))
+    conn.commit()
+    conn.close()
+
+
 def last_voice_call_at(biz_id, caller_number):
     """Return the ISO started_at of the most recent voice call to `caller_number`
     for this business, or None if no call exists. None-safe: returns None if the

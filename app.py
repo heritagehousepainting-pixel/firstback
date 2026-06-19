@@ -1551,6 +1551,23 @@ def twilio_sentinel_twiml():
 
 
 # ---- Phase-4 C: Dispatcher Call TwiML routes ----
+def _dispatcher_lead_owned(lead_id):
+    """SF-10 P2 (Phase-4 carryover): defense-in-depth tenant ownership for dispatcher
+    TwiML. The routes are Twilio-signed, but the lead_id is in the URL with no tenant
+    scope. When the request's From/To positively resolves to a FirstBack business
+    (place_call dials From=the business number To=the owner cell), the lead MUST belong
+    to that business. An unresolvable number (shared/simulated) falls back to the Twilio
+    signature gate. Returns the lead dict when allowed, else None."""
+    lead = db.get_lead(lead_id)
+    if not lead:
+        return None
+    for num in (request.form.get("From"), request.form.get("To")):
+        biz = db.get_business_by_twilio_number((num or "").strip()) if num else None
+        if biz:
+            return lead if lead.get("business_id") == biz["id"] else None
+    return lead  # no resolvable business number -> rely on the Twilio signature
+
+
 @app.route("/twiml/dispatcher/<int:lead_id>", methods=["POST"])
 @require_twilio_signature
 def dispatcher_twiml(lead_id):
@@ -1558,6 +1575,8 @@ def dispatcher_twiml(lead_id):
     call. Reads the caller's exact last inbound message, then offers press-1 to
     connect. The words come from db.get_last_inbound_message — always synchronous,
     never relies on async-enriched summary which may not have landed yet."""
+    if _dispatcher_lead_owned(lead_id) is None:
+        return _twiml("<Response><Say>Goodbye.</Say><Hangup/></Response>")
     last_words = db.get_last_inbound_message(lead_id)
     safe_words = _xesc(last_words) if last_words else "an urgent message"
     connect_url = _public_base() + f"/twiml/dispatcher/connect/{lead_id}"
@@ -1582,7 +1601,7 @@ def dispatcher_connect_twiml(lead_id):
     digit = (request.form.get("Digits") or "").strip()
     if digit != "1":
         return _twiml("<Response><Say>Goodbye.</Say><Hangup/></Response>")
-    lead = db.get_lead(lead_id)
+    lead = _dispatcher_lead_owned(lead_id)  # SF-10 P2: tenant-ownership scoped
     if not lead or not lead.get("phone"):
         return _twiml("<Response><Say>Lead not found. Goodbye.</Say><Hangup/></Response>")
     caller_number = _xesc(lead["phone"])

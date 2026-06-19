@@ -319,5 +319,24 @@ _ai_mod.generate_reply = _orig_gen_reply
 messaging.place_call = _orig_place_call
 
 
+# 12. SF-10 P2: cross-tenant ownership guard on dispatcher TwiML.
+# A request resolving to business 1's number must NOT serve another business's lead.
+_b2 = db.create_business({"name": "Other Co", "trade": "plumbing"})
+db.set_business_twilio(_b2, "+15558880000", "PN2", forward_to="+15558881111")
+_lead_b2 = db.create_lead(_b2, "Other Lead", "+15559990001")
+with _app.app.test_request_context(f"/twiml/dispatcher/{_lead_b2}", method="POST",
+                                   data={"From": CELL, "To": BIZ_NUM}):
+    check("cross-tenant: biz1 number cannot serve biz2's lead",
+          _app._dispatcher_lead_owned(_lead_b2) is None)
+with _app.app.test_request_context(f"/twiml/dispatcher/{_lead_b2}", method="POST",
+                                   data={"From": "+15558881111", "To": "+15558880000"}):
+    check("same-tenant: biz2 number serves biz2's lead",
+          _app._dispatcher_lead_owned(_lead_b2) is not None)
+with _app.app.test_request_context(f"/twiml/dispatcher/{lead_id}", method="POST",
+                                   data={"From": CELL, "To": BIZ_NUM}):
+    check("same-tenant: biz1 number serves biz1's lead (no regression)",
+          _app._dispatcher_lead_owned(lead_id) is not None)
+
+
 print(f"==== {_pass} passed, {_fail} failed ====")
 sys.exit(1 if _fail else 0)

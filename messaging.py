@@ -206,17 +206,29 @@ def outbound_mode(business, to):
     return "live"
 
 
-def place_call(business, to, twiml_url, status_callback=None):
+def place_call(business, to, twiml_url, status_callback=None, add_amd=False):
     """Place an outbound voice call that hands off to TwiML at `twiml_url` (our
     ConversationRelay endpoint, served by voice_service.py). Real Twilio when
     configured AND a from-number exists; else a SIMULATED no-op. Never raises.
-    Returns {"status": "placed"|"simulated"|"error", ...}."""
+    Returns {"status": "placed"|"simulated"|"error", ...}.
+
+    add_amd=True: injects MachineDetection + AsyncAmd params (voicemail detection)
+      and auto-fills StatusCallback from PUBLIC_BASE_URL when not explicitly passed.
+      Gate to AI-voice calls only -- dispatcher and sentinel calls do NOT want AMD.
+    """
     sender = _from_number(business)
     if not configured() or not sender or not twiml_url:
         return {"status": "simulated"}
     data = {"To": to, "From": sender, "Url": twiml_url}
+    if add_amd and not status_callback and PUBLIC_BASE_URL:
+        status_callback = PUBLIC_BASE_URL.rstrip("/") + "/webhooks/twilio/voice/status"
     if status_callback:
         data["StatusCallback"] = status_callback
+    if add_amd:
+        data["MachineDetection"] = "Enable"
+        data["AsyncAmd"] = "true"
+        if status_callback:
+            data["AsyncAmdStatusCallback"] = status_callback
     import requests
     try:
         r = requests.post(

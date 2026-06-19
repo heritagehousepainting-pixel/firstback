@@ -2084,6 +2084,10 @@ def api_cancel_appointment(appt_id):
     until Twilio, recorded on the thread). F04: also cancels the Google Calendar event
     asynchronously when one was created. Scoped to the owner's business."""
     biz = current_business()
+    # Pre-deploy A1: this both mutates state AND sends the customer a cancellation SMS --
+    # a forged cross-site POST must not be able to cancel an estimate + text a customer.
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     appt = db.cancel_appointment(biz["id"], appt_id)
     if not appt:
         return jsonify(error="Appointment not found."), 404
@@ -2907,6 +2911,10 @@ def stripe_webhook():
 @login_required
 def billing_checkout():
     """Create a Stripe Checkout session and redirect the owner to it."""
+    # Pre-deploy A2: guard the money POST. NOTE: when the subscribe/upgrade button is wired
+    # into the UI, its form MUST include {{ csrf_token }} as `_csrf` (no UI caller today).
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     u   = current_user()
     biz = db.get_business(u["business_id"])
     plan = request.form.get("plan", "starter").lower().strip()
@@ -2926,6 +2934,9 @@ def billing_checkout():
 @login_required
 def billing_portal():
     """Redirect the authenticated owner to the Stripe Billing Portal."""
+    # Pre-deploy A2: guard the money POST (wire {{ csrf_token }} into its button when built).
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     u   = current_user()
     biz = db.get_business(u["business_id"])
     try:

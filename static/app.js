@@ -320,7 +320,7 @@ function addMeta(container, text) {
       btn.disabled = true;
       btn.textContent = "Cancelling…";
       try {
-        await apiFetch("/api/appointments/" + btn.dataset.id + "/cancel", { method: "POST" });
+        await apiFetch("/api/appointments/" + btn.dataset.id + "/cancel", csrfPost());
         window.location.reload(); // refresh stats, the estimates table, and the calendar
       } catch (err) {
         btn.disabled = false;

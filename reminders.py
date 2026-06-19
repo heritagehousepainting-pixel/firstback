@@ -336,10 +336,14 @@ def run_due_once(now=None):
                     db.mark_scheduled(row["id"], "canceled")
                     continue
             try:
-                # S2: followup/followup_2 are marketing sends -- must pass transactional=False
-                # to opt into the quiet-hours backstop in messaging.py. Reminders and
-                # morning_reminders are solicited/scheduled responses and stay transactional.
-                _transactional = kind not in ("followup", "followup_2")
+                # Pre-deploy C1 (TCPA): ONLY solicited/scheduled responses (the booking
+                # reminder + the morning-of reminder) are quiet-hours-exempt. EVERYTHING else
+                # routed through here -- followup/followup_2 AND every growth marketing kind
+                # (review_request, quote_followup, reactivation, winback, referral, membership),
+                # plus any sms_retry -- must pass transactional=False to opt into the
+                # quiet-hours backstop. (A growth play released by the owner at 11pm would
+                # otherwise fire a marketing text at 11pm, since release doesn't reset send_at.)
+                _transactional = kind in ("reminder", "morning_reminder")
                 res = messaging.send_sms(biz, phone, row["body"], lead_id=row["lead_id"],
                                          transactional=_transactional)
             except Exception as send_err:

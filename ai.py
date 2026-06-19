@@ -133,8 +133,11 @@ def _minimax_reply(business, history, slots):
 
 def _claude_reply(business, history, slots, lead_id=None):
     """Call Claude for an SMS reply and log token usage to the ledger."""
+    # Pre-deploy I1: bound the call (timeout=30). This runs ON the inbound-SMS webhook
+    # worker -- a hung Anthropic call would otherwise wedge it for the SDK's 600s default
+    # and make Twilio retry the webhook. The caller falls back on any failure.
     text, usage = _complete("claude", _system_prompt(business, slots), _to_turns(history),
-                            max_tokens=300, return_usage=True)
+                            max_tokens=300, return_usage=True, timeout=30)
     try:
         db.log_llm_usage(business["id"], "sms", usage.get("model", CLAUDE_MODEL),
                          usage.get("input_tokens", 0), usage.get("output_tokens", 0),

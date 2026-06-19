@@ -279,17 +279,26 @@ def _on_invoice_paid(invoice_obj):
     period_s = invoice_obj.get("period_start") or invoice_obj.get("lines", {}).get("data", [{}])[0].get("period", {}).get("start")
     period_e = invoice_obj.get("period_end")   or invoice_obj.get("lines", {}).get("data", [{}])[0].get("period", {}).get("end")
 
-    plan = "starter"
+    # Pre-deploy M2: the invoice's billed price is authoritative; a confirmed price match
+    # WINS over (possibly stale) checkout metadata. Metadata only covers an unconfigured price.
+    plan = None
+    invoice_price = ""
     lines = (invoice_obj.get("lines") or {}).get("data", [])
     for line in lines:
         price = (line.get("price") or {}).get("id", "")
         if price:
-            plan = _price_to_plan(price)
-            break
-    # Also check subscription metadata (set at checkout).
-    sub_meta_plan = (invoice_obj.get("subscription_details") or {}).get("metadata", {}).get("plan")
-    if sub_meta_plan and sub_meta_plan in PLAN_GRANTS:
-        plan = sub_meta_plan
+            invoice_price = invoice_price or price
+            plan = _confirmed_plan_for_price(price)
+            if plan:
+                break
+    if plan is None:
+        sub_meta_plan = (invoice_obj.get("subscription_details") or {}).get("metadata", {}).get("plan")
+        if sub_meta_plan and sub_meta_plan in PLAN_GRANTS:
+            plan = sub_meta_plan
+        elif invoice_price:
+            plan = _price_to_plan(invoice_price)   # fires the 6a unrecognized-price warning
+        else:
+            plan = "starter"
 
     granted = PLAN_GRANTS.get(plan, PLAN_GRANTS["starter"])
     db.add_usage_grant(business_id,
@@ -310,14 +319,34 @@ def _on_invoice_failed(invoice_obj):
     db.update_billing(business_id, subscription_status="past_due")
 
 
+def _confirmed_plan_for_price(price_id: str):
+    """The plan for a price_id ONLY if it matches a configured PRICE_ID, else None.
+    Unlike _price_to_plan (which silently defaults to 'starter' on a miss), this returns
+    None on a miss so callers can PREFER a confirmed price match over possibly-stale
+    checkout metadata (pre-deploy M2)."""
+    for (plan, _interval), pid in PRICE_IDS.items():
+        if pid and pid == price_id:
+            return plan
+    return None
+
+
 def _plan_from_subscription(sub_obj) -> str:
-    """Extract internal plan name from a subscription object's items."""
-    meta_plan = (sub_obj.get("metadata") or {}).get("plan")
-    if meta_plan and meta_plan in PLAN_GRANTS:
-        return meta_plan
+    """Resolve the internal plan from a subscription. Pre-deploy M2: the ACTUAL billed
+    price is authoritative -- a Stripe Billing-Portal upgrade changes the subscription's
+    price item but NOT our checkout metadata, so a confirmed price match must WIN over
+    (possibly stale) metadata. Metadata is only the fallback for an unconfigured price."""
     items = sub_obj.get("items", {}).get("data", [])
+    first_price = ""
     for item in items:
         price_id = (item.get("price") or {}).get("id", "")
         if price_id:
-            return _price_to_plan(price_id)
+            first_price = first_price or price_id
+            p = _confirmed_plan_for_price(price_id)
+            if p:
+                return p
+    meta_plan = (sub_obj.get("metadata") or {}).get("plan")
+    if meta_plan and meta_plan in PLAN_GRANTS:
+        return meta_plan
+    if first_price:
+        return _price_to_plan(first_price)   # fires the 6a unrecognized-price warning + email
     return "starter"

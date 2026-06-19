@@ -908,7 +908,11 @@ def stripe_event_seen(event_id: str) -> bool:
     """True if this Stripe event id has already been processed."""
     conn = get_conn()
     row = conn.execute(
-        "SELECT 1 FROM stripe_events WHERE event_id=?", (event_id,)
+        # Pre-deploy M1: only a SUCCESSFULLY-processed event counts as "seen". A row left
+        # with status='error' by a transient failure (e.g. SQLITE_BUSY mid-grant) must NOT
+        # block Stripe's retry -- otherwise the paying customer's grant is lost forever.
+        # mark_stripe_event is INSERT OR REPLACE, so a later success upgrades the row to 'ok'.
+        "SELECT 1 FROM stripe_events WHERE event_id=? AND status='ok'", (event_id,)
     ).fetchone()
     conn.close()
     return bool(row)
@@ -2508,10 +2512,13 @@ def find_appointment(business_id, lead_id, day, slot_time):
 
 
 def cancel_lead_pending_reminders(lead_id):
-    """Cancel a lead's pending reminders (a reschedule replaces, not duplicates)."""
+    """Cancel a lead's pending reminders (a reschedule replaces, not duplicates).
+    Pre-deploy L1: covers BOTH the booking reminder and the morning-of reminder so a
+    reschedule doesn't strand an orphan that blocks the new appointment's morning reminder."""
     conn = get_conn()
     conn.execute("UPDATE scheduled_messages SET status='canceled' "
-                 "WHERE lead_id=? AND kind='reminder' AND status='pending'", (lead_id,))
+                 "WHERE lead_id=? AND kind IN ('reminder','morning_reminder') "
+                 "AND status='pending'", (lead_id,))
     conn.commit()
     conn.close()
 
@@ -2531,11 +2538,11 @@ def cancel_pending_followup_touches(lead_id):
 
 
 def cancel_appointment_reminders(appointment_id):
-    """Cancel pending reminders for an appointment (call when it's canceled)."""
+    """Cancel pending reminders for an appointment (booking + morning-of). Pre-deploy L1."""
     conn = get_conn()
     conn.execute("UPDATE scheduled_messages SET status='canceled' "
-                 "WHERE appointment_id=? AND kind='reminder' AND status='pending'",
-                 (appointment_id,))
+                 "WHERE appointment_id=? AND kind IN ('reminder','morning_reminder') "
+                 "AND status='pending'", (appointment_id,))
     conn.commit()
     conn.close()
 
@@ -2916,9 +2923,12 @@ def cancel_appointment(business_id, appointment_id):
     # Phase 6c W7: cancel the appointment's pending reminders on the SAME connection +
     # transaction so a crash between the two writes can't leave the appointment canceled
     # but its reminders orphaned-pending (cosmetic 'skipped' rows). One atomic commit.
+    # Pre-deploy L1: include 'morning_reminder' -- leaving it pending makes
+    # enqueue_morning_reminder skip the rebooked appointment (the customer then gets no
+    # morning-of reminder).
     conn.execute("UPDATE scheduled_messages SET status='canceled' "
-                 "WHERE appointment_id=? AND kind='reminder' AND status='pending'",
-                 (appointment_id,))
+                 "WHERE appointment_id=? AND kind IN ('reminder','morning_reminder') "
+                 "AND status='pending'", (appointment_id,))
     lead_id = row["lead_id"]
     still_booked = conn.execute(
         "SELECT 1 FROM appointments WHERE business_id=? AND lead_id=? AND status='booked' "
@@ -3532,11 +3542,16 @@ def consume_password_reset_token(token):
     if not row or row["used"] or row["expires_at"] < now:
         conn.close()
         return None
-    conn.execute("UPDATE password_reset_tokens SET used=1 WHERE id=?", (row["id"],))
+    # Pre-deploy D1: claim the token ATOMICALLY (single-execute UPDATE…WHERE used=0) and
+    # only succeed for the redemption that flips it -- so two concurrent submissions of the
+    # same token can't both reset the password. Mirrors claim_confirm_token.
+    cur = conn.execute(
+        "UPDATE password_reset_tokens SET used=1 WHERE id=? AND used=0", (row["id"],))
     conn.commit()
+    won = cur.rowcount == 1
     uid = row["user_id"]
     conn.close()
-    return uid
+    return uid if won else None
 
 
 # ---- Phase 1 C: SMS opt-in (re-subscribe after STOP) ----

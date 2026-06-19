@@ -173,7 +173,8 @@ def send_sms(business, to, body, lead_id=None, status_callback=None, gate=True,
         r.raise_for_status()
         sid = r.json().get("sid")
     except Exception as e:
-        print(f"[firstback] twilio send failed (biz {biz_id} -> {to}): {e}",
+        # Pre-deploy P1: never log the consumer's full number -- last 4 only (not PII).
+        print(f"[firstback] twilio send failed (biz {biz_id} -> ***{(to or '')[-4:]}): {e}",
               file=sys.stderr, flush=True)
         return {"status": "error", "error": str(e)}
     # Mirror the sent text onto the thread (with its provider id for delivery
@@ -238,7 +239,8 @@ def place_call(business, to, twiml_url, status_callback=None, add_amd=False):
         return {"status": "placed", "sid": r.json().get("sid")}
     except Exception as e:
         bid = business.get("id") if isinstance(business, dict) else None
-        print(f"[firstback] twilio place_call failed (biz {bid} -> {to}): {e}",
+        # Pre-deploy P1: redact the consumer number in logs (last 4 only).
+        print(f"[firstback] twilio place_call failed (biz {bid} -> ***{(to or '')[-4:]}): {e}",
               file=sys.stderr, flush=True)
         return {"status": "error", "error": str(e)}
 

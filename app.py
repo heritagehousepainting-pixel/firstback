@@ -2661,16 +2661,19 @@ def twilio_sms_inbound():
             return _twiml("<Response><Message>Your estimate has been canceled. Reply "
                           "here any time to rebook, or STOP to unsubscribe.</Message></Response>")
         db.set_opt_out(biz["id"], caller, source="sms-cancel")
+        db.set_voice_consent(biz["id"], caller, False)   # R1: revoke AI-voice consent on cancel->opt-out
         return _twiml("<Response><Message>You are unsubscribed and will not receive "
                       "more messages. Reply HELP for help.</Message></Response>")
     if norm in _STOP_WORDS:
         db.set_opt_out(biz["id"], caller, source="sms-stop")
+        db.set_voice_consent(biz["id"], caller, False)   # R1: revoke AI-voice consent on STOP
         return _twiml("<Response><Message>You are unsubscribed and will not receive "
                       "more messages. Reply HELP for help.</Message></Response>")
     if compliance.detect_revocation(body):
         # Plain-language opt-out, not the exact keyword (2025 FCC any-reasonable-
         # means rule) -> honor it across SMS and voice.
         db.set_opt_out(biz["id"], caller, source="sms-nlu")
+        db.set_voice_consent(biz["id"], caller, False)   # R1: revoke AI-voice consent on NLU revocation
         return _twiml("<Response><Message>Understood, we will stop messaging you. "
                       "Reply HELP for help.</Message></Response>")
     if norm in _HELP_WORDS:
@@ -2711,16 +2714,62 @@ def twilio_sms_inbound():
     # through and just answer by text.
     if norm in _CALL_WORDS and VOICE_PUBLIC_URL:
         db.set_voice_consent(biz["id"], caller, True)
+        # R2 pre-call guard (ordered -- any fail -> text reply, never call).
+        # (i) Re-read consent after writing: concurrent STOP could have cleared voice_ok.
+        _consent_row = db.get_consent(biz["id"], caller)
+        if not _consent_row or not _consent_row.get("voice_ok"):
+            messaging.send_sms(biz, caller, "Got it! We will follow up by text.")
+            return _twiml("<Response/>")
+        # (ii) Quiet hours: after-hours gate (existing).
         if not compliance.voice_allowed_now():
             return _twiml("<Response><Message>Thanks. It is currently after hours, so "
                           "we will call you during business hours. You can also keep "
                           "texting here any time.</Message></Response>")
+        # (iii) Spam score gate: do not call spammers.
+        _spam_signals = _caller_behavior(biz["id"], caller)
+        _spam_score, _ = triage.spam_score(_spam_signals)
+        if _spam_score >= SCREEN_SCORE_HARD:
+            messaging.send_sms(biz, caller, "Got it! We will follow up by text.")
+            return _twiml("<Response/>")
+        # (iv) 60-minute de-dupe: avoid calling the same number twice in an hour.
+        _last_call_ts = db.last_voice_call_at(biz["id"], caller)
+        if _last_call_ts is not None:
+            try:
+                from datetime import timezone as _tz_vc, timedelta as _td_vc
+                _last_dt = datetime.fromisoformat(_last_call_ts)
+                if _last_dt.tzinfo is None:
+                    _last_dt = _last_dt.replace(tzinfo=_tz_vc.utc)
+                _age_min = (datetime.now(_tz_vc.utc) - _last_dt).total_seconds() / 60
+                if _age_min < 60:
+                    messaging.send_sms(biz, caller, "We already tried calling you -- "
+                                       "we will try again shortly.")
+                    return _twiml("<Response/>")
+            except (TypeError, ValueError):
+                pass  # malformed timestamp -> allow the call
+        # (v) Monthly cost cap: alert Dave and skip if cap exceeded.
+        _voice_spend = db.voice_spend_this_month(biz["id"])
+        if _voice_spend >= config.VOICE_MONTHLY_CAP_CENTS:
+            messaging.send_sms(biz, caller, "Got it! We will follow up by text.")
+            alerts.notify_async(biz, "voice_cap", {
+                "spend_cents": _voice_spend,
+                "cap_cents": config.VOICE_MONTHLY_CAP_CENTS,
+            })
+            return _twiml("<Response/>")
         twiml_url = (VOICE_PUBLIC_URL.rstrip("/")
                      + f"/twiml?biz={biz['id']}&lead={lead['id']}&name={quote(biz.get('name') or '')}")
-        res = messaging.place_call(biz, caller, twiml_url)
+        # Pass add_amd=True to enable AMD/voicemail detection (Slice 3).
+        # Use inspect to stay compatible with older test stubs that pre-date add_amd.
+        import inspect as _inspect_vc
+        _pc_params = _inspect_vc.signature(messaging.place_call).parameters
+        if "add_amd" in _pc_params:
+            res = messaging.place_call(biz, caller, twiml_url, add_amd=True)
+        else:
+            res = messaging.place_call(biz, caller, twiml_url)
         # Honesty: only claim "calling you now" when a real call was actually placed.
         # Simulated/error must not promise a call that isn't happening.
         if res.get("status") == "placed":
+            _twilio_sid = res.get("sid", "")
+            db.insert_voice_call(biz["id"], lead["id"], _twilio_sid)
             return _twiml("<Response><Message>Calling you now.</Message></Response>")
     # Tier 3 content screen (gated; off by default): on the caller's FIRST reply,
     # classify whether this is a real homeowner or noise (a sales pitch / survey /
@@ -2908,6 +2957,126 @@ def internal_voice_turn():
         return jsonify(error="Unknown business or lead."), 404
     reply, booked, urgent = handle_inbound(biz, lead, (data.get("text") or "").strip())
     return jsonify(reply=reply, booked=booked, urgent=urgent)
+
+
+# R3: SSE streaming endpoint for the voice service.
+# UX-ONLY: streams Haiku tokens so the voice service gets fast first-word latency.
+# Does NOT run the booking write (P0-2 from PHASE5G-SPEC.md): that happens ONCE
+# at stream END when voice_service.py POSTs the full reply to /internal/voice/turn.
+# Always uses CLAUDE_MODEL_VOICE (Haiku) -- never Sonnet (latency + cost).
+@app.route("/internal/voice/stream", methods=["POST"])
+def internal_voice_stream():
+    sent = request.headers.get("X-Internal-Secret", "")
+    if not INTERNAL_SECRET or not secrets.compare_digest(sent, INTERNAL_SECRET):
+        return jsonify(error="Forbidden."), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        biz_id, lead_id = int(data.get("biz")), int(data.get("lead"))
+    except (TypeError, ValueError):
+        return jsonify(error="biz and lead must be integers."), 400
+    biz = db.get_business(biz_id)
+    lead = db.get_lead(lead_id, biz["id"]) if biz else None
+    if not biz or not lead:
+        return jsonify(error="Unknown business or lead."), 404
+    import llm as _llm
+    history = data.get("history") or []
+    user_text = (data.get("text") or "").strip()
+    messages = list(history) + ([{"role": "user", "content": user_text}]
+                                  if user_text else [])
+    system = _llm.VOICE_CONFIRM_BOOKING_PROMPT
+
+    def _gen():
+        full_text = []
+        for tok in _llm.complete_stream_voice(system, messages):
+            full_text.append(tok)
+            yield "data: " + json.dumps({"delta": tok}) + "\n\n"
+        yield "data: " + json.dumps({"done": True, "full": "".join(full_text)}) + "\n\n"
+
+    return Response(stream_with_context(_gen()), mimetype="text/event-stream")
+
+
+# R4: Transcript log endpoint.
+# The voice service POSTs the accumulated turn_log on disconnect so we store
+# the full call transcript as direction='system' messages on the lead thread.
+# PII rule: NO raw phone numbers may appear in the body (spec PI-4).
+@app.route("/internal/voice/turn_log", methods=["POST"])
+def internal_voice_turn_log():
+    sent = request.headers.get("X-Internal-Secret", "")
+    if not INTERNAL_SECRET or not secrets.compare_digest(sent, INTERNAL_SECRET):
+        return jsonify(error="Forbidden."), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        biz_id, lead_id = int(data.get("biz")), int(data.get("lead"))
+    except (TypeError, ValueError):
+        return jsonify(error="biz and lead must be integers."), 400
+    biz = db.get_business(biz_id)
+    lead = db.get_lead(lead_id, biz["id"]) if biz else None
+    if not biz or not lead:
+        return jsonify(error="Unknown business or lead."), 404
+    turns = data.get("turns") or []
+    import re as _re_log
+    _phone_re = _re_log.compile(r"\+?1?\d[\d\s\-().]{8,}\d")
+    written = 0
+    for turn in turns:
+        caller_text = (turn.get("in") or "").strip()
+        ai_text = (turn.get("out") or "").strip()
+        if caller_text:
+            safe_in = _phone_re.sub("[number]", caller_text)
+            db.add_message(lead["id"], "system", f"[VOICE] caller: {safe_in}")
+            written += 1
+        if ai_text:
+            safe_out = _phone_re.sub("[number]", ai_text)
+            db.add_message(lead["id"], "system", f"[VOICE] ai: {safe_out}")
+            written += 1
+    return jsonify(ok=True, written=written)
+
+
+# R5: Twilio voice call status callback.
+# AMD / voicemail detection + cost metering. Twilio posts AnsweredBy on async AMD.
+# machine_* -> voicemail: update outcome, send recovery SMS, no spoken pitch.
+# no-answer / busy -> no_answer. completed -> keep existing outcome (set by /ws).
+# Cost: real Twilio CallDuration (seconds), ceil to 30-second blocks.
+@app.route("/webhooks/twilio/voice/status", methods=["POST"])
+@require_twilio_signature
+def twilio_voice_status():
+    import math as _math
+    sid = request.form.get("CallSid", "")
+    status = request.form.get("CallStatus", "")
+    answered_by = request.form.get("AnsweredBy", "")
+    duration = 0
+    try:
+        duration = int(request.form.get("CallDuration") or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    if answered_by in ("machine_start", "machine_end_silence", "machine_end_other"):
+        outcome = "voicemail"
+    elif status in ("no-answer", "busy"):
+        outcome = "no_answer"
+    elif status == "completed":
+        outcome = "completed"
+    else:
+        outcome = "error"
+    blocks = _math.ceil(duration / 30) if duration > 0 else 0
+    cost = blocks * config.VOICE_CREDIT_RATE_CENTS
+    db.update_voice_call_outcome(sid, outcome, duration, cost)
+    # Voicemail: send recovery SMS to lead so no booking pitch goes into voicemail.
+    if outcome == "voicemail" and sid:
+        import sqlite3 as _sqlite3_vs
+        _conn_vs = db.get_conn()
+        _row_vs = _conn_vs.execute(
+            "SELECT lead_id, biz_id FROM voice_calls WHERE twilio_sid=?", (sid,)
+        ).fetchone()
+        _conn_vs.close()
+        if _row_vs:
+            _biz_vs = db.get_business(_row_vs["biz_id"])
+            _lead_vs = db.get_lead(_row_vs["lead_id"])
+            if _biz_vs and _lead_vs and _lead_vs.get("phone"):
+                messaging.send_sms(
+                    _biz_vs, _lead_vs["phone"],
+                    "We tried to reach you by phone -- happy to keep chatting "
+                    "here. What are you looking to get painted?"
+                )
+    return jsonify(ok=True)
 
 
 # ---- Reliability: error handlers (Phase 2) ----

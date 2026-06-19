@@ -724,6 +724,14 @@ def init_db():
         c.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uniq_followup_per_lead "
             "ON scheduled_messages(lead_id) WHERE kind='followup'")
+    # Phase 5e: one Touch-2 per lead, race-safe (mirrors uniq_followup_per_lead).
+    if "uniq_followup_2" not in sched_idx:
+        c.execute(
+            "DELETE FROM scheduled_messages WHERE kind='followup_2' AND id NOT IN "
+            "(SELECT MIN(id) FROM scheduled_messages WHERE kind='followup_2' GROUP BY lead_id)")
+        c.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uniq_followup_2 "
+            "ON scheduled_messages(lead_id) WHERE kind='followup_2'")
     # One ACTIVE growth touch per (lead, kind) -- the same race-safe dedupe for the
     # Phase 3 growth engine. Partial on status!='canceled' so a touch can be re-queued
     # after it's canceled (e.g. a reschedule), but never double-queued while in flight.
@@ -2477,6 +2485,20 @@ def cancel_lead_pending_reminders(lead_id):
     conn.close()
 
 
+def cancel_pending_followup_touches(lead_id):
+    """Phase 5e S4: Cancel a lead's pending follow-up touches (both Touch-1 and Touch-2)
+    when the lead re-engages (inbound SMS) or books an appointment. Belt-and-suspenders
+    with the live-status check in run_due_once -- between the two, a booked lead can
+    NEVER receive a follow-up."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE scheduled_messages SET status='canceled' "
+        "WHERE lead_id=? AND kind IN ('followup','followup_2') AND status='pending'",
+        (lead_id,))
+    conn.commit()
+    conn.close()
+
+
 def cancel_appointment_reminders(appointment_id):
     """Cancel pending reminders for an appointment (call when it's canceled)."""
     conn = get_conn()
@@ -2747,17 +2769,37 @@ def consent_basis_for_lead(business_id, lead_id):
 
 
 def followup_candidate_rows(business_id):
-    """Warm leads (replied, not booked) with their last-message time and whether a
-    follow-up was ever queued. The 'is it cold yet' time decision is left to the
-    caller (pure + testable)."""
+    """Warm leads (replied, not booked) with their last-message time, whether a
+    follow-up was ever queued (has_followup), whether a followup_2 was ever queued
+    (has_followup_2), the last inbound message body (last_in_text for contextual
+    copy), and spam exclusion (contacts.category blocked/personal/vendor OR
+    calls.screen_status screened_spam). The 'is it cold yet' time decision is left
+    to the caller (pure + testable)."""
     conn = get_conn()
     rows = conn.execute(
         "SELECT l.id, l.name, l.phone, MAX(m.created_at) AS last_msg_at, "
         "EXISTS(SELECT 1 FROM scheduled_messages s WHERE s.lead_id=l.id "
-        "       AND s.kind='followup') AS has_followup "
+        "       AND s.kind='followup') AS has_followup, "
+        "EXISTS(SELECT 1 FROM scheduled_messages s2 WHERE s2.lead_id=l.id "
+        "       AND s2.kind='followup_2') AS has_followup_2, "
+        "(SELECT mi.body FROM messages mi "
+        " WHERE mi.lead_id=l.id AND mi.direction='in' "
+        " ORDER BY mi.created_at DESC LIMIT 1) AS last_in_text "
         "FROM leads l JOIN messages m ON m.lead_id = l.id "
         "WHERE l.business_id=? AND l.status != 'booked' "
         "AND EXISTS(SELECT 1 FROM messages mi WHERE mi.lead_id=l.id AND mi.direction='in') "
+        # Spam exclusion: skip leads whose phone is flagged as blocked/personal/vendor
+        "AND NOT EXISTS( "
+        "  SELECT 1 FROM contacts c "
+        "  WHERE c.business_id=l.business_id "
+        "    AND c.number = SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE( "
+        "          REPLACE(l.phone,'+',''),'-',''),'(',''),')',''),' ',''), -10) "
+        "    AND c.category IN ('blocked','personal','vendor')) "
+        # Spam exclusion: skip leads with a screened_spam call record
+        "AND NOT EXISTS( "
+        "  SELECT 1 FROM calls ca "
+        "  WHERE ca.business_id=l.business_id AND ca.lead_id=l.id "
+        "    AND ca.screen_status='screened_spam') "
         "GROUP BY l.id", (business_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]

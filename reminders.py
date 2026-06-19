@@ -110,14 +110,16 @@ def compute_send_at(day_iso, slot_time, lead_hours, tz, quiet_start, quiet_end):
 
 def due_followup_leads(rows, now_iso_str, idle_hours):
     """Pure filter: which warm-lead rows are cold enough to nudge (not already
-    nudged, has a phone, last message older than idle_hours)."""
+    nudged, has a phone, last message older than idle_hours). Phase 5e S1: also
+    skips rows where has_followup_2 is truthy (Touch-2 already queued — no further
+    touches for this lead in this cycle)."""
     try:
         cutoff = datetime.fromisoformat(now_iso_str) - timedelta(hours=idle_hours)
     except (TypeError, ValueError):
         return []
     out = []
     for r in rows:
-        if r.get("has_followup") or not (r.get("phone") or "").strip():
+        if r.get("has_followup") or r.get("has_followup_2") or not (r.get("phone") or "").strip():
             continue
         try:
             if datetime.fromisoformat(r["last_msg_at"]) <= cutoff:
@@ -326,8 +328,20 @@ def run_due_once(now=None):
                 continue
             biz = biz_cache.get(row["business_id"]) or db.get_business(row["business_id"])
             biz_cache[row["business_id"]] = biz
+            # S3: Re-check lead status just before send for followup kinds -- a lead
+            # that books AFTER queuing but BEFORE firing must never receive a follow-up.
+            if kind in ("followup", "followup_2"):
+                _live_lead = db.get_lead(row["lead_id"])
+                if _live_lead and _live_lead.get("status") == "booked":
+                    db.mark_scheduled(row["id"], "canceled")
+                    continue
             try:
-                res = messaging.send_sms(biz, phone, row["body"], lead_id=row["lead_id"])
+                # S2: followup/followup_2 are marketing sends -- must pass transactional=False
+                # to opt into the quiet-hours backstop in messaging.py. Reminders and
+                # morning_reminders are solicited/scheduled responses and stay transactional.
+                _transactional = kind not in ("followup", "followup_2")
+                res = messaging.send_sms(biz, phone, row["body"], lead_id=row["lead_id"],
+                                         transactional=_transactional)
             except Exception as send_err:
                 # SF-4: synchronous send errors also go async, never sync-retry.
                 print(f"[firstback] send_sms raised (id {row['id']}): {send_err}",
@@ -366,9 +380,42 @@ def run_due_once(now=None):
     return sent
 
 
+def followup_body_contextual(name, biz_name, last_in_text):
+    """Phase 5e M1: Contextual Touch-1 copy via Sonnet. Falls back to the generic
+    template on any LLM failure (network, rate-limit, bad output). The fallback
+    ensures the follow-up always goes out even without an API key."""
+    try:
+        import llm as _llm
+        first = _first_name(name)
+        provider = _llm.active_provider()
+        system = (
+            "You write short SMS follow-ups for a home-service contractor. "
+            "Plain trades voice. One offer (free estimate). One ask (reply to schedule). "
+            "No urgency language ('NOW', 'limited time'). No incentives or discounts. "
+            "Max 130 characters. Return ONLY the SMS text, no quotes, no extra text."
+        )
+        user_msg = (
+            f"Lead name: {first or 'customer'}. "
+            f"Business: {biz_name}. "
+            f"Their last message: {(last_in_text or '').strip()[:200] or '(none)'}. "
+            "Write the follow-up SMS."
+        )
+        text = _llm.complete(provider, system,
+                             [{"role": "user", "content": user_msg}],
+                             max_tokens=80, temperature=0.7)
+        text = (text or "").strip()[:160]
+        if text:
+            return text
+    except Exception:
+        pass
+    return followup_body(name, biz_name)
+
+
 def scan_followups(now=None):
-    """Queue ONE follow-up for each warm lead that just went cold. Returns the count
-    queued."""
+    """Queue ONE follow-up (Touch-1) and one Touch-2 for each warm lead that just went
+    cold. Returns the count of Touch-1 rows queued. Phase 5e: adds opt-out check at
+    enqueue time, contextual LLM body for Touch-1, and Touch-2 (followup_2 kind) at
+    Touch-1 creation time."""
     now = now or db.now_iso()
     queued = 0
     for biz in db.list_businesses():
@@ -384,10 +431,35 @@ def scan_followups(now=None):
         rows = db.followup_candidate_rows(biz["id"])
         for lead in due_followup_leads(rows, now, FOLLOWUP_IDLE_HOURS):
             try:
-                body = followup_body(lead.get("name"), biz.get("name") or "your contractor")
-                db.add_scheduled_message(biz["id"], lead["id"], None, "followup",
-                                         send_at, body)
-                queued += 1
+                phone = (lead.get("phone") or "").strip()
+                # S2: Opt-out check at enqueue time -- don't queue for suppressed leads.
+                # (messaging.send_sms would also catch it at send time, but this avoids
+                # cluttering the queue with rows that will never go out.)
+                if messaging.outbound_mode(biz, phone) == "suppressed":
+                    continue
+                biz_name = biz.get("name") or "your contractor"
+                last_in_text = lead.get("last_in_text")
+                # M1: Use contextual Sonnet copy; falls back to generic template.
+                body = followup_body_contextual(lead.get("name"), biz_name, last_in_text)
+                t1_id = db.add_scheduled_message(biz["id"], lead["id"], None, "followup",
+                                                  send_at, body)
+                if t1_id is not None:
+                    queued += 1
+                    # S5: Queue Touch-2 immediately -- 5 days after Touch-1, quiet-hours
+                    # deferred. Import at call site per spec (do NOT edit growth.py).
+                    if not lead.get("has_followup_2"):
+                        try:
+                            from growth import _copy_reactivation
+                            t1_dt = datetime.fromisoformat(send_at.replace("Z", "+00:00"))
+                            t2_local = (t1_dt + timedelta(days=5)).astimezone(biz_tz)
+                            t2_send_at = next_send_time(t2_local, QUIET_START, QUIET_END).astimezone(timezone.utc).isoformat()
+                            first = _first_name(lead.get("name"))
+                            t2_body = _copy_reactivation(first, biz)
+                            db.add_scheduled_message(biz["id"], lead["id"], None, "followup_2",
+                                                      t2_send_at, t2_body)
+                        except Exception as t2e:
+                            print(f"[firstback] followup_2 enqueue failed (lead {lead.get('id')}): {t2e}",
+                                  file=sys.stderr, flush=True)
             except Exception as e:
                 print(f"[firstback] followup enqueue failed (lead {lead.get('id')}): {e}",
                       file=sys.stderr, flush=True)

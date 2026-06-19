@@ -223,6 +223,320 @@ result_today = reminders.enqueue_morning_reminder(_BIZ, _lead3, _today_str, "14:
 check("morning_reminder today returns valid status",
       result_today["status"] in ("queued", "skipped"))
 
+
+# =============================================================================
+# Phase 5e tests -- S1-M1 (F06 cold-follow-up hardening)
+# =============================================================================
+
+# ---- due_followup_leads: Phase 5e additions ----
+_now5e = "2026-06-15T12:00:00+00:00"
+_cold_ts = "2026-06-14T10:00:00+00:00"  # >24h ago
+
+# test_due_followup_leads_skips_has_followup (existing behavior, regression guard)
+_rows_hf = [{"phone": "+15550010001", "has_followup": True, "has_followup_2": False,
+              "last_msg_at": _cold_ts}]
+check("due_followup_leads skips has_followup=True",
+      len(reminders.due_followup_leads(_rows_hf, _now5e, 24)) == 0)
+
+# test_due_followup_leads_skips_has_followup_2
+_rows_hf2 = [{"phone": "+15550010002", "has_followup": False, "has_followup_2": True,
+               "last_msg_at": _cold_ts}]
+check("due_followup_leads skips has_followup_2=True",
+      len(reminders.due_followup_leads(_rows_hf2, _now5e, 24)) == 0)
+
+# test_due_followup_leads_skips_no_phone
+_rows_nophone = [{"phone": "", "has_followup": False, "has_followup_2": False,
+                  "last_msg_at": _cold_ts}]
+check("due_followup_leads skips empty phone",
+      len(reminders.due_followup_leads(_rows_nophone, _now5e, 24)) == 0)
+
+# test_due_followup_leads_skips_not_cold
+_rows_hot = [{"phone": "+15550010003", "has_followup": False, "has_followup_2": False,
+              "last_msg_at": "2026-06-15T11:30:00+00:00"}]  # only 30min ago
+check("due_followup_leads skips recent message",
+      len(reminders.due_followup_leads(_rows_hot, _now5e, 24)) == 0)
+
+# ---- scan_followups tests via monkeypatching ----
+
+import messaging as _messaging_mod
+import db as _db_mod
+
+def _make_biz(followups_enabled=True):
+    return {"id": 99, "name": "Test Painting", "followups_enabled": followups_enabled,
+            "timezone": "America/New_York"}
+
+def _make_lead(has_followup=False, has_followup_2=False, last_msg_at=_cold_ts):
+    return {"id": 42, "name": "Dave Smith", "phone": "+15550099001",
+            "has_followup": has_followup, "has_followup_2": has_followup_2,
+            "last_msg_at": last_msg_at, "last_in_text": "Need my deck refinished"}
+
+# test_scan_followups_queues_touch1
+_queued_t1 = []
+_original_list_biz = _db_mod.list_businesses
+_original_followup_rows = _db_mod.followup_candidate_rows
+_original_add_sched = _db_mod.add_scheduled_message
+_original_outbound = _messaging_mod.outbound_mode
+
+_db_mod.list_businesses = lambda: [_make_biz()]
+_db_mod.followup_candidate_rows = lambda biz_id: [_make_lead()]
+_db_mod.add_scheduled_message = lambda *a, **kw: (_queued_t1.append(a), 101)[1]
+_messaging_mod.outbound_mode = lambda biz, phone: "live"
+
+_result = reminders.scan_followups(now=_now5e)
+check("scan_followups queues Touch-1 for cold lead", _result == 1)
+check("scan_followups Touch-1 kind is followup",
+      any(a[3] == "followup" for a in _queued_t1))
+
+# test_scan_followups_queues_touch2_at_t1_creation
+check("scan_followups queues Touch-2 at T1 creation time",
+      any(a[3] == "followup_2" for a in _queued_t1))
+
+# Verify Touch-2 send_at is ~5 days after Touch-1
+_t1_rows = [a for a in _queued_t1 if a[3] == "followup"]
+_t2_rows = [a for a in _queued_t1 if a[3] == "followup_2"]
+if _t1_rows and _t2_rows:
+    from datetime import datetime as _dt2
+    _t1_at = _dt2.fromisoformat(_t1_rows[0][4])
+    _t2_at = _dt2.fromisoformat(_t2_rows[0][4])
+    _delta = (_t2_at - _t1_at).total_seconds() / 86400
+    check("scan_followups Touch-2 send_at is ~5 days after Touch-1",
+          4.9 <= _delta <= 5.5)
+else:
+    check("scan_followups Touch-2 send_at check (T1 or T2 missing)", False)
+
+# Restore
+_db_mod.list_businesses = _original_list_biz
+_db_mod.followup_candidate_rows = _original_followup_rows
+_db_mod.add_scheduled_message = _original_add_sched
+_messaging_mod.outbound_mode = _original_outbound
+
+# test_scan_followups_no_double_touch2
+_queued_no_t2 = []
+_db_mod.list_businesses = lambda: [_make_biz()]
+_db_mod.followup_candidate_rows = lambda biz_id: [_make_lead(has_followup_2=True)]
+_db_mod.add_scheduled_message = lambda *a, **kw: (_queued_no_t2.append(a), 102)[1]
+_messaging_mod.outbound_mode = lambda biz, phone: "live"
+
+reminders.scan_followups(now=_now5e)
+check("scan_followups no Touch-2 when has_followup_2=True",
+      all(a[3] != "followup_2" for a in _queued_no_t2))
+
+_db_mod.list_businesses = _original_list_biz
+_db_mod.followup_candidate_rows = _original_followup_rows
+_db_mod.add_scheduled_message = _original_add_sched
+_messaging_mod.outbound_mode = _original_outbound
+
+# test_scan_followups_respects_followups_off
+_queued_off = []
+_db_mod.list_businesses = lambda: [_make_biz(followups_enabled=False)]
+_db_mod.followup_candidate_rows = lambda biz_id: [_make_lead()]
+_db_mod.add_scheduled_message = lambda *a, **kw: (_queued_off.append(a), 103)[1]
+_messaging_mod.outbound_mode = lambda biz, phone: "live"
+
+_r_off = reminders.scan_followups(now=_now5e)
+check("scan_followups skips biz with followups_enabled=False",
+      _r_off == 0 and len(_queued_off) == 0)
+
+_db_mod.list_businesses = _original_list_biz
+_db_mod.followup_candidate_rows = _original_followup_rows
+_db_mod.add_scheduled_message = _original_add_sched
+_messaging_mod.outbound_mode = _original_outbound
+
+# test_scan_followups_suppressed_skips_enqueue
+_queued_sup = []
+_db_mod.list_businesses = lambda: [_make_biz()]
+_db_mod.followup_candidate_rows = lambda biz_id: [_make_lead()]
+_db_mod.add_scheduled_message = lambda *a, **kw: (_queued_sup.append(a), 104)[1]
+_messaging_mod.outbound_mode = lambda biz, phone: "suppressed"
+
+_r_sup = reminders.scan_followups(now=_now5e)
+check("scan_followups skips suppressed lead (no enqueue)",
+      len(_queued_sup) == 0)
+
+_db_mod.list_businesses = _original_list_biz
+_db_mod.followup_candidate_rows = _original_followup_rows
+_db_mod.add_scheduled_message = _original_add_sched
+_messaging_mod.outbound_mode = _original_outbound
+
+# ---- run_due_once tests ----
+_original_due_sched = _db_mod.due_scheduled_messages
+_original_claim = _db_mod.claim_scheduled_message
+_original_mark = _db_mod.mark_scheduled
+_original_get_lead = _db_mod.get_lead
+_original_get_biz = _db_mod.get_business
+
+def _make_sched_row(kind="followup", lead_id=42, sched_id=99, phone="+15550099001"):
+    return {"id": sched_id, "kind": kind, "lead_id": lead_id, "business_id": 99,
+            "body": "Test body", "lead_phone": phone, "appt_status": None,
+            "appt_day": None, "appt_slot": None, "retry_count": 0}
+
+# test_run_due_once_cancels_followup_if_booked (S3)
+_canceled_s3 = []
+_send_calls_s3 = []
+_db_mod.due_scheduled_messages = lambda now: [_make_sched_row(kind="followup")]
+_db_mod.claim_scheduled_message = lambda sid: True
+_db_mod.mark_scheduled = lambda sid, status: _canceled_s3.append((sid, status))
+_db_mod.get_lead = lambda lead_id, business_id=None: {"id": lead_id, "status": "booked"}
+_db_mod.get_business = lambda biz_id: _make_biz()
+_messaging_mod.send_sms = lambda *a, **kw: (_send_calls_s3.append(a), {"status": "sent"})[1]
+
+reminders.run_due_once(now=_now5e)
+check("run_due_once cancels followup if lead is booked",
+      any(s[1] == "canceled" for s in _canceled_s3))
+check("run_due_once does NOT send if lead is booked",
+      len(_send_calls_s3) == 0)
+
+_db_mod.due_scheduled_messages = _original_due_sched
+_db_mod.claim_scheduled_message = _original_claim
+_db_mod.mark_scheduled = _original_mark
+_db_mod.get_lead = _original_get_lead
+_db_mod.get_business = _original_get_biz
+_messaging_mod.send_sms = getattr(_messaging_mod, "_orig_send_sms", _messaging_mod.send_sms)
+
+# test_run_due_once_double_claim_idempotent
+_send_calls_dc = []
+_db_mod.due_scheduled_messages = lambda now: [_make_sched_row(kind="followup")]
+_db_mod.claim_scheduled_message = lambda sid: False  # second claimer gets False
+_db_mod.get_lead = lambda lead_id, business_id=None: {"id": lead_id, "status": "idle"}
+_db_mod.get_business = lambda biz_id: _make_biz()
+_messaging_mod.send_sms = lambda *a, **kw: (_send_calls_dc.append(a), {"status": "sent"})[1]
+
+reminders.run_due_once(now=_now5e)
+check("run_due_once idempotent: no send on failed claim",
+      len(_send_calls_dc) == 0)
+
+_db_mod.due_scheduled_messages = _original_due_sched
+_db_mod.claim_scheduled_message = _original_claim
+_db_mod.get_lead = _original_get_lead
+_db_mod.get_business = _original_get_biz
+_messaging_mod.send_sms = getattr(_messaging_mod, "_orig_send_sms", _messaging_mod.send_sms)
+
+# test_run_due_once_followup_transactional_false (S2 compliance gate)
+_send_kwargs_tf = {}
+def _capture_send(*args, **kwargs):
+    _send_kwargs_tf.update(kwargs)
+    _send_kwargs_tf["_args"] = args
+    return {"status": "sent"}
+
+_db_mod.due_scheduled_messages = lambda now: [_make_sched_row(kind="followup")]
+_db_mod.claim_scheduled_message = lambda sid: True
+_db_mod.mark_scheduled = lambda sid, status: None
+_db_mod.get_lead = lambda lead_id, business_id=None: {"id": lead_id, "status": "idle"}
+_db_mod.get_business = lambda biz_id: _make_biz()
+_messaging_mod.send_sms = _capture_send
+
+reminders.run_due_once(now=_now5e)
+check("run_due_once followup sends with transactional=False",
+      _send_kwargs_tf.get("transactional") is False)
+
+_db_mod.due_scheduled_messages = _original_due_sched
+_db_mod.claim_scheduled_message = _original_claim
+_db_mod.mark_scheduled = _original_mark
+_db_mod.get_lead = _original_get_lead
+_db_mod.get_business = _original_get_biz
+_messaging_mod.send_sms = getattr(_messaging_mod, "_orig_send_sms", _messaging_mod.send_sms)
+
+# test_run_due_once_reminder_transactional_true (S2 compliance gate -- reminder must stay True)
+_send_kwargs_rt = {}
+def _capture_send_rt(*args, **kwargs):
+    _send_kwargs_rt.update(kwargs)
+    _send_kwargs_rt["_args"] = args
+    return {"status": "sent"}
+
+_db_mod.due_scheduled_messages = lambda now: [_make_sched_row(kind="reminder")]
+_db_mod.claim_scheduled_message = lambda sid: True
+_db_mod.mark_scheduled = lambda sid, status: None
+# reminder path checks appt_status and appt_day -- set them to avoid skip
+_reminder_row = _make_sched_row(kind="reminder")
+_reminder_row["appt_status"] = "booked"
+_reminder_row["appt_day"] = None  # no appt_day -> no _appt_passed check
+_db_mod.due_scheduled_messages = lambda now: [_reminder_row]
+_db_mod.get_business = lambda biz_id: _make_biz()
+_messaging_mod.send_sms = _capture_send_rt
+
+reminders.run_due_once(now=_now5e)
+# transactional=True is the default; it's passed as True in our S2 code
+check("run_due_once reminder sends with transactional=True (not False)",
+      _send_kwargs_rt.get("transactional") is not False)
+
+_db_mod.due_scheduled_messages = _original_due_sched
+_db_mod.claim_scheduled_message = _original_claim
+_db_mod.mark_scheduled = _original_mark
+_db_mod.get_lead = _original_get_lead
+_db_mod.get_business = _original_get_biz
+_messaging_mod.send_sms = getattr(_messaging_mod, "_orig_send_sms", _messaging_mod.send_sms)
+
+# ---- followup_body_contextual: M1 fallback test ----
+
+# test_followup_body_contextual_fallback
+import llm as _llm_mod
+_orig_complete = _llm_mod.complete
+_orig_active = _llm_mod.active_provider
+
+# Make complete raise an exception -- should fall back to followup_body
+_llm_mod.complete = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("LLM down"))
+_llm_mod.active_provider = lambda: "claude"
+
+_fb_fallback = reminders.followup_body_contextual("Dave", "Acme Painting", "I need my deck done")
+_generic = reminders.followup_body("Dave", "Acme Painting")
+check("followup_body_contextual falls back to followup_body on LLM failure",
+      _fb_fallback == _generic)
+
+# Also test that empty LLM output falls back
+_llm_mod.complete = lambda *a, **kw: ""
+_fb_empty = reminders.followup_body_contextual("Dave", "Acme Painting", "Need a quote")
+check("followup_body_contextual falls back on empty LLM output",
+      _fb_empty == _generic)
+
+_llm_mod.complete = _orig_complete
+_llm_mod.active_provider = _orig_active
+
+# ---- cancel_pending_followup_touches (S4 DB layer) ----
+
+# test_cancel_pending_followup_touches
+# Uses the temp DB from the enqueue_morning_reminder section above
+_test_lead_id = _db.create_lead(1, "Cancel Test", "+15550099555")
+# Insert a pending followup and followup_2
+_db.add_scheduled_message(1, _test_lead_id, None, "followup",
+                          "2026-06-20T15:00:00+00:00", "Touch 1 body")
+_db.add_scheduled_message(1, _test_lead_id, None, "followup_2",
+                          "2026-06-25T15:00:00+00:00", "Touch 2 body")
+
+# Verify both are pending
+import sqlite3 as _sql3
+_conn = _sql3.connect(_config.DB_PATH)
+_rows_before = _conn.execute(
+    "SELECT kind, status FROM scheduled_messages WHERE lead_id=? AND kind IN ('followup','followup_2')",
+    (_test_lead_id,)).fetchall()
+_conn.close()
+check("cancel_pending_followup_touches: both rows exist before cancel",
+      len(_rows_before) == 2 and all(r[1] == "pending" for r in _rows_before))
+
+_db.cancel_pending_followup_touches(_test_lead_id)
+
+_conn2 = _sql3.connect(_config.DB_PATH)
+_rows_after = _conn2.execute(
+    "SELECT kind, status FROM scheduled_messages WHERE lead_id=? AND kind IN ('followup','followup_2')",
+    (_test_lead_id,)).fetchall()
+_conn2.close()
+check("cancel_pending_followup_touches: both rows canceled",
+      len(_rows_after) == 2 and all(r[1] == "canceled" for r in _rows_after))
+
+# ---- spam_exclusion: S1 SQL verification ----
+
+# test_spam_exclusion -- verify the SQL query excludes spam leads
+# We do a structural check: the followup_candidate_rows SQL text must include the spam clauses
+import inspect as _inspect
+_fcr_src = _inspect.getsource(_db.followup_candidate_rows)
+check("spam_exclusion: SQL includes contacts.category IN blocked check",
+      "blocked" in _fcr_src and "contacts c" in _fcr_src)
+check("spam_exclusion: SQL includes screened_spam check",
+      "screened_spam" in _fcr_src and "calls ca" in _fcr_src)
+check("spam_exclusion: SQL includes has_followup_2 column",
+      "has_followup_2" in _fcr_src)
+check("spam_exclusion: SQL includes last_in_text column",
+      "last_in_text" in _fcr_src)
+
 print(f"\n{_pass} passed, {_fail} failed")
 try:
     os.unlink(_TMP.name)

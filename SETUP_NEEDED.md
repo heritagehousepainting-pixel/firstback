@@ -343,6 +343,17 @@ The 6a pre-launch hardening shipped (commit 70f585c). Two new env requirements a
   sweep is a tracked follow-up; the customer-facing/graduation endpoints (call/lead family +
   growth-tray sends) ARE now CSRF-guarded.
 
+## Phase 6b integration polish (2026-06-19) — one OWNER OP
+The unified 8am owner digest, ticker LLM timeout, and an in-app stale-ticker alert shipped
+(commit 587f326). One owner-ops item the code cannot do:
+- **Add an external uptime monitor on `GET /health/ticker`** (Render's built-in health check,
+  or UptimeRobot, alerting on `fresh:false`). The new in-app `tick_stale` alert fires when a
+  tick runs AFTER a >15-min gap (i.e. the scheduler recovered) — but if the cron AND the
+  in-process ticker are BOTH down, nothing runs to self-detect it. The external monitor is the
+  only thing that catches total death. `/health/ticker` already returns `{fresh, last_tick_utc, age_s}`.
+- (No new required env var. The digest is default-ON per tenant via `alert_on_daily_digest`;
+  the owner can mute just the morning buzz in Settings without losing real-time lead/booking alerts.)
+
 ## Optional cleanup flagged by the audit
 - Delete the dead, unrouted `landing.html` (still contains the old Jobber/Housecall/Angi
   logos; harmless since it isn't served, but worth removing — roadmap already flags it).

@@ -3,12 +3,45 @@
 {% set check %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;color:var(--accent)"><path d="M20 6L9 17l-5-5"/></svg>{% endset %}
 
 {% block title %}Pricing{% endblock %}
+{% block meta %}
+<meta name="description" content="Simple flat pricing for AI missed-call text-back. Starter $99/mo, Pro $199/mo, Crew $399/mo. No per-call fees. Cancel anytime.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FirstBack">
+<meta property="og:title" content="Pricing -- FirstBack">
+<meta property="og:description" content="Flat monthly plans starting at $99. No per-call fees, no contracts. One recovered job pays the year.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Pricing -- FirstBack">
+<meta name="twitter:description" content="Flat monthly plans starting at $99. No per-call fees, no contracts.">
+{% endblock %}
 {% block content %}
 <header class="mk-head"><div class="mk-wrap">
   <span class="mk-eyebrow">Pricing</span>
   <h1 class="mk-h1">Simple, flat pricing<span class="dot">.</span></h1>
   <p class="mk-lead">No per-call or per-minute fees. Ever. Pick a plan, start the same day, and only pay for the seats you need. <strong>Save 20% when you pay annually.</strong></p>
 </div></header>
+
+{# Plan 09-2: ROI anchor strip -- frame price as insurance against lost revenue, before
+   the grid. Inherit-friendly inline styles (opacity for muting) so it reads on the
+   marketing theme; the footnote is mandatory (cites the math, not a fabricated study). #}
+<section class="mk-section" style="padding-top:0;padding-bottom:0"><div class="mk-wrap">
+  <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:clamp(16px,4vw,40px);padding:24px 0;text-align:center">
+    <div style="display:flex;flex-direction:column;gap:4px;max-width:200px">
+      <span style="font-size:1.9rem;font-weight:800">$45K+</span>
+      <span style="font-size:.85rem;opacity:.7">average revenue lost per year to unanswered calls<sup>*</sup></span>
+    </div>
+    <div style="font-weight:700;opacity:.4">vs.</div>
+    <div style="display:flex;flex-direction:column;gap:4px;max-width:200px">
+      <span style="font-size:1.9rem;font-weight:800;color:var(--accent)">$99<span style="font-size:1rem;font-weight:500">/mo</span></span>
+      <span style="font-size:.85rem;opacity:.7">FirstBack Starter -- one recovered job pays the year</span>
+    </div>
+    <div style="font-weight:700;opacity:.4">vs.</div>
+    <div style="display:flex;flex-direction:column;gap:4px;max-width:200px">
+      <span style="font-size:1.9rem;font-weight:800">$300-$800</span>
+      <span style="font-size:.85rem;opacity:.7">traditional answering service -- per month, no AI booking</span>
+    </div>
+  </div>
+  <p style="font-size:.78rem;opacity:.55;text-align:center;max-width:640px;margin:0 auto"><sup>*</sup>Based on contractors missing 5-10 calls/week at an average job value of $300-$1,500. One recovered job typically covers a year of FirstBack.</p>
+</div></section>
 
 <section class="mk-section"><div class="mk-wrap">
   <div class="mk-price-grid">
@@ -20,7 +53,7 @@
       <ul>
         <li>{{ check }} Instant missed-call text-back</li>
         <li>{{ check }} AI booking on your schedule</li>
-        <li>{{ check }} Up to 250 conversations / mo</li>
+        <li>{{ check }} Up to 250 missed-call replies / mo</li>
         <li>{{ check }} 1 phone number</li>
       </ul>
       <a class="ob-btn ob-btn-light" href="/signup">Get started</a>
@@ -34,7 +67,8 @@
       <p class="blurb">For busy crews keeping the calendar full.</p>
       <ul>
         <li>{{ check }} Everything in Starter</li>
-        <li>{{ check }} Up to 1,000 conversations / mo</li>
+        <li>{{ check }} Up to 1,000 missed-call replies / mo</li>
+        <li>{{ check }} 1 phone number <span style="opacity:.6;font-size:.85em">(need a second? <a href="/contact">add one for $20/mo</a>)</span></li>
         <li>{{ check }} Urgent-job alerts</li>
         <li><span style="opacity:.5;font-size:.85em">coming soon</span> AI voice callback <span style="opacity:.6">(beta -- not yet available)</span></li>
         <li>{{ check }} Calendar integration</li>
@@ -50,7 +84,7 @@
       <p class="blurb">For multi-location shops and growing teams.</p>
       <ul>
         <li>{{ check }} Everything in Pro</li>
-        <li>{{ check }} Up to 3,000 conversations / mo</li>
+        <li>{{ check }} Up to 3,000 missed-call replies / mo</li>
         <li>{{ check }} Up to 5 phone numbers</li>
         <li>{{ check }} Multiple business profiles</li>
         <li>{{ check }} Team roles & logins</li>
@@ -64,7 +98,7 @@
 <section class="mk-section"><div class="mk-wrap">
   <div class="mk-section-head center"><span class="mk-kicker">FAQ</span><h2 class="mk-h2">Questions, answered.</h2></div>
   <div class="mk-faq">
-    <details><summary>Are there per-call or per-minute fees?</summary><p>No. Your plan is one flat monthly rate — answer as many calls as your plan allows with no metered charges or surprise overages.</p></details>
+    <details><summary>Are there per-call or per-minute fees?</summary><p>No per-call or per-minute fees, and no metered charges. Your plan includes a set number of missed-call replies each month. If you’re getting close to your limit, we’ll let you know so you can upgrade — we don’t cut you off mid-month without warning.</p></details>
     <details><summary>Will it text spam callers or my existing customers?</summary><p>No. FirstBack screens every missed call first — it texts back real prospects, skips spam and robocalls (which protects your number from being flagged), and leaves people you already know to you. It builds that “known” list automatically as you book jobs, so there’s nothing to import. And it’s precision-first: anything uncertain is still texted, never silenced.</p></details>
     <details><summary>Can FirstBack call customers back by voice, not just text?</summary><p>Coming soon. Voice callback is in beta and rolling out on Pro and Crew. When it ships, a customer who would rather talk can ask and FirstBack will place an AI voice call that books the estimate -- only after the customer asks, and never outside quiet hours. Today FirstBack handles everything by text.</p></details>
     <details><summary>Can I keep my existing phone number?</summary><p>Yes. You forward your unanswered calls to FirstBack and keep the number your customers already know.</p></details>

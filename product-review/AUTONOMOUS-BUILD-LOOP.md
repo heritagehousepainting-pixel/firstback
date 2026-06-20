@@ -38,7 +38,13 @@ surfaces: digest, screening report, customer book, review-delta, milestones, str
   - minor deferrals: 07-3e analytics milestones-timeline/all-time-default + /api/roi_milestones;
     07-2e customer-book briefing-card hook
   - deferred: 07-2e briefing-card hook (additive enrichment)
-- [ ] F — SEO/rename/ROI anchor, non-decision parts (plan 09)
+- [x] F — pricing/marketing/SEO non-decision parts (plan 09) — 75/75 green; audit SHIP
+  - shipped: SEO/OG meta (homepage onboarding.html + pricing/solutions/customers/marketing_base;
+    og:image omitted until asset exists), "conversations"->"missed-call replies", ROI anchor strip,
+    Pro extra-number add-on (->/contact), soft-overage FAQ, customer waitlist card, /webinars de-linked
+  - NEEDS-OWNER (skipped): money-back guarantee badge (C3), "books the job"+Vic hero (C6),
+    Heritage dogfood quote (C7a), annual-toggle checkout wiring (C1, deferred)
+  - NEEDS-ASSET: generate /static/og-default.png (1200x630) then add og:image back
 - [ ] G — voicemail→lead + web-chat widget, code-only (plan 10)
 - [ ] Audit pass 1 · [ ] Audit pass 2
 

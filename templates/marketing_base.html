@@ -4,6 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %} · {{ app_name }}</title>
+  {# Plan 09-5: SEO/OG defaults; each page overrides via {% block meta %}. og:image is
+     intentionally omitted until /static/og-default.png is generated (avoids a silent 404). #}
+  {% block meta %}
+  <meta name="description" content="FirstBack texts back every missed call in seconds, answers their questions, and books the estimate -- AI-powered for home-services contractors.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="FirstBack">
+  <meta property="og:title" content="FirstBack -- AI missed-call text-back for contractors">
+  <meta property="og:description" content="Miss a call. We text back. They book. Set up in a day, flat monthly rate.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="FirstBack -- AI missed-call text-back for contractors">
+  <meta name="twitter:description" content="Miss a call. We text back. They book.">
+  {% endblock %}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -50,7 +62,8 @@
           <a class="ob-dditem" href="/blog" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span><span class="tx"><span class="t">Blog</span><span class="d">Tips for the trades</span></span></a>
           <span class="ob-ddlabel">// proof</span>
           <a class="ob-dditem" href="/resources/customer-stories" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span><span class="tx"><span class="t">Customer stories</span><span class="d">Crews using FirstBack</span></span></a>
-          <a class="ob-dditem" href="/webinars" role="menuitem"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></span><span class="tx"><span class="t">Webinars</span><span class="d">Live walk-throughs</span></span></a>
+          {# Plan 09-10: de-linked from nav until a real webinar is scheduled (coming-soon
+             dead-end). Still reachable by direct URL; restore this item when a date is set. #}
         </div>
       </div>
       <a href="/company" class="{{ 'active' if p.startswith('/company') }}">Company</a>

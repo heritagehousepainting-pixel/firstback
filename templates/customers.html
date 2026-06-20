@@ -1,5 +1,15 @@
 {% extends "marketing_base.html" %}
 {% block title %}Customer stories{% endblock %}
+{% block meta %}
+<meta name="description" content="Real contractor results with FirstBack AI missed-call text-back -- customer stories from the trades.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FirstBack">
+<meta property="og:title" content="Customer stories -- FirstBack">
+<meta property="og:description" content="Real results from real contractors. FirstBack books the jobs you were missing.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Customer stories -- FirstBack">
+<meta name="twitter:description" content="Real results from real contractors.">
+{% endblock %}
 {% block content %}
 <header class="mk-head"><div class="mk-wrap">
   <a href="/resources" class="mk-eyebrow">← Resources</a>
@@ -9,9 +19,12 @@
 
 <section class="mk-section" style="padding-top:clamp(24px,3vw,40px)"><div class="mk-wrap">
   <div class="mk-grid mk-grid-3">
+    {# Plan 09-7b: dead "your quote goes here" placeholder -> waitlist-capture (honest +
+       lead-gen). The Heritage dogfood quote slot (09-7a) is NEEDS-OWNER and stays out. #}
     <div class="mk-card mk-story">
-      <blockquote>Your first customer’s quote goes here — a real contractor, in their own words.</blockquote>
-      <span class="who">Be the first →</span>
+      <h3 style="margin:0 0 8px">Be the first case study in your trade</h3>
+      <p style="opacity:.75;font-size:.9rem;margin:0 0 14px">If FirstBack is booking jobs for you, we want to tell your story — a real result, in your words, with your name and trade. In return: a free month on us.</p>
+      <a class="ob-btn ob-btn-accent" href="/contact?subject=case-study">Share my results →</a>
     </div>
     <div class="mk-card mk-story">
       <blockquote>Real results from a real crew will land here once they’re live and happy to share.</blockquote>

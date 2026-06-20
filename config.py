@@ -463,6 +463,9 @@ else:
 # and roi.check_roi_milestone. Callers: A (analytics/roi), B (digest).
 PLAN_COST_MONTHLY = 99
 
+# Batch E 07-4: consecutive daily "GO" mornings required to unlock auto-mode growth.
+STREAK_THRESHOLD = int(os.environ.get("FIRSTBACK_STREAK_THRESHOLD", "7") or "7")
+
 # Industry-average job values by trade, used when the owner has not set their own
 # avg_job_value. Keyed on the trade strings the app uses (set at signup / default
 # business profile). The $800 floor is the fallback for an unrecognised trade.

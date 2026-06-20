@@ -873,11 +873,28 @@ def init_db():
         c.execute("ALTER TABLE businesses ADD COLUMN alert_all_clear INTEGER DEFAULT 0")
     if "alert_webhook_url" not in biz_cols:
         c.execute("ALTER TABLE businesses ADD COLUMN alert_webhook_url TEXT")
+    # Batch E (pre-staged migrations so the parallel slice work never collides on the
+    # migration block). 07-4 auto-mode streak unlock:
+    for _col, _ddl in (("growth_streak_count", "INTEGER DEFAULT 0"),
+                       ("growth_streak_last_at", "TEXT"),
+                       ("growth_streak_unlocked_at", "TEXT"),
+                       # 07-1 closed-loop Google review tracking (count + rating + baseline):
+                       ("google_review_count", "INTEGER"),
+                       ("google_star_rating", "REAL"),
+                       ("review_count_updated_at", "TEXT"),
+                       ("google_review_count_baseline", "INTEGER"),
+                       ("google_star_rating_baseline", "REAL")):
+        if _col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {_col} {_ddl}")
     # Phase 4 — Dispatcher-call rate-limit is PER LEAD (one urgency call per caller,
     # not one per business), so the timestamp lives on the lead row.
     lead_cols = [r[1] for r in c.execute("PRAGMA table_info(leads)").fetchall()]
     if "dispatcher_call_last_at" not in lead_cols:
         c.execute("ALTER TABLE leads ADD COLUMN dispatcher_call_last_at TEXT")
+    # Batch E 06-4 real-dollar attribution: owner-entered closed-job amounts on the lead.
+    for _col, _ddl in (("won_at", "TEXT"), ("won_amount", "REAL")):
+        if _col not in lead_cols:
+            c.execute(f"ALTER TABLE leads ADD COLUMN {_col} {_ddl}")
 
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():

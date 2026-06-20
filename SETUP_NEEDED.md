@@ -375,3 +375,47 @@ launch-blockers in code (commit cbfa24d). Remaining items that are NOT code:
 ## Optional cleanup flagged by the audit
 - Delete the dead, unrouted `landing.html` (still contains the old Jobber/Housecall/Angi
   logos; harmless since it isn't served, but worth removing — roadmap already flags it).
+
+---
+
+## Autonomous build C–G (this session) — owner items to go live
+
+The batches C/D/E/F/G shipped to **`staging` only** (13 commits, 76/76 tests green, 4 ship-gate
+audit lanes passed). **Production (`main`) is untouched at `92aacde`.** Everything new is
+**inert/opt-in by default** — nothing changes for the live Heritage tenant until you act.
+
+### The one hard gate
+- **Promote `staging` → `main`.** Held all session by design. Review the staging deploy on the
+  RingBackv2 mirror, then give an explicit OK. Nothing reaches real callers until this.
+
+### Turn on the new features (each is OFF by default)
+- **Voicemail → lead** (Batch G): flip *Voicemail* on in **Settings → Website widget & voicemail**,
+  AND enable Twilio recording/transcription on the voice number (the `<Record>` TwiML + the
+  `/webhooks/twilio/voice/recording` webhook are wired; transcription is a Twilio config + cost).
+- **Web-chat "Text us" widget** (Batch G): flip *Widget* on in Settings, paste the one-line embed
+  shown there onto the site. Sends are A2P-gated (inert until A2P approved).
+- **Google review tracking** (Batch E): set `GOOGLE_PLACES_API_KEY` (already used for setup
+  autocomplete). Inert/no-op without it.
+
+### Founder decisions (gate copy/policy I deliberately did NOT ship)
+- 30-day **money-back guarantee** badge (real refund commitment).
+- Lead the hero with **"it books the job" + the Vic briefing** framing (briefing is login-gated;
+  hero claim would overclaim until it's a public feature).
+- Bundle **paid caller-reputation** (Nomorobo/Hiya) into a paid tier — set
+  `FIRSTBACK_REPUTATION_PROVIDER`; has a real cost + pricing implication.
+- **Soft-overage billing** (charge per extra reply) vs the hard cap (the FAQ ships the soft
+  "we'll alert you" version only — no $0.75 promise until billing is wired).
+
+### Still NEEDS-OWNER (not built — external credentials)
+- **Deposit link at booking** (plan 10-3): owner creates a Stripe **Payment Link**, pastes the URL.
+- **GBP review dashboard** (plan 10-4): Google **business-scope re-auth** + enable the GBP API.
+
+### NEEDS-ASSET / small deferrals
+- Generate **`/static/og-default.png`** (1200×630, dark + wordmark + "Miss a call. We text back.
+  They book.") then re-add the `og:image`/`twitter:image` tags (omitted to avoid a silent 404).
+- Deferred enrichments: analytics **milestones-timeline + /api/roi_milestones** (07-3e), the
+  **customer-book briefing card** hook (07-2e), the **briefing deep_link** backend (C8B frontend
+  works for any `?lead_id`), and the **annual-toggle** checkout wiring (cosmetic until checkout).
+
+_Note: the prior "finish the _csrf sweep on authenticated config forms" item is now partly done —
+this session added the CSRF guard to `/settings/growth_mode` (a TCPA-sensitive mutation)._

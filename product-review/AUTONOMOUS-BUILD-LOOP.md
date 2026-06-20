@@ -52,7 +52,14 @@ surfaces: digest, screening report, customer book, review-delta, milestones, str
   - web-chat widget: /widget.js embed + /api/widget/<slug>/config.js + POST /webhooks/widget/lead
     (CORS, rate-limited, E.164, A2P-gated, widget_enabled opt-in); Settings card with embed code.
   - NEEDS-OWNER (skipped): deposit link (Stripe Payment Link), GBP review dashboard (Google re-auth).
-- [ ] Audit pass 1 · [ ] Audit pass 2
+- [x] Audit pass 1 — 3 parallel sonnet lanes (security/function/wording-UI); all SHIP-WITH-FIXES,
+      no P0s; fixed (reputation dedupe, growth-mode CSRF, api_reputation guard, recording-webhook
+      gate, widget teardown+aria, customers OG honesty, webinars de-link, copy softening).
+- [x] Audit pass 2 — full suite 76/76; gates verified (pricing coming-soon, voice off, voicemail/
+      widget inert-by-default); customer TCPA backstop UNTOUCHED (0 lines vs base); SETUP_NEEDED reconciled.
+
+## DONE — every buildable-without-owner batch shipped to staging. Production (main) gated on owner OK.
+Reports: product-review/final-audit/{security,function,wording-ui}.md + product-review/plan-audits/*.
 
 ## Gates that must stay intact
 - Pricing `/pricing` = "coming soon" (no live checkout).

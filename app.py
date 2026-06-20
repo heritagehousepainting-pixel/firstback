@@ -37,6 +37,7 @@ import triage
 import reputation
 import contact_import
 import google_contacts
+import growth
 from config import (APP_NAME, TAGLINE, DEBUG, SECRET_KEY, TASKS_SECRET,
                     SESSION_COOKIE_SECURE, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD,
                     app_tz, VOICE_PUBLIC_URL, INTERNAL_SECRET,
@@ -592,9 +593,31 @@ def help_center():
     return render_template("help.html")
 
 
-@app.route("/customers")
-def customers():
+@app.route("/resources/customer-stories")
+def customer_stories():
+    # Marketing "customer stories" page. Moved off /customers (plan 07-2), which is now
+    # the signed-in Customer Book. All marketing links point here instead.
     return render_template("customers.html")
+
+
+@app.route("/customers")
+@login_required
+def customer_book():
+    """The owner's customer book: their database rendered as a visible, switching-cost
+    asset (names, repeat bookings, lifetime jobs). All from existing leads + appointments."""
+    biz = current_business()
+    if not biz:
+        return redirect("/login")
+    stats = db.customer_book_stats(biz["id"])
+    avg = growth._job_value(biz)
+    # Honest money: avg is the owner's real avg_job_value when set, otherwise a trade
+    # default. Tell the owner which, so a ~$ estimate is never shown as an exact figure.
+    avg_is_estimated = not (biz.get("avg_job_value") or 0)
+    lifetime_revenue = stats["total_jobs"] * avg
+    return render_template("customer_book.html", business=biz, stats=stats,
+                           lifetime_revenue=lifetime_revenue, avg=avg,
+                           avg_is_estimated=avg_is_estimated,
+                           lifetime_str=f"{lifetime_revenue:,}", avg_str=f"{avg:,}")
 
 
 @app.route("/blog")

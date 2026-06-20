@@ -1,0 +1,52 @@
+{% extends "app_shell.html" %}
+{% from "components/ui/card.html" import card %}
+{% from "components/ui/data_table.html" import data_table %}
+{% from "components/ui/stat_tile.html" import stat_row, stat_tile %}
+{% from "components/ui/empty_state.html" import empty_state %}
+
+{% block title %}Customer book{% endblock %}
+{% block page_title %}Customer book{% endblock %}
+{% block page_sub %}<p class="page-sub">Every customer you've booked — their names, history, and threads. This is yours.</p>{% endblock %}
+
+{% block content %}
+{% if stats.total_customers %}
+{% call stat_row() %}
+  {{ stat_tile(stats.total_customers, 'Customers served') }}
+  {{ stat_tile(stats.repeat_customers, 'Repeat customers',
+       sub=('Booked you again' if stats.repeat_customers else 'None yet'),
+       sub_tone=('good' if stats.repeat_customers else '')) }}
+  {{ stat_tile(stats.total_jobs, 'Jobs on record') }}
+  {{ stat_tile('~$' ~ lifetime_str, 'Lifetime jobs',
+       sub=((('Trade estimate — set yours in Settings') if avg_is_estimated
+             else ('At ~$' ~ avg_str ~ '/job')) if avg else '')) }}
+{% endcall %}
+
+<div class="review-nudge" role="status" style="cursor:default">
+  <span class="review-nudge-text"><strong>You've built a customer book of {{ stats.total_customers }}
+  {{ 'customer' if stats.total_customers == 1 else 'customers' }}.</strong>
+  Their names, threads, and job notes live right here — and they're yours. Switching means starting over.</span>
+</div>
+
+{% call card(title='Your top customers', flush=true) %}
+  {% call data_table(['Customer','Phone','Jobs','Last job']) %}
+    {% for c in stats.top_customers %}
+    <tr>
+      <td class="dt-strong">{{ c.name }}</td>
+      <td class="dt-muted"><a href="tel:{{ c.phone }}" class="tel-link">{{ c.phone|phone }}</a></td>
+      <td>{{ c.job_count }}</td>
+      <td class="dt-muted">{{ c.last_job_day or '—' }}</td>
+    </tr>
+    {% endfor %}
+  {% endcall %}
+{% endcall %}
+<p class="page-sub" style="margin-top:var(--space-3)">
+  All {{ stats.total_jobs }} {{ 'job' if stats.total_jobs == 1 else 'jobs' }} tracked
+  across {{ stats.total_customers }} {{ 'customer' if stats.total_customers == 1 else 'customers' }}.
+</p>
+{% else %}
+{{ empty_state('Your customer book is empty — for now',
+   'Every estimate FirstBack books adds a customer here, with their history and full text
+    thread. Your first booked job starts your book.',
+   action_label='See your pipeline', action_href='/pipeline') }}
+{% endif %}
+{% endblock %}

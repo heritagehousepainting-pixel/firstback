@@ -26,7 +26,12 @@ surfaces: digest, screening report, customer book, review-delta, milestones, str
 - [x] B — AI conversation + core loop (shipped, live `92aacde`)
 - [x] C — Mobile + dashboard UX (plan 04) — shipped to staging `6d0b67c`; 66/66 green; UI+BE audit fixes applied
 - [x] D — Alerts & set-and-forget (plan 05) — 67/67 green; TCPA backstop confirmed untouched; SSRF guard + _int_pref(0) bug fixed in audit
-- [ ] E — Make value VISIBLE (plans 06+08+07) — widest parallel fan-out ← current
+- [~] E — Make value VISIBLE (plans 06+08+07) — sliced; building in coherent loops ← current
+  - [x] E1 — Customer Book page (07-2): /customers now authed; marketing moved to /resources/customer-stories; 68/68 green
+  - [ ] E2 — monthly-recap spine (07-3 milestone refactor → 06 won_amount → 08 screening section)
+  - [ ] E3 — growth engine (07-4 streak unlock, 07-5 seasonal, 07-6 density referral)
+  - [ ] E4 — Google review tracking (07-1; gated on Places API)
+  - deferred: 07-2e briefing-card hook (additive enrichment)
 - [ ] F — SEO/rename/ROI anchor, non-decision parts (plan 09)
 - [ ] G — voicemail→lead + web-chat widget, code-only (plan 10)
 - [ ] Audit pass 1 · [ ] Audit pass 2

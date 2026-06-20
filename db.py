@@ -1422,6 +1422,30 @@ def leads_with_stage(business_id):
     return out
 
 
+def customer_book_stats(business_id):
+    """Aggregate the owner's customer book (plan 07-2): unique booked customers, repeat
+    customers (2+ booked jobs), total jobs, and the top 5 by job count. All from existing
+    leads + appointments -- no new data. Tenant-scoped via leads.business_id."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT l.id, l.name, l.phone, "
+        "(SELECT COUNT(*) FROM appointments a WHERE a.lead_id=l.id AND a.business_id=l.business_id AND a.status='booked') AS job_count, "
+        "(SELECT MAX(a.day) FROM appointments a WHERE a.lead_id=l.id AND a.business_id=l.business_id AND a.status='booked') AS last_job_day "
+        "FROM leads l WHERE l.business_id=? AND l.status='booked'",
+        (business_id,)).fetchall()
+    conn.close()
+    total = len(rows)
+    repeat = sum(1 for r in rows if (r["job_count"] or 0) >= 2)
+    total_jobs = sum((r["job_count"] or 0) for r in rows)
+    top = sorted(rows, key=lambda r: -(r["job_count"] or 0))[:5]
+    return {
+        "total_customers": total,
+        "repeat_customers": repeat,
+        "total_jobs": total_jobs,
+        "top_customers": [dict(r) for r in top],
+    }
+
+
 def last_lead(business_id):
     """The single most recent lead (name + created_at) for the command-center 'all clear'
     orientation line. Returns a dict or None when the tenant has no leads yet."""

@@ -1248,6 +1248,9 @@ def settings():
             "reminders_enabled": 1 if request.form.get("reminders_enabled") else 0,
             "followups_enabled": 1 if request.form.get("followups_enabled") else 0,
             "reminder_lead_hours": max(0, min(168, lead_hours)),
+            # Batch G: opt-in lead-source toggles (default OFF).
+            "voicemail_enabled": 1 if request.form.get("voicemail_enabled") else 0,
+            "widget_enabled": 1 if request.form.get("widget_enabled") else 0,
         })
         # Scheduling preferences: the owner shapes their own availability (estimate
         # windows, working days) and a buffer so the AI never books two estimates
@@ -2835,11 +2838,139 @@ def twilio_voice_dial_status():
         engaged = _missed_call_textback(biz, request.form.get("From", ""),
                                         request.form.get("CallSid", ""), status)
         if engaged:
+            # 10-1: opt-in voicemail capture. Offer the caller (single-party, standard
+            # voicemail -- NOT a recorded live conversation) to leave a message that
+            # FirstBack transcribes into the lead thread. Inert unless voicemail_enabled.
+            if biz.get("voicemail_enabled"):
+                _rec_cb = _public_base() + "/webhooks/twilio/voice/recording"
+                return _twiml(
+                    '<Response><Say>Sorry we missed you. We just sent you a text. You can '
+                    'also leave a brief message after the tone.</Say>'
+                    f'<Record maxLength="120" playBeep="true" transcribe="true" '
+                    f'transcribeCallback="{_rec_cb}"/>'
+                    '<Say>Thanks, we will be in touch. Goodbye.</Say></Response>')
             return _twiml("<Response><Say>Sorry we missed you. We just sent you a text "
                           "message. Goodbye.</Say><Hangup/></Response>")
         return _twiml("<Response><Say>Sorry we missed you. We will be in touch "
                       "soon. Goodbye.</Say><Hangup/></Response>")
     return _twiml("<Response><Hangup/></Response>")
+
+
+@app.route("/webhooks/twilio/voice/recording", methods=["POST"])
+@require_twilio_signature
+def twilio_voice_recording():
+    """10-1: Twilio posts here when a voicemail recording + transcription is ready. Creates
+    a voicemail lead if needed, injects the transcript as an inbound message (recording URL
+    on the SAME row -- no fake direction), and greets ONLY an empty thread (no double-greeting
+    when the missed-call text-back already fired). Inert until voicemail is enabled + wired."""
+    biz = db.get_business_by_twilio_number(request.form.get("To", ""))
+    if not biz:
+        return _twiml("<Response/>")
+    caller = request.form.get("From", "")
+    if not caller:
+        return _twiml("<Response/>")
+    transcript = (request.form.get("TranscriptionText") or "").strip()
+    recording_url = request.form.get("RecordingUrl", "")
+    lead = db.get_lead_by_phone(biz["id"], caller)
+    if not lead:
+        lead = db.get_lead(db.create_lead(biz["id"], "Voicemail", caller, source="voicemail"))
+    if transcript:
+        db.add_message(lead["id"], "in", f"[Voicemail] {transcript}", recording_url=recording_url)
+    # B1: get_messages has no direction kwarg -> inline-filter for an existing outbound.
+    has_outbound = any(m.get("direction") == "out" for m in db.get_messages(lead["id"]))
+    if not has_outbound:
+        reply = open_conversation(biz, lead)        # records the thread + alerts the owner
+        messaging.send_sms(biz, caller, reply)      # transmit only (already recorded)
+    return _twiml("<Response/>")
+
+
+# ---- 10-2: Web-chat "Text us" widget (public lead intake; anti-abuse; A2P + opt-in gated) ----
+_WIDGET_RATE: dict = collections.defaultdict(list)
+_WIDGET_MAX = 5
+_WIDGET_WINDOW = 3600
+
+
+def _widget_cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return resp
+
+
+def _widget_blocked(slug):
+    ip = (request.headers.get("X-Forwarded-For", request.remote_addr or "") or "").split(",")[0].strip()
+    key = f"{slug}:{ip}"
+    cutoff = _time.monotonic() - _WIDGET_WINDOW
+    _WIDGET_RATE[key] = [t for t in _WIDGET_RATE[key] if t > cutoff]
+    if len(_WIDGET_RATE[key]) >= _WIDGET_MAX:
+        return True
+    _WIDGET_RATE[key].append(_time.monotonic())
+    return False
+
+
+def _biz_id_by_widget_slug(slug):
+    """Business id for an ENABLED widget slug, else None (so the widget is inert when the
+    owner hasn't opted in or the slug is unknown)."""
+    conn = db.get_conn()
+    row = conn.execute(
+        "SELECT id FROM businesses WHERE micro_site_slug=? AND widget_enabled=1",
+        (slug,)).fetchone()
+    conn.close()
+    return row["id"] if row else None
+
+
+@app.route("/widget.js")
+def widget_js():
+    """Serve the embeddable widget loader at the root path (the ?slug= is read client-side
+    from the script's own src). Lets contractors paste a single firstback.app/widget.js tag."""
+    return app.send_static_file("widget.js")
+
+
+@app.route("/api/widget/<slug>/config.js")
+def widget_config(slug):
+    """Per-tenant widget config as a JS assignment (CORS-open, cached). Empty config when the
+    slug is unknown or the widget isn't enabled, so the bubble simply never renders."""
+    bid = _biz_id_by_widget_slug(slug)
+    if not bid:
+        return _widget_cors(app.response_class("window.__fb={};", mimetype="application/javascript"))
+    biz = db.get_business(bid)
+    cfg = {"slug": slug, "biz": biz.get("name") or "", "endpoint": "/webhooks/widget/lead"}
+    resp = app.response_class(f"window.__fb={json.dumps(cfg)};", mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return _widget_cors(resp)
+
+
+@app.route("/webhooks/widget/lead", methods=["POST", "OPTIONS"])
+def widget_lead():
+    """Public lead intake from the embedded widget. No auth -- anti-abuse: rate-limited per
+    (slug, IP), phone validated to E.164, de-duped by phone. Fires open_conversation + send_sms
+    exactly like a missed call. The send is A2P-gated in messaging.send_sms (inert until live)."""
+    if request.method == "OPTIONS":
+        return _widget_cors(app.response_class("", status=204))
+    data = request.get_json(silent=True) or {}
+    slug = (data.get("slug") or "").strip()
+    phone_raw = (data.get("phone") or "").strip()
+    name = (data.get("name") or "Web Visitor").strip()[:80] or "Web Visitor"
+    if not slug or not phone_raw:
+        return _widget_cors(jsonify(error="Missing slug or phone.")), 400
+    phone = messaging.to_e164(phone_raw)
+    if not phone:
+        return _widget_cors(jsonify(error="Invalid phone number.")), 400
+    # Resolve the slug BEFORE the rate counter so probing fake slugs can't burn a real
+    # visitor's window on a shared IP (the rate limit only governs real-slug submissions).
+    bid = _biz_id_by_widget_slug(slug)
+    if not bid:
+        return _widget_cors(jsonify(error="Business not found.")), 404
+    if _widget_blocked(slug):
+        return _widget_cors(jsonify(error="Too many submissions. Try again later.")), 429
+    biz = db.get_business(bid)
+    lead = db.get_lead_by_phone(biz["id"], phone)
+    if not lead:
+        lead = db.get_lead(db.create_lead(biz["id"], name, phone, source="web_widget"))
+    if not db.get_messages(lead["id"]):
+        reply = open_conversation(biz, lead)        # records the thread + alerts the owner
+        messaging.send_sms(biz, phone, reply)       # transmit only (already recorded)
+    return _widget_cors(jsonify(ok=True))
 
 
 @app.route("/webhooks/twilio/sms/inbound", methods=["POST"])

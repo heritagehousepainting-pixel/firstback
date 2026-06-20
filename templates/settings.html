@@ -227,6 +227,19 @@
     {% endif %}
   {% endcall %}
 
+  {% call card(anchor='set-widget', title='Website widget & voicemail', subtitle='Two more ways to catch a lead: a “Text us” button for your website, and voicemail-to-text when a caller leaves a message.') %}
+    <div class="toggle-list">
+      {{ alert_toggle('voicemail_enabled', 'Capture voicemails — when a missed call goes unanswered, let the caller leave a message and FirstBack turns it into a lead', business.voicemail_enabled) }}
+      {{ alert_toggle('widget_enabled', 'Show a “Text us” button on my website (web-chat widget)', business.widget_enabled) }}
+    </div>
+    {% if business.widget_enabled and business.micro_site_slug %}
+    <p class="provider-note provider-note-soft" style="margin-top:var(--space-3)">Paste this one line into your website, just before <code>&lt;/body&gt;</code>:</p>
+    <pre style="overflow:auto;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-3);font-size:var(--text-xs);margin-top:var(--space-2)"><code>&lt;script src="{{ request.host_url }}widget.js?slug={{ business.micro_site_slug }}" defer&gt;&lt;/script&gt;</code></pre>
+    {% elif business.widget_enabled %}
+    <p class="provider-note provider-note-soft" style="margin-top:var(--space-3)">Finish go-live setup to get your website slug, then your embed code appears here.</p>
+    {% endif %}
+  {% endcall %}
+
   {% call card(anchor='set-scheduling', title='Scheduling', subtitle='Shape your own availability. The AI only offers these windows, on the days you work, and never books two estimates closer than your buffer.') %}
     <div class="field-grid">
       {{ field('Estimate windows', name='estimate_times', value=(sched.times|join(', ')), placeholder='9:00 AM, 2:00 PM', help='Comma-separated times the AI may offer each open day. Leave blank for the default.') }}

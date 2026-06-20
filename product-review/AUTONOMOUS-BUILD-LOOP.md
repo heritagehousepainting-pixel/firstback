@@ -45,7 +45,13 @@ surfaces: digest, screening report, customer book, review-delta, milestones, str
   - NEEDS-OWNER (skipped): money-back guarantee badge (C3), "books the job"+Vic hero (C6),
     Heritage dogfood quote (C7a), annual-toggle checkout wiring (C1, deferred)
   - NEEDS-ASSET: generate /static/og-default.png (1200x630) then add og:image back
-- [ ] G — voicemail→lead + web-chat widget, code-only (plan 10)
+- [x] G — voicemail→lead + web-chat widget, code-only (plan 10) — 76/76 green; audit SHIP
+  - voicemail→lead: opt-in <Record> voicemail (single-party, NOT live-call recording) gated on
+    voicemail_enabled; recording webhook creates a lead + injects transcript (recording_url on the
+    row, no fake direction); no double-greeting. Inert until enabled + Twilio wired.
+  - web-chat widget: /widget.js embed + /api/widget/<slug>/config.js + POST /webhooks/widget/lead
+    (CORS, rate-limited, E.164, A2P-gated, widget_enabled opt-in); Settings card with embed code.
+  - NEEDS-OWNER (skipped): deposit link (Stripe Payment Link), GBP review dashboard (Google re-auth).
 - [ ] Audit pass 1 · [ ] Audit pass 2
 
 ## Gates that must stay intact

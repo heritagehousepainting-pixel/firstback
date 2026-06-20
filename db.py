@@ -883,7 +883,11 @@ def init_db():
                        ("google_star_rating", "REAL"),
                        ("review_count_updated_at", "TEXT"),
                        ("google_review_count_baseline", "INTEGER"),
-                       ("google_star_rating_baseline", "REAL")):
+                       ("google_star_rating_baseline", "REAL"),
+                       # Batch G 10-1/10-2: both default OFF (opt-in) so neither the live
+                       # call flow nor a new lead source changes until the owner enables it.
+                       ("voicemail_enabled", "INTEGER DEFAULT 0"),
+                       ("widget_enabled", "INTEGER DEFAULT 0")):
         if _col not in biz_cols:
             c.execute(f"ALTER TABLE businesses ADD COLUMN {_col} {_ddl}")
     # Phase 4 — Dispatcher-call rate-limit is PER LEAD (one urgency call per caller,
@@ -895,6 +899,11 @@ def init_db():
     for _col, _ddl in (("won_at", "TEXT"), ("won_amount", "REAL")):
         if _col not in lead_cols:
             c.execute(f"ALTER TABLE leads ADD COLUMN {_col} {_ddl}")
+    # Batch G 10-1: voicemail recording URL on the message row (NOT a fake "vm_url"
+    # direction -- keeps direction strictly in/out so digests/exports never skip it).
+    msg_cols = [r[1] for r in c.execute("PRAGMA table_info(messages)").fetchall()]
+    if "recording_url" not in msg_cols:
+        c.execute("ALTER TABLE messages ADD COLUMN recording_url TEXT")
 
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
@@ -1517,12 +1526,12 @@ def set_lead_notes(lead_id, name="", address="", project_type="", stage="",
 
 
 # ---- Messages ----
-def add_message(lead_id, direction, body, provider_sid=None):
+def add_message(lead_id, direction, body, provider_sid=None, recording_url=None):
     conn = get_conn()
     conn.execute(
-        "INSERT INTO messages (lead_id,direction,body,provider_sid,created_at) "
-        "VALUES (?,?,?,?,?)",
-        (lead_id, direction, body, provider_sid, now_iso()),
+        "INSERT INTO messages (lead_id,direction,body,provider_sid,recording_url,created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (lead_id, direction, body, provider_sid, recording_url, now_iso()),
     )
     conn.commit()
     conn.close()
@@ -2544,8 +2553,9 @@ def list_businesses():
 
 
 def update_reminder_prefs(business_id, fields):
-    """Persist reminder/follow-up prefs (Settings card). Touches only those cols."""
-    cols = ["reminders_enabled", "followups_enabled", "reminder_lead_hours"]
+    """Persist reminder/follow-up + Batch G feature toggles (Settings). Touches only those cols."""
+    cols = ["reminders_enabled", "followups_enabled", "reminder_lead_hours",
+            "voicemail_enabled", "widget_enabled"]
     present = [col for col in cols if col in fields]
     if not present:
         return

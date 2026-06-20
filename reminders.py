@@ -314,7 +314,9 @@ def _enqueue_retry(biz, row, attempt):
 
 # 5d BETA B3: Growth kinds whose delivery should be logged for frequency-cap tracking.
 GROWTH_KINDS = {"review_request", "quote_followup", "reactivation",
-                "winback", "referral", "membership"}
+                "winback", "referral", "membership",
+                # 07-5: seasonal blast must log touches so its 28-day/30-day caps work.
+                "seasonal"}
 
 def run_due_once(now=None):
     """Send every scheduled message that's due. Idempotent + defensive. Returns the

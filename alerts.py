@@ -308,6 +308,10 @@ def _dedupe_key(kind, context):
         return f"tick_stale:{day}"
     if kind == "screening_graduated":
         return "screening_graduated"
+    if kind == "roi_milestone":
+        # Per-level so two bookings seconds apart crossing different milestone levels each
+        # send (a bare kind key would collapse them within the 120s window).
+        return f"roi_milestone:{context.get('level')}"
     base = f"{kind}:{context.get('lead_id')}"
     return base + (f":{context.get('when')}" if kind in ("booking", "canceled") else "")
 

@@ -838,6 +838,18 @@ def init_db():
     biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
     if "roi_milestone_sent_at" not in biz_cols:
         c.execute("ALTER TABLE businesses ADD COLUMN roi_milestone_sent_at TEXT")
+    # Plan 07-3: progressive ROI milestones (2x/5x/10x/25x). roi_milestone_sent_at above
+    # stays for back-compat (stamped at level 2); per-level fires live in this table, with
+    # a UNIQUE(business_id, level) guard so a racing booking event can't double-fire a level.
+    c.execute("""CREATE TABLE IF NOT EXISTS roi_milestones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id INTEGER NOT NULL,
+        level INTEGER NOT NULL,
+        fired_at TEXT NOT NULL,
+        revenue INTEGER,
+        UNIQUE(business_id, level)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_roi_milestones_biz ON roi_milestones(business_id)")
     # The owner-alert toggle for the milestone (default ON, like the other alert kinds).
     # alerts._TOGGLE_COL maps "roi_milestone" -> this column; without it a Settings
     # toggle write would hit a missing column.
@@ -3092,6 +3104,27 @@ def set_roi_milestone_sent(business_id, ts):
     """Record the ISO timestamp when the ROI milestone SMS was sent (idempotency guard)."""
     conn = get_conn()
     conn.execute("UPDATE businesses SET roi_milestone_sent_at=? WHERE id=?", (ts, business_id))
+    conn.commit()
+    conn.close()
+
+
+def get_roi_milestones(business_id):
+    """The progressive ROI milestone levels already fired for this business (plan 07-3)."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT level, fired_at, revenue FROM roi_milestones WHERE business_id=?",
+        (business_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_roi_milestone(business_id, level, revenue=None):
+    """Record that a milestone level fired. Idempotent via UNIQUE(business_id, level), so a
+    racing booking event can never double-fire the same level."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO roi_milestones (business_id, level, fired_at, revenue) "
+        "VALUES (?,?,?,?)", (business_id, level, now_iso(), revenue))
     conn.commit()
     conn.close()
 

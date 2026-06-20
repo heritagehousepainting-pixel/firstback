@@ -28,7 +28,10 @@ surfaces: digest, screening report, customer book, review-delta, milestones, str
 - [x] D — Alerts & set-and-forget (plan 05) — 67/67 green; TCPA backstop confirmed untouched; SSRF guard + _int_pref(0) bug fixed in audit
 - [~] E — Make value VISIBLE (plans 06+08+07) — sliced; building in coherent loops ← current
   - [x] E1 — Customer Book page (07-2): /customers now authed; marketing moved to /resources/customer-stories; 68/68 green
-  - [ ] E2 — monthly-recap spine (07-3 milestone refactor → 06 won_amount → 08 screening section)
+  - [~] E2 — monthly-recap spine, split:
+    - [x] E2a — progressive ROI milestones (07-3): roi_milestones table, multi-level roi.py (only moves up), back-compat, per-level dedupe; 69/69 green
+    - [ ] E2b — monthly recap (06-3) + screening section (08 fold-in) + digest loss-framing (06-2b)
+    - deferred: won_amount attribution (06-4), analytics.html UI flip + milestones timeline (06-1/2c, 07-3e)
   - [ ] E3 — growth engine (07-4 streak unlock, 07-5 seasonal, 07-6 density referral)
   - [ ] E4 — Google review tracking (07-1; gated on Places API)
   - deferred: 07-2e briefing-card hook (additive enrichment)

@@ -114,16 +114,29 @@ check("does NOT fire when a2p is pending",
 
 
 # ---------------------------------------------------------------------------
-# TEST 3: does NOT fire when roi_milestone_sent_at is already set.
+# TEST 3: plan 07-3 back-compat. roi_milestone_sent_at set => level 2 counts as already
+# fired. With a multiple in [2,5) (avg $300, ~3x) no HIGHER level has been crossed, so it
+# does NOT re-fire level 2.
 # ---------------------------------------------------------------------------
-bid3 = _make_biz(trade="plumbing", a2p_status="approved",
+bid3 = _make_biz(trade="plumbing", a2p_status="approved", avg_job_value=300.0,
                  roi_milestone_sent_at="2026-06-17T10:00:00+00:00")
 lid3 = _insert_lead(bid3, source="missed_call")
 _insert_appointment(bid3, lid3)
 
 result3 = roi.check_roi_milestone(bid3)
-check("does NOT fire when roi_milestone_sent_at is already set",
+check("does NOT re-fire level 2 when roi_milestone_sent_at set and multiple < 5x",
       result3 is None)
+
+# TEST 3b: progression. roi_milestone_sent_at set (level 2 done) but the multiple is now
+# high (plumbing ~18x) => the NEXT unfired level fires (not None, not level 2).
+bid3b = _make_biz(trade="plumbing", a2p_status="approved",
+                  roi_milestone_sent_at="2026-06-17T10:00:00+00:00")
+_insert_appointment(bid3b, _insert_lead(bid3b, source="missed_call"))
+result3b = roi.check_roi_milestone(bid3b)
+check("progresses past level 2 to the next crossed level when already-sent",
+      result3b is not None and result3b["level"] >= 5)
+check("progression milestone body still labels the estimate source",
+      result3b is not None and "estimate" in result3b["body"].lower())
 
 
 # ---------------------------------------------------------------------------

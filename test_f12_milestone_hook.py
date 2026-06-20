@@ -135,6 +135,7 @@ def _make_lead(name="Milestone Lead", phone="+15557778888"):
 # 1 + 2. Booking + roi returns milestone dict -> alert fired + set_roi_milestone_sent
 # ===========================================================================
 _roi_return_value = {
+    "level": 2,
     "multiple": 2.5,
     "revenue": 2500,
     "avg_source": "owner",
@@ -214,7 +215,7 @@ check("second booking with roi=None: still no roi_milestone alert",
 # ===========================================================================
 # 6. Booking failure (db.book_appointment returns False) -> no milestone hook
 # ===========================================================================
-_roi_return_value = {"multiple": 3.0, "revenue": 3000, "avg_source": "owner",
+_roi_return_value = {"level": 2, "multiple": 3.0, "revenue": 3000, "avg_source": "owner",
                      "body": "Great milestone!"}
 _milestone_sent_calls.clear()
 _notify_calls.clear()

@@ -767,6 +767,30 @@ def _time_ago(iso):
         return None
 
 
+def _fire_roi_milestone(biz):
+    """Check for a due progressive ROI milestone (plan 07-3); if one crossed, alert the
+    owner and record the level. Back-compat: also stamp roi_milestone_sent_at at level 2 so
+    older code/reads still see the first milestone. Never raises (best-effort post-booking)."""
+    try:
+        import roi as _roi_mod
+        m = _roi_mod.check_roi_milestone(biz["id"])
+        if not m:
+            return
+        # Record the fire BEFORE the async SMS so a crash in between can't re-fire it.
+        db.mark_roi_milestone(biz["id"], m["level"], m.get("revenue"))
+        if m["level"] == 2:
+            from datetime import timezone as _tzu
+            db.set_roi_milestone_sent(biz["id"], datetime.now(_tzu.utc).isoformat())
+        # Pass level so the alert dedupe key is per-level (two bookings seconds apart that
+        # cross different levels must each send -- not collapse to one).
+        alerts.notify_async(biz, "roi_milestone",
+                            {"level": m["level"], "body": m.get("body", ""),
+                             "multiple": m.get("multiple"), "revenue": m.get("revenue")})
+    except Exception as _me:
+        print(f"[firstback] milestone hook error (biz {biz.get('id')}): {_me}",
+              file=sys.stderr, flush=True)
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -1834,20 +1858,7 @@ def open_conversation(biz, lead):
             if lead.get("summary"):
                 _book_ctx["summary"] = lead["summary"]
             alerts.notify_async(biz, "booking", _book_ctx)
-            try:
-                import roi as _roi_mod
-                _milestone = _roi_mod.check_roi_milestone(biz["id"])
-                if _milestone:
-                    from datetime import timezone as _tzu
-                    alerts.notify_async(biz, "roi_milestone",
-                                        {"body": _milestone.get("body", ""),
-                                         "multiple": _milestone.get("multiple"),
-                                         "revenue": _milestone.get("revenue")})
-                    db.set_roi_milestone_sent(biz["id"],
-                                              datetime.now(_tzu.utc).isoformat())
-            except Exception as _me:
-                print(f"[firstback] milestone hook error (biz {biz['id']}): {_me}",
-                      file=sys.stderr, flush=True)
+            _fire_roi_milestone(biz)
     return reply
 
 
@@ -1951,22 +1962,8 @@ def handle_inbound(biz, lead, body):
                 _book_ctx["summary"] = lead["summary"]
             alerts.notify_async(biz, "booking", _book_ctx)
             # Phase-4 C: Milestone hook — check if this booking crosses the ROI
-            # milestone threshold; fire once per tenant (idempotent via roi.py).
-            try:
-                import roi as _roi_mod
-                _milestone = _roi_mod.check_roi_milestone(biz["id"])
-                if _milestone:
-                    from datetime import timezone as _mtz
-                    _mts = datetime.now(_mtz.utc).isoformat()
-                    alerts.notify_async(biz, "roi_milestone",
-                                        {"body": _milestone.get("body", ""),
-                                         "multiple": _milestone.get("multiple"),
-                                         "revenue": _milestone.get("revenue")})
-                    db.set_roi_milestone_sent(biz["id"], _mts)
-            except Exception as _me:
-                import sys as _sys
-                print(f"[firstback] milestone hook error (biz {biz['id']}): {_me}",
-                      file=_sys.stderr, flush=True)
+            # Progressive ROI milestone (plan 07-3): highest newly-crossed level, idempotent.
+            _fire_roi_milestone(biz)
             # Mirror onto Google Calendar + queue the pre-estimate reminder (both
             # best-effort, off the hot path; no-ops unless configured).
             if gday and gtime:

@@ -22,6 +22,8 @@
     </div>
     <p class="roi-headline-note" id="roi-headline-note"></p>
   </div>
+  {# E5 / Plan 06 Change 2c: loss-note -- revealed by JS when roi_multiple is truthy #}
+  <p class="roi-loss-note" id="roi-loss-note" style="display:none">Without text-back, missed calls convert at ~0%.</p>
 
   <div id="roi-tiles" class="stat-row" aria-live="polite"></div>
 
@@ -33,9 +35,39 @@
     <div id="roi-chart" class="roi-chart" aria-live="polite"></div>
   {% endcall %}
 
+  {# E4: Your reputation tile -- hidden until /api/reputation confirms review_count #}
+  <div id="reputation-tile" class="stat-tile" style="display:none" aria-live="polite">
+    <span class="stat-tile-label">Google reviews</span>
+    <span class="stat-tile-value" id="rep-count"></span>
+    <span class="stat-tile-sub" id="rep-trend"></span>
+  </div>
+
   <p class="roi-foot">Revenue is an <strong>estimate</strong> based on the average job value you set in
     <a href="/settings">Settings</a> -- not collected money.</p>
 </div>
+
+<script>
+// E4: reveal the reputation tile when /api/reputation reports a review_count.
+(function () {
+  fetch('/api/reputation')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || data.review_count === null || data.review_count === undefined) return;
+      var tile = document.getElementById('reputation-tile');
+      var countEl = document.getElementById('rep-count');
+      var trendEl = document.getElementById('rep-trend');
+      countEl.textContent = data.review_count + ' reviews';
+      if (data.baseline_count !== null && data.baseline_count !== undefined
+          && data.baseline_count !== data.review_count) {
+        trendEl.textContent = 'up from ' + data.baseline_count + ' when you started';
+      } else if (data.baseline_count !== null && data.baseline_count !== undefined) {
+        trendEl.textContent = 'same as when you started';
+      }
+      tile.style.display = '';
+    })
+    .catch(function () { /* reputation tile stays hidden on any error */ });
+}());
+</script>
 
 <script>
 // ROI headline tile: reads roi_multiple + revenue + avg_source from the analytics
@@ -46,20 +78,37 @@
   var valEl    = document.getElementById('roi-headline-value');
   var subEl    = document.getElementById('roi-headline-sub');
   var noteEl   = document.getElementById('roi-headline-note');
+  var lossNote = document.getElementById('roi-loss-note');
 
+  function fmt(n) {
+    return n.toLocaleString('en-US', {style: 'currency', currency: 'USD', maximumFractionDigits: 0});
+  }
+
+  // E5 / Plan 06 Changes 1 + 2c: dollar figure is the hero value, the multiple is the sub;
+  // loss-note revealed when the multiple is real; confirmed-vs-estimated split when present.
   function renderHeadline(data) {
     var multiple = data && data.roi_multiple;
     var revenue  = data && data.totals && data.totals.revenue;
     var src      = data && data.avg_source;
+    var confirmedRev = data && data.confirmed_revenue;     // owner-entered, exact
+    var estimatedPipeline = data && data.estimated_pipeline; // estimate for un-closed bookings
 
     if (!multiple || !revenue) {
       headline.style.display = 'none';
+      if (lossNote) lossNote.style.display = 'none';
       return;
     }
 
-    var rev = revenue.toLocaleString('en-US', {style: 'currency', currency: 'USD', maximumFractionDigits: 0});
-    valEl.textContent = 'paid for itself ~' + multiple + 'x';
-    subEl.textContent = 'estimated ' + rev + ' in booked jobs';
+    if (confirmedRev && confirmedRev > 0) {
+      var confFmt = fmt(confirmedRev);
+      var estFmt = estimatedPipeline > 0 ? fmt(estimatedPipeline) : null;
+      valEl.textContent = estFmt
+        ? confFmt + ' confirmed + ~' + estFmt + ' estimated recovered'
+        : confFmt + ' confirmed recovered';
+    } else {
+      valEl.textContent = fmt(revenue) + ' estimated recovered';
+    }
+    subEl.textContent = 'paid for itself ~' + multiple + 'x this month';
 
     if (src === 'owner') {
       noteEl.textContent = 'Based on your average job value. Revenue is an estimate -- not collected money.';
@@ -68,6 +117,7 @@
     }
 
     headline.style.display = '';
+    if (lossNote) lossNote.style.display = '';
   }
 
   // Hook into the existing roi.js data-fetch lifecycle via a CustomEvent dispatched

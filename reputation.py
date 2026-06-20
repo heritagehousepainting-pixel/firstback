@@ -122,3 +122,73 @@ def _hiya(number):
     status = str(data.get("status") or "").strip().lower()
     return {"line_type": data.get("line_type"),
             "spam_score": _HIYA_SCORE.get(status)}
+
+
+# ---- E4: Google Places review count polling ----------------------------------
+# INERT when GOOGLE_PLACES_API_KEY is unset; never raises.
+import re as _re
+
+_PLACES_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+_PLACES_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+
+
+def _extract_place_id(review_link):
+    """Pull a Place ID from a review_link URL (place_id= param or a ChIJ path segment)."""
+    if not review_link:
+        return None
+    m = _re.search(r"[?&]place_id=([A-Za-z0-9_\-]+)", review_link)
+    if m:
+        return m.group(1)
+    m = _re.search(r"(ChIJ[A-Za-z0-9_\-]+)", review_link)
+    if m:
+        return m.group(1)
+    return None
+
+
+def poll_google_reputation(business_id):
+    """Fetch current Google review count + star rating and persist via
+    db.set_google_reputation. Returns {"review_count","star_rating"} or None. INERT
+    (no network) when config.GOOGLE_PLACES_API_KEY is unset. Never raises."""
+    import config as _cfg
+    if not _cfg.GOOGLE_PLACES_API_KEY:
+        return None
+    try:
+        import requests
+        biz = db.get_business(business_id)
+        if not biz:
+            return None
+        api_key = _cfg.GOOGLE_PLACES_API_KEY
+        place_id = _extract_place_id(biz.get("review_link"))
+        if not place_id:
+            name = (biz.get("name") or "").strip()
+            area = (biz.get("service_area") or "").strip()
+            query = f"{name} {area}".strip()
+            if not query:
+                return None
+            sr = requests.get(_PLACES_SEARCH_URL, params={
+                "input": query, "inputtype": "textquery",
+                "fields": "place_id", "key": api_key}, timeout=5)
+            sr.raise_for_status()
+            candidates = (sr.json() or {}).get("candidates") or []
+            if not candidates:
+                return None
+            place_id = (candidates[0] or {}).get("place_id")
+            if not place_id:
+                return None
+        dr = requests.get(_PLACES_DETAILS_URL, params={
+            "place_id": place_id, "fields": "user_ratings_total,rating",
+            "key": api_key}, timeout=5)
+        dr.raise_for_status()
+        ddata = (dr.json() or {}).get("result") or {}
+        review_count = ddata.get("user_ratings_total")
+        star_rating = ddata.get("rating")
+        if review_count is None:
+            return None
+        db.set_google_reputation(business_id, int(review_count),
+                                 float(star_rating) if star_rating is not None else None)
+        return {"review_count": int(review_count),
+                "star_rating": float(star_rating) if star_rating is not None else None}
+    except Exception as exc:
+        print(f"[firstback] poll_google_reputation failed (biz {business_id}): {exc}",
+              file=sys.stderr, flush=True)
+        return None

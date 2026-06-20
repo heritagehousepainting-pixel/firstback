@@ -3108,11 +3108,20 @@ def analytics(business_id, days=30):
     conversion = round(booked_n / leads_n * 100) if leads_n else 0
     revenue = int(round(booked_n * resolved_avg))
     roi_multiple = round(revenue / PLAN_COST_MONTHLY, 1) if revenue else None
+    # E5 / 06-4: blend owner-entered closed-job dollars additively (existing keys unchanged).
+    _won = won_leads(business_id, days)
+    confirmed_revenue = _won["confirmed_revenue"]
+    won_n = _won["won_n"]
+    estimated_pipeline = max(0, int(round((booked_n - won_n) * resolved_avg)))
     return {
         "totals": {"leads": leads_n, "booked": booked_n,
                    "conversion": conversion, "revenue": revenue},
         "series": series, "avg_job_value": owner_avg, "days": days,
         "revenue": revenue, "roi_multiple": roi_multiple, "avg_source": avg_source,
+        # New additive keys (back-compat: all keys above are unchanged):
+        "confirmed_revenue": confirmed_revenue,
+        "estimated_pipeline": estimated_pipeline,
+        "won_n": won_n,
     }
 
 
@@ -3861,3 +3870,65 @@ def screening_monthly_stats(business_id):
         return {"robocalls_screened": int(row["robocalls_screened"] or 0)}
     except Exception:
         return {"robocalls_screened": 0}
+
+
+def set_google_reputation(business_id, review_count, star_rating):
+    """E4: write current Google review_count + star_rating + review_count_updated_at=now.
+    On the FIRST call only (baseline IS NULL) also writes the *_baseline columns; never
+    overwrites the baseline after. Tenant-scoped; closes conn."""
+    ts = now_iso()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT google_review_count_baseline FROM businesses WHERE id=?",
+        (business_id,)).fetchone()
+    baseline_is_null = (row is None or row[0] is None) if row else True
+    if baseline_is_null:
+        conn.execute(
+            "UPDATE businesses SET google_review_count=?, google_star_rating=?, "
+            "review_count_updated_at=?, google_review_count_baseline=?, "
+            "google_star_rating_baseline=? WHERE id=?",
+            (review_count, star_rating, ts, review_count, star_rating, business_id))
+    else:
+        conn.execute(
+            "UPDATE businesses SET google_review_count=?, google_star_rating=?, "
+            "review_count_updated_at=? WHERE id=?",
+            (review_count, star_rating, ts, business_id))
+    conn.commit()
+    conn.close()
+
+
+def mark_lead_won(lead_id, amount, ts=None):
+    """E5 / 06-4: record a closed-job dollar amount on a lead (owner-entered, exact -- no
+    estimate caveat). Validates amount > 0; sets won_at + won_amount. Allows update (owner
+    can correct a mis-entry). Tenant safety is enforced at the API layer. Raises ValueError
+    on a non-positive/invalid amount."""
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        raise ValueError("amount must be a positive number")
+    if amount <= 0:
+        raise ValueError("amount must be > 0")
+    won_ts = ts or now_iso()
+    conn = get_conn()
+    conn.execute("UPDATE leads SET won_at=?, won_amount=? WHERE id=?", (won_ts, amount, lead_id))
+    conn.commit()
+    conn.close()
+
+
+def won_leads(business_id, days=None):
+    """E5 / 06-4: aggregate won_amount for a business, tenant-scoped. Returns
+    {'confirmed_revenue': float, 'won_n': int}. Single aggregate query (no N+1); only leads
+    with won_amount IS NOT NULL are counted; optional date window matches analytics()."""
+    conn = get_conn()
+    if days:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).isoformat()
+        row = conn.execute(
+            "SELECT COALESCE(SUM(won_amount), 0), COUNT(*) FROM leads "
+            "WHERE business_id=? AND won_amount IS NOT NULL AND created_at>=?",
+            (business_id, cutoff)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(won_amount), 0), COUNT(*) FROM leads "
+            "WHERE business_id=? AND won_amount IS NOT NULL", (business_id,)).fetchone()
+    conn.close()
+    return {"confirmed_revenue": float(row[0]), "won_n": int(row[1])}

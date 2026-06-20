@@ -30,7 +30,8 @@ import messaging
 
 ALERT_KINDS = ("lead", "booking", "urgent", "canceled", "sms_fail", "forwarding_lost",
                "roi_milestone", "vic_morning", "vic_stall", "screening_graduated",
-               "growth_tray", "daily_digest", "tick_stale", "a2p_approved", "monthly_recap")
+               "growth_tray", "daily_digest", "tick_stale", "a2p_approved", "monthly_recap",
+               "reputation_milestone")
 # Collapse identical alerts (same business + event) within this many seconds.
 ALERT_DEDUPE_SECONDS = 120
 # Proactive daily pushes (day-stamped keys) collapse over the whole local day, not 120s --
@@ -91,7 +92,9 @@ _TOGGLE_COL = {"lead": "alert_on_lead", "booking": "alert_on_booking",
                # rides the lead toggle so the owner who wants lead alerts gets it.
                "a2p_approved": "alert_on_lead",
                # Monthly recap (day 28-31): rides the daily-digest toggle -- no new column.
-               "monthly_recap": "alert_on_daily_digest"}
+               "monthly_recap": "alert_on_daily_digest",
+               # E4: Google review milestone -- rides the roi_milestone toggle (no new column).
+               "reputation_milestone": "alert_on_roi_milestone"}
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -127,6 +130,13 @@ def format_message(kind, context):
         return base
     if kind == "roi_milestone":
         return context.get("body") or "FirstBack alert (roi_milestone)."
+    if kind == "reputation_milestone":
+        # E4: honest copy -- report the actual numbers, name the engine. ASCII only.
+        baseline = context.get("baseline", 0)
+        current = context.get("current", 0)
+        delta = context.get("delta", current - baseline)
+        return (f"You've added {delta} Google reviews since you started -- "
+                f"{baseline} then, {current} now. That's the FirstBack review engine working.")
     if kind == "urgent":
         return f"Urgent: {who}{tail} needs attention. Open FirstBack."
     if kind == "canceled":
@@ -289,7 +299,8 @@ def _subject(kind):
             "daily_digest": "Your morning summary -- FirstBack",
             "tick_stale": "Scheduler may be down -- FirstBack",
             "a2p_approved": "You're live -- FirstBack",
-            "monthly_recap": "Your FirstBack month in review -- FirstBack"}.get(kind, "FirstBack alert")
+            "monthly_recap": "Your FirstBack month in review -- FirstBack",
+            "reputation_milestone": "Your Google reviews are growing -- FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):

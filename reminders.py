@@ -891,6 +891,56 @@ def google_contacts_sync_all(now=None):
     return {"businesses_checked": checked, "businesses_synced": synced, "suggestions_created": created}
 
 
+def scan_google_reputation(now=None):
+    """E4: poll Google Places for each business's review count + rating, then fire a
+    reputation_milestone alert when the count has grown by >= 5 since the baseline. Polls
+    only when review_count_updated_at is NULL or older than 28 days. Returns counts."""
+    now_dt = datetime.now(timezone.utc)
+    now_str = now or now_dt.isoformat()
+    try:
+        cutoff = datetime.fromisoformat(now_str) - timedelta(days=28)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        cutoff = now_dt - timedelta(days=28)
+    polled = milestones = 0
+    try:
+        import reputation as _rep
+    except ImportError:
+        return {"polled": polled, "milestones": milestones}
+    for biz in db.list_businesses():
+        try:
+            bid = biz.get("id")
+            if bid is None:
+                continue
+            updated_at_str = biz.get("review_count_updated_at")
+            if updated_at_str:
+                try:
+                    updated_dt = datetime.fromisoformat(updated_at_str)
+                    if updated_dt.tzinfo is None:
+                        updated_dt = updated_dt.replace(tzinfo=timezone.utc)
+                    if updated_dt >= cutoff:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            result = _rep.poll_google_reputation(bid)
+            if result is None:
+                continue
+            polled += 1
+            fresh_biz = db.get_business(bid)
+            baseline = fresh_biz.get("google_review_count_baseline")
+            current = fresh_biz.get("google_review_count")
+            if baseline is not None and current is not None and (current - baseline) >= 5:
+                alerts.notify(fresh_biz, "reputation_milestone",
+                              {"baseline": baseline, "current": current,
+                               "delta": current - baseline})
+                milestones += 1
+        except Exception as e:
+            print(f"[firstback] scan_google_reputation failed (biz {biz.get('id')}): {e}",
+                  file=sys.stderr, flush=True)
+    return {"polled": polled, "milestones": milestones}
+
+
 def scan_monthly_recap(now=None):
     """Plan 06-3: ONE monthly ROI recap SMS per business per calendar month, on day 28-31
     in the [8,9) local window -- the anti-churn touchpoint that pre-empts renewal-day
@@ -1022,6 +1072,11 @@ def tick_once(now=None):
         scan_monthly_recap(now)
     except Exception as e:
         print(f"[firstback] monthly recap tick failed: {e}", file=sys.stderr, flush=True)
+    # Plan 07-1: monthly Google review poll (inert without GOOGLE_PLACES_API_KEY).
+    try:
+        scan_google_reputation(now)
+    except Exception as e:
+        print(f"[firstback] google reputation tick failed: {e}", file=sys.stderr, flush=True)
     # P1-3: warm-lead stall nudges (proactive owner push; afternoon-only since 6b).
     try:
         scan_stall_nudges(now)

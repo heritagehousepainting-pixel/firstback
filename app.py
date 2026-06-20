@@ -1182,6 +1182,21 @@ def api_analytics():
     return jsonify(db.analytics(current_business()["id"], days))
 
 
+@app.route("/api/reputation")
+@login_required
+def api_reputation():
+    """E4: Google review snapshot for the current business (tenant-scoped, read-only).
+    Current count/rating + the baseline snapshot + last-updated. Null until the first poll."""
+    biz = current_business()
+    return jsonify(
+        review_count=biz.get("google_review_count"),
+        star_rating=biz.get("google_star_rating"),
+        baseline_count=biz.get("google_review_count_baseline"),
+        baseline_rating=biz.get("google_star_rating_baseline"),
+        updated_at=biz.get("review_count_updated_at"),
+    )
+
+
 def _save_screening_prefs(business_id, screen_hard, screen_mid, reputation_enabled,
                           screening_hold):
     """Persist per-tenant screening tuning columns. These live on `businesses` but are
@@ -2307,6 +2322,29 @@ def api_flag_lead_spam(lead_id):
         return jsonify(error="No phone number on file for this lead."), 400
     _mark_number_spam(biz["id"], number)
     return jsonify(ok=True)
+
+
+@app.route("/api/leads/<int:lead_id>/won", methods=["POST"])
+@login_required
+def api_mark_lead_won(lead_id):
+    """E5 / 06-4: owner records the actual closed-job dollar amount for a lead.
+    Form: {amount, _csrf}. Validates amount > 0 and tenant ownership (404 otherwise).
+    Update allowed (correct a mis-entry). Returns {"status":"ok","won_amount": float}."""
+    biz = current_business()
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
+    lead = db.get_lead(lead_id, biz["id"])
+    if not lead:
+        return jsonify(error="Lead not found."), 404
+    try:
+        amount = float(request.form.get("amount", 0))
+    except (TypeError, ValueError):
+        return jsonify(error="amount must be a positive number"), 400
+    try:
+        db.mark_lead_won(lead_id, amount)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok", won_amount=amount)
 
 
 # ---- Caller triage: the suggestion / "for review" queue ----

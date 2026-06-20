@@ -106,6 +106,13 @@
     </div>
     <div id="convo-actions" class="convo-actions" hidden>
       <button type="button" id="convo-flag-spam" class="btn btn-ghost btn-sm">Mark as spam</button>
+      {# E5 / Plan 06 Change 4: real-dollar attribution -- "Mark closed ($)" #}
+      <span id="won-closed-label" style="display:none" class="dt-muted won-closed-label"></span>
+      <span id="won-entry" style="display:none" class="won-entry">
+        <input type="number" id="won-amount-input" class="won-amount-input" min="1" step="1" placeholder="$ amount" aria-label="Closed job amount in dollars">
+        <button type="button" id="won-save-btn" class="btn btn-ghost btn-sm">Save</button>
+      </span>
+      <button type="button" id="convo-mark-won" class="btn btn-ghost btn-sm">Mark closed ($)</button>
     </div>
   {% endcall %}
 </div>
@@ -190,4 +197,55 @@
     {{ empty_state('No alerts yet', 'When a lead comes in or an estimate books, FirstBack notes it here — and texts or emails you if you’ve set that up in Settings.') }}
   {% endif %}
 {% endcall %}
+
+<script>
+// E5 / Plan 06 Change 4: "Mark closed ($)" -- inline won-amount entry on the lead panel.
+// Reuses the csrfPost/apiFetch helpers from app.js (same as convo-flag-spam).
+(function () {
+  var markWonBtn = document.getElementById("convo-mark-won");
+  var wonEntry = document.getElementById("won-entry");
+  var wonInput = document.getElementById("won-amount-input");
+  var wonSaveBtn = document.getElementById("won-save-btn");
+  var wonLabel = document.getElementById("won-closed-label");
+  if (!markWonBtn) return;
+
+  markWonBtn.addEventListener("click", function () {
+    markWonBtn.style.display = "none";
+    wonEntry.style.display = "";
+    wonInput.focus();
+  });
+
+  wonSaveBtn.addEventListener("click", async function () {
+    var raw = parseFloat(wonInput.value);
+    if (!raw || raw <= 0) { wonInput.focus(); return; }
+    var selectedRow = document.querySelector(".dt-row.is-selected");
+    var leadId = selectedRow && selectedRow.dataset.id;
+    if (!leadId) return;
+    wonSaveBtn.disabled = true;
+    wonSaveBtn.textContent = "Saving...";
+    try {
+      await apiFetch("/api/leads/" + leadId + "/won", csrfPost({amount: raw}));
+      wonEntry.style.display = "none";
+      var fmt = raw.toLocaleString("en-US", {style: "currency", currency: "USD", maximumFractionDigits: 0});
+      wonLabel.textContent = "Closed: " + fmt;
+      wonLabel.style.display = "";
+    } catch (err) {
+      wonSaveBtn.disabled = false;
+      wonSaveBtn.textContent = "Try again";
+    }
+  });
+
+  // Reset the won control when a different lead is opened.
+  document.querySelectorAll(".dt-row").forEach(function (row) {
+    row.addEventListener("click", function () {
+      markWonBtn.style.display = "";
+      wonEntry.style.display = "none";
+      wonLabel.style.display = "none";
+      wonInput.value = "";
+      wonSaveBtn.disabled = false;
+      wonSaveBtn.textContent = "Save";
+    });
+  });
+}());
+</script>
 {% endblock %}

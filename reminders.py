@@ -891,6 +891,67 @@ def google_contacts_sync_all(now=None):
     return {"businesses_checked": checked, "businesses_synced": synced, "suggestions_created": created}
 
 
+def scan_monthly_recap(now=None):
+    """Plan 06-3: ONE monthly ROI recap SMS per business per calendar month, on day 28-31
+    in the [8,9) local window -- the anti-churn touchpoint that pre-empts renewal-day
+    cancellation with concrete evidence. Dedupe via db.get_meta/set_meta per-month key.
+    Gates: a2p_ready + booked>=1. Screening stats ride as a SECTION (plan 08 fold-in), not
+    a second SMS. Returns the count fired."""
+    import compliance as _compliance
+    now = now or db.now_iso()
+    fired = 0
+    for biz in db.list_businesses():
+        try:
+            tz = _biz_tz(biz)
+            try:
+                now_local = datetime.fromisoformat(now).astimezone(tz)
+            except (TypeError, ValueError):
+                now_local = datetime.now(tz)
+            if now_local.day not in (28, 29, 30, 31):
+                continue
+            if not (8 <= now_local.hour < 9):
+                continue
+            bid = biz.get("id")
+            if bid is None:
+                continue
+            ym = now_local.strftime("%Y-%m")
+            dedupe_key = f"monthly_recap:{bid}:{ym}"
+            if db.get_meta(dedupe_key):
+                continue
+            if not _compliance.a2p_ready(biz):
+                continue
+            try:
+                a = db.analytics(bid, days=30)
+            except Exception:
+                continue
+            booked = (a.get("totals") or {}).get("booked") or a.get("booked") or 0
+            if booked < 1:
+                continue
+            leads = (a.get("totals") or {}).get("leads") or a.get("leads") or 0
+            revenue = a.get("revenue") or 0
+            roi_multiple = a.get("roi_multiple")
+            avg_source = a.get("avg_source") or "industry_default"
+            screening_section = ""
+            try:
+                sc = db.screening_monthly_stats(bid)
+                n_robo = sc.get("robocalls_screened", 0)
+                if n_robo:
+                    word = "robocall" if n_robo == 1 else "robocalls"
+                    screening_section = f"Plus {n_robo} {word} screened."
+            except Exception:
+                pass
+            ctx = {"month": ym, "leads": leads, "booked": booked, "revenue": revenue,
+                   "multiple": roi_multiple, "avg_source": avg_source,
+                   "screening_section": screening_section}
+            if alerts.notify(biz, "monthly_recap", ctx):
+                db.set_meta(dedupe_key, now)
+                fired += 1
+        except Exception as e:
+            print(f"[firstback] monthly recap scan failed (biz {biz.get('id')}): {e}",
+                  file=sys.stderr, flush=True)
+    return fired
+
+
 def tick_once(now=None):
     """One scheduler pass: refresh caller-triage suggestions, queue follow-ups, then
     send everything due. Always writes a heartbeat to meta (SF-3), even on partial
@@ -956,6 +1017,11 @@ def tick_once(now=None):
         scan_daily_digest(now)
     except Exception as e:
         print(f"[firstback] daily digest tick failed: {e}", file=sys.stderr, flush=True)
+    # Plan 06-3: monthly ROI recap (day 28-31, once per month, dedupe via meta key).
+    try:
+        scan_monthly_recap(now)
+    except Exception as e:
+        print(f"[firstback] monthly recap tick failed: {e}", file=sys.stderr, flush=True)
     # P1-3: warm-lead stall nudges (proactive owner push; afternoon-only since 6b).
     try:
         scan_stall_nudges(now)

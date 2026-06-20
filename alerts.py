@@ -30,7 +30,7 @@ import messaging
 
 ALERT_KINDS = ("lead", "booking", "urgent", "canceled", "sms_fail", "forwarding_lost",
                "roi_milestone", "vic_morning", "vic_stall", "screening_graduated",
-               "growth_tray", "daily_digest", "tick_stale", "a2p_approved")
+               "growth_tray", "daily_digest", "tick_stale", "a2p_approved", "monthly_recap")
 # Collapse identical alerts (same business + event) within this many seconds.
 ALERT_DEDUPE_SECONDS = 120
 # Proactive daily pushes (day-stamped keys) collapse over the whole local day, not 120s --
@@ -89,7 +89,9 @@ _TOGGLE_COL = {"lead": "alert_on_lead", "booking": "alert_on_booking",
                "tick_stale": "alert_on_urgent",
                # Tier-0 F8: "you're live" when A2P approves -- a one-time, must-see event;
                # rides the lead toggle so the owner who wants lead alerts gets it.
-               "a2p_approved": "alert_on_lead"}
+               "a2p_approved": "alert_on_lead",
+               # Monthly recap (day 28-31): rides the daily-digest toggle -- no new column.
+               "monthly_recap": "alert_on_daily_digest"}
 _PLACEHOLDER_NAMES = {"", "new caller", "homeowner", "unknown", "the caller", "caller"}
 
 
@@ -238,6 +240,23 @@ def format_message(kind, context):
         if len(base) > 320:
             base = base[:317].rstrip() + "..."
         return base
+    if kind == "monthly_recap":
+        # Anti-churn day-28 recap: honest revenue with estimate label, optional ROI multiple,
+        # screening section when present. ASCII only, <=320 chars.
+        leads = context.get("leads", 0)
+        booked = context.get("booked", 0)
+        revenue = context.get("revenue", 0)
+        multiple = context.get("multiple")
+        avg_source = context.get("avg_source", "industry_default")
+        est_label = "(estimated)" if avg_source != "owner" else "(based on your job value)"
+        multi_line = f" -- about {multiple}x what it costs" if multiple else ""
+        screening_section = (context.get("screening_section") or "").strip()
+        base = (f"Your FirstBack month: {leads} missed calls rescued, {booked} booked, "
+                f"~${revenue:,} recovered {est_label}{multi_line}.")
+        if screening_section:
+            base += f" {screening_section}"
+        base += " Reply STATS to see the full breakdown."
+        return base
     if kind == "a2p_approved":
         # Tier-0 F8: the go-live moment. Honest -- texting is now actually on, and any calls
         # that came in during the carrier wait have had their queued text-backs replayed.
@@ -269,7 +288,8 @@ def _subject(kind):
             "growth_tray": "Your morning growth tray -- FirstBack",
             "daily_digest": "Your morning summary -- FirstBack",
             "tick_stale": "Scheduler may be down -- FirstBack",
-            "a2p_approved": "You're live -- FirstBack"}.get(kind, "FirstBack alert")
+            "a2p_approved": "You're live -- FirstBack",
+            "monthly_recap": "Your FirstBack month in review -- FirstBack"}.get(kind, "FirstBack alert")
 
 
 def _enabled_for(business, kind):
@@ -312,6 +332,11 @@ def _dedupe_key(kind, context):
         # Per-level so two bookings seconds apart crossing different milestone levels each
         # send (a bare kind key would collapse them within the 120s window).
         return f"roi_milestone:{context.get('level')}"
+    if kind == "monthly_recap":
+        # Month-stamped: one recap per business per calendar month. NOT in _DAILY_DEDUPE_KINDS
+        # -- the 26h window is wrong for a day-28..31 trigger. The real per-month guard is the
+        # caller (scan_monthly_recap) via db.get_meta/set_meta.
+        return f"monthly_recap:{context.get('month')}"
     base = f"{kind}:{context.get('lead_id')}"
     return base + (f":{context.get('when')}" if kind in ("booking", "canceled") else "")
 

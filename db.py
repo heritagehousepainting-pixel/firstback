@@ -3841,3 +3841,23 @@ def voice_spend_this_month(biz_id):
         (biz_id, first_of_month)).fetchone()
     conn.close()
     return int(row[0]) if row else 0
+
+
+def screening_monthly_stats(business_id):
+    """Robocall/spam screening stats for the last ~30 days, tenant-scoped (plan 08 fold-in).
+    Returns {'robocalls_screened': N} (enforced spam blocks in the last 30 days). Never
+    raises -- returns zeros on empty/error. Mirrors screening_stats / recent_screened_calls."""
+    try:
+        conn = get_conn()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        row = conn.execute(
+            "SELECT SUM(CASE WHEN screen_status='screened_spam' AND screen_mode='enforce' "
+            "  THEN 1 ELSE 0 END) AS robocalls_screened "
+            "FROM calls WHERE business_id=? AND missed=1 AND created_at>=?",
+            (business_id, cutoff)).fetchone()
+        conn.close()
+        if row is None:
+            return {"robocalls_screened": 0}
+        return {"robocalls_screened": int(row["robocalls_screened"] or 0)}
+    except Exception:
+        return {"robocalls_screened": 0}

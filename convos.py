@@ -320,7 +320,8 @@ def _roi_block(business, days):
             return (
                 f"This week FirstBack recovered {leads} missed calls and booked "
                 f"{booked} estimates -- an estimated ~${revenue:,} "
-                f"({roi_str}estimate based on {source_label})."
+                f"({roi_str}estimate based on {source_label}). "
+                f"That's revenue that would have walked without a text-back."
             )
         except Exception:
             return None

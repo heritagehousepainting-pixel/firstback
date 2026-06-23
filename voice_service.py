@@ -229,10 +229,16 @@ async def _send_recovery_sms(biz_id, lead_id, body):
         print(f"[firstback] recovery SMS relay failed: {exc}", file=sys.stderr, flush=True)
 
 
-def build_twiml(biz_id, lead_id, wss_base=None, name=None):
-    """The ConversationRelay TwiML for an AI voice call. Pure + testable."""
-    greeting = (f"Hi, this is the scheduling assistant for {_greeting_name(biz_id, name)}. "
-                "This call may be recorded. How can I help you book your free estimate?")
+def build_twiml(biz_id, lead_id, wss_base=None, name=None, greeting=None):
+    """The ConversationRelay TwiML for an AI voice call. Pure + testable.
+
+    greeting: when provided, overrides the default welcome greeting. Used by the
+    inbound AI-answering path (plan 17) to supply a caller-facing disclosure greeting
+    without a recording claim. When absent the default outbound greeting is used
+    unchanged (all 153 existing voice tests remain unaffected)."""
+    if greeting is None:
+        greeting = (f"Hi, this is the scheduling assistant for {_greeting_name(biz_id, name)}. "
+                    "This call may be recorded. How can I help you book your free estimate?")
     base = (wss_base or _wss_base() or "").rstrip("/")
     ws_url = f"{base}/ws?biz={biz_id}&lead={lead_id}"
     voice_attr = f' voice="{_xesc(CONVERSATIONRELAY_VOICE)}"' if CONVERSATIONRELAY_VOICE else ""
@@ -251,12 +257,16 @@ async def twiml(request: Request):
     biz_id = request.query_params.get("biz", "")
     lead_id = request.query_params.get("lead", "")
     name = request.query_params.get("name", "")
+    # greeting= is supplied by the inbound AI-answering path (plan 17) to use an
+    # AI-disclosure greeting (no recording claim). Absent -> None -> default greeting.
+    greeting = request.query_params.get("greeting", "") or None
     # If VOICE_PUBLIC_URL isn't set (e.g. local ngrok), derive wss from the host
     # Twilio reached us on. Twilio always uses TLS, so wss:// is correct.
     fallback = None
     if not _wss_base():
         fallback = "wss://" + request.headers.get("host", "")
-    return Response(content=build_twiml(biz_id, lead_id, fallback, name or None),
+    return Response(content=build_twiml(biz_id, lead_id, fallback, name or None,
+                                        greeting=greeting),
                     media_type="text/xml")
 
 

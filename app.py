@@ -1291,7 +1291,8 @@ def settings():
         db.update_phone_voice(
             biz["id"],
             forward_to=(request.form.get("forward_to") or "").strip(),
-            voice_callback_enabled=1 if request.form.get("voice_callback_enabled") else 0)
+            voice_callback_enabled=1 if request.form.get("voice_callback_enabled") else 0,
+            inbound_voice_enabled=1 if request.form.get("inbound_voice_enabled") else 0)
         # Per-business screening mode: blank/"default" -> NULL (inherit the app default).
         db.set_screen_mode(biz["id"], (request.form.get("screen_mode") or "").strip())
         # Sensitivity preset: radio -> (screen_hard, screen_mid) stored per-tenant.
@@ -3062,6 +3063,88 @@ def _missed_call_textback(biz, caller, call_sid="", dial_status=""):
     return False   # repeat call on an existing thread: no NEW text went out this call
 
 
+def _connect_inbound_to_ai(biz, caller, call_sid, verdict=None):
+    """Plan 17: attempt to connect an inbound missed call to the AI ConversationRelay.
+
+    Gates (any fail -> return None -> caller falls through to _missed_call_textback):
+      1. VOICE_PUBLIC_URL is set (voice service deployed).
+      2. biz.inbound_voice_enabled == 1 (per-business opt-in; default 0/off).
+      3. Monthly voice spend is under config.VOICE_MONTHLY_CAP_CENTS.
+      4. FIX-3: uses the passed-in screening verdict (do NOT re-screen here).
+         If the caller is confirmed spam in enforce mode, bail.
+      Q3: health-probe GET VOICE_PUBLIC_URL with a tight 400ms timeout; on
+         ConnectionError or Timeout returns None (caller gets text-back, no dead air).
+
+    On success: logs the call (FIX-2), opens a voice_calls row, builds the
+    /twiml URL (FIX-5: quote() on name AND greeting), and returns a <Redirect>
+    TwiML that sends Twilio to the voice service's /twiml endpoint, which returns
+    ConversationRelay TwiML (reusing build_twiml with the custom inbound greeting).
+    Inbound greeting is AI-disclosed with no recording claim (FIX-6).
+    """
+    import requests as _req
+    biz_id = biz["id"]
+
+    # Gate 1: voice service must be deployed.
+    if not VOICE_PUBLIC_URL:
+        return None
+    # Gate 2: per-business inbound AI answering must be enabled (default 0 = inert).
+    if not biz.get("inbound_voice_enabled"):
+        return None
+    # Gate 3: monthly cap.
+    if db.voice_spend_this_month(biz_id) >= config.VOICE_MONTHLY_CAP_CENTS:
+        return None
+    # Gate 4 (FIX-3): use the pre-computed verdict; don't re-screen (would charge again).
+    if verdict is not None:
+        mode = _effective_screen_mode(biz)
+        if not verdict.get("engage") and mode == "enforce":
+            return None
+
+    # Q3 health probe: a tight preflight so we never hand the caller dead air when the
+    # voice service is down. ConnectionError or Timeout -> fall through to text-back.
+    try:
+        _req.get(VOICE_PUBLIC_URL, timeout=0.4)
+    except Exception:
+        return None
+
+    # Find or create the lead.
+    lead = db.get_lead_by_phone(biz_id, caller)
+    if not lead:
+        lead = db.get_lead(db.create_lead(biz_id, "New Caller", caller))
+    lead_id = lead["id"]
+
+    # FIX-2: log the call so it appears in the call log + screening stats.
+    biz_twilio_number = biz.get("twilio_number") or ""
+    db.log_call(biz_id, call_sid, from_number=caller, to_number=biz_twilio_number,
+                dial_status="ai-answered", missed=0, lead_id=lead_id, engaged=1)
+    # Open the voice_calls metering row (closed by /webhooks/twilio/voice/status).
+    db.insert_voice_call(biz_id, lead_id, call_sid)
+
+    # FIX-6: inbound greeting -- AI disclosed, no recording claim.
+    biz_name = biz.get("name") or "us"
+    inbound_greeting = (
+        f"Hi, you've reached {biz_name}. I'm an AI scheduling assistant"
+        " -- I can get you booked for a free estimate right now."
+        " What can we help you with?"
+    )
+
+    # FIX-5: URL-encode name AND greeting so special chars don't break the query string.
+    # Twilio will GET this URL and execute the returned ConversationRelay TwiML (reusing
+    # voice_service.build_twiml with greeting= so the inbound greeting is used).
+    twiml_url = (
+        VOICE_PUBLIC_URL.rstrip("/") + "/twiml"
+        + "?biz=" + quote(str(biz_id))
+        + "&lead=" + quote(str(lead_id))
+        + "&name=" + quote(biz_name)
+        + "&greeting=" + quote(inbound_greeting)
+    )
+    # Return a <Redirect> so Twilio fetches the voice service's /twiml endpoint and
+    # executes the ConversationRelay TwiML it returns. This is the same mechanism used
+    # by the outbound callback path (place_call uses twiml_url the same way).
+    return _twiml(
+        f'<Response><Redirect method="GET">{_xesc(twiml_url)}</Redirect></Response>'
+    )
+
+
 @app.route("/webhooks/twilio/voice/inbound", methods=["POST"])
 @require_twilio_signature
 def twilio_voice_inbound():
@@ -3088,8 +3171,16 @@ def twilio_voice_inbound():
         return _twiml(
             f'<Response><Dial answerOnBridge="true" timeout="18" action="{action}" '
             f'method="POST"><Number>{_xesc(forward)}</Number></Dial></Response>')
-    engaged = _missed_call_textback(biz, request.form.get("From", ""),
-                                    call_sid, "no-forward")
+    # Hook B (plan 17): no forward_to set — try AI answering before text-back.
+    # Sentinel is already handled above (returns Hangup); sentinel never reaches here.
+    _hb_caller = request.form.get("From", "")
+    _hb_verdict = (_screen_missed_caller(biz, _hb_caller)
+                   if _effective_screen_mode(biz) != "off" else None)
+    _hb_ai = _connect_inbound_to_ai(biz, _hb_caller, call_sid, _hb_verdict)
+    if _hb_ai is not None:
+        return _hb_ai
+    # AI answering off/gated/failed — fall through to existing text-back.
+    engaged = _missed_call_textback(biz, _hb_caller, call_sid, "no-forward")
     if engaged:
         return _twiml("<Response><Say>Sorry we missed you. We just sent you a text "
                       "message. Goodbye.</Say><Hangup/></Response>")
@@ -3106,8 +3197,21 @@ def twilio_voice_dial_status():
     biz = db.get_business_by_twilio_number(request.form.get("To", ""))
     status = (request.form.get("DialCallStatus") or "").lower()
     if biz and status in _MISSED_DIAL:
-        engaged = _missed_call_textback(biz, request.form.get("From", ""),
-                                        request.form.get("CallSid", ""), status)
+        _from = request.form.get("From", "")
+        _csid = request.form.get("CallSid", "")
+        # Hook A (plan 17, FIX-1): only when the caller is still on the line.
+        # 'canceled' means the caller hung up before we answered — do NOT open a
+        # ConversationRelay session for a dead line; fall straight to text-back.
+        if status != "canceled":
+            _verdict = _screen_missed_caller(biz, _from) if _effective_screen_mode(biz) != "off" else None
+            _ai_twiml = _connect_inbound_to_ai(biz, _from, _csid, _verdict)
+            if _ai_twiml is not None:
+                return _ai_twiml
+        # If AI answering is off/gated/failed (or status==canceled), fall through to text-back.
+        # _missed_call_textback re-screens internally; no double-screening risk here because
+        # either we never screened (canceled / gate failed before verdict) or the verdict
+        # was computed but the helper returned None (spam/cap) so text-back handles it fresh.
+        engaged = _missed_call_textback(biz, _from, _csid, status)
         if engaged:
             # 10-1: opt-in voicemail capture. Offer the caller (single-party, standard
             # voicemail -- NOT a recorded live conversation) to leave a message that

@@ -44,13 +44,16 @@
     <div class="field-grid">
       {{ field('Ring my cell first (optional)', name='forward_to', value=business.forward_to or '', type='tel', placeholder='+1 555 123 4567', help='An inbound call rings this number first. If you don’t pick up, FirstBack takes over and texts the caller back.') }}
     </div>
-    <div class="toggle-list">
+    <div class=”toggle-list”>
       {{ alert_toggle('voice_callback_enabled', 'Let a caller reply “CALL” to get an AI phone callback', business.voice_callback_enabled) }}
+      {% if voice_configured and sms_configured %}
+      {{ alert_toggle('inbound_voice_enabled', 'Answer inbound calls with AI when you don\'t pick up -- the caller is told they\'re speaking with an AI assistant for ' ~ (business.name or 'your business') ~ '.', business.inbound_voice_enabled) }}
+      {% endif %}
     </div>
     {% if voice_configured and sms_configured %}
-    <p class="provider-note provider-note-ok">Voice callback is <strong>live</strong>. When a caller replies CALL, FirstBack phones them, talks through the job, and books the estimate — within quiet hours only.</p>
+    <p class=”provider-note provider-note-ok”>Voice callback is <strong>live</strong>. When a caller replies CALL, FirstBack phones them, talks through the job, and books the estimate -- within quiet hours only.</p>
     {% else %}
-    <p class="provider-note provider-note-soft">The AI voice callback goes live once you connect <strong>Twilio</strong> and deploy the voice service. Until then, a caller who replies CALL simply keeps chatting by <strong>text</strong> — nothing breaks.</p>
+    <p class=”provider-note provider-note-soft”>The AI voice callback goes live once you connect <strong>Twilio</strong> and deploy the voice service. Until then, a caller who replies CALL simply keeps chatting by <strong>text</strong> -- nothing breaks.</p>
     {% endif %}
   {% endcall %}
 

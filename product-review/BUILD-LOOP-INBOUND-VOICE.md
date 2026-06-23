@@ -32,10 +32,19 @@ texts CALL → AI phones back). Reuse the existing ConversationRelay infra (`voi
 - [x] **S2 AUDIT** (sonnet) → DONE. **GO-WITH-FIXES** (`plan-audits/17-audit.md`). Verified hooks +
       sentinel-can't-hijack + no-regression + metering race-free + compliance. 3 P1 fixes caught:
       FIX-1 (canceled→skip AI), FIX-2 (log_call ai-answered), FIX-3 (no double screen). + health-probe for downtime.
-- [ ] **S3 BUILD** (sonnet, write-capable) → implement plan 17 with FIX-1..6 + health probe; mocked tests
-      green; don't break existing flows; ASCII Jinja only. ← **IN PROGRESS**
-- [ ] **S4 BUILD-AUDIT** (sonnet/inline) → review (compliance/honesty/regression/smart-quote) + tests green. Commit/push staging.
-- [ ] **S5 HANDOFF** → SETUP_NEEDED inbound-voice go-live + memory; loop stops; notify owner. END of the 2-loop run.
+- [x] **S3 BUILD** (sonnet) → DONE. db migration + `update_phone_voice` kwarg; `build_twiml(greeting=)`;
+      `_connect_inbound_to_ai` + Hook A + Hook B + settings toggle; new `test_inbound_voice.py` (38).
+      FIX-1..6 + health probe applied. Uses `<Redirect>` to voice `/twiml` (reuses build_twiml).
+- [x] **S4 BUILD-AUDIT** → inline. **SHIP**, no P1 (`plan-audits/17-build-audit.md`). Verified gates/sentinel/
+      metering/compliance/inert-when-off; **243 tests 0 regressions**; settings parses (no corruption).
+      **Inbound-voice committed + pushed to staging.**
+- [x] **S5 HANDOFF** → SETUP_NEEDED inbound-voice section added; memory updated. Loop stops; owner notified.
+
+## Outcome (2026-06-23)
+Live inbound AI voice answering shipped to `staging` (commit below), gated/inert until the voice service is
+deployed AND a business sets `inbound_voice_enabled=1`. Fallback model (always-AI = blank forward_to). Reuses
+the ConversationRelay voice service unchanged. Owner gates main (NOT promoted). Owner go-live decisions
+(recording disclosure, attorney review) in SETUP_NEEDED. **INBOUND-VOICE LOOP COMPLETE → 2-loop run COMPLETE.**
 
 ## Log
 - 2026-06-23: loop created after HCP shipped; S1 assess+plan agent dispatched.

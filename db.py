@@ -922,6 +922,13 @@ def init_db():
     if "outlook_event_id" not in appt_cols:
         c.execute("ALTER TABLE appointments ADD COLUMN outlook_event_id TEXT")
 
+    # Plan 17 — Live inbound AI voice answering. Distinct from voice_callback_enabled
+    # (outbound callback triggered by a CALL reply). Default 0 (off) so existing tenants
+    # never get AI answering without opting in.
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    if "inbound_voice_enabled" not in biz_cols:
+        c.execute("ALTER TABLE businesses ADD COLUMN inbound_voice_enabled INTEGER DEFAULT 0")
+
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
         b = DEFAULT_BUSINESS
@@ -1140,10 +1147,14 @@ def set_screen_mode(business_id, mode):
     conn.close()
 
 
-def update_phone_voice(business_id, forward_to=None, voice_callback_enabled=None):
+def update_phone_voice(business_id, forward_to=None, voice_callback_enabled=None,
+                       inbound_voice_enabled=None):
     """Persist the phone-forwarding + AI-voice-callback settings. Kept separate from
     update_business because _BUSINESS_COLS is also used for the seed INSERT (keyed to
-    DEFAULT_BUSINESS), so these columns must not be added to that list."""
+    DEFAULT_BUSINESS), so these columns must not be added to that list.
+
+    inbound_voice_enabled (plan 17): live AI answering on a missed call.
+    DISTINCT from voice_callback_enabled (outbound callback triggered by a CALL reply)."""
     sets, vals = [], []
     if forward_to is not None:
         sets.append("forward_to=?")
@@ -1151,6 +1162,9 @@ def update_phone_voice(business_id, forward_to=None, voice_callback_enabled=None
     if voice_callback_enabled is not None:
         sets.append("voice_callback_enabled=?")
         vals.append(1 if voice_callback_enabled else 0)
+    if inbound_voice_enabled is not None:
+        sets.append("inbound_voice_enabled=?")
+        vals.append(1 if inbound_voice_enabled else 0)
     if not sets:
         return
     conn = get_conn()

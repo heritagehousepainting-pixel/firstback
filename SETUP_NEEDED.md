@@ -457,6 +457,14 @@ honored; marketing copy auto-flips on deploy). See `product-review/plans/15-voic
 3. Confirm `FIRSTBACK_PUBLIC_URL` set on web (AMD StatusCallback + the dispatcher TwiML base). ConversationRelay needs no Twilio add-on.
 4. **Flip voice ON for the live tenant:** the `voice_callback_enabled` column defaults to 0, so save Settings
    with the "reply CALL" toggle ON (or `UPDATE businesses SET voice_callback_enabled=1 WHERE id=1`).
+4b. **Live INBOUND AI answering (new, Plan 17)** — the AI answers an incoming call live and books, distinct
+   from the "reply CALL" callback. Same prerequisite (`FIRSTBACK_VOICE_URL` set). Turn on per-business via the
+   new Settings toggle ("Answer inbound calls with AI…") = `inbound_voice_enabled` (defaults 0). Model:
+   fallback (ring your cell 18s → AI answers on no-answer); **always-AI** = leave `forward_to` blank + toggle on.
+   Inert until both the voice service is deployed AND the toggle is on; has a health-probe so callers never hear
+   dead air if the service is down (falls back to text). OWNER decisions before real-customer use: (a) recording
+   disclosure — greeting currently makes NO recording claim (transcript relay); add one only if you enable audio
+   recording; (b) **attorney review** of AI-voice (inbound ≈ IVR, lower TCPA risk than outbound, but confirm).
 5. Cost: ~$0.10–0.13/min (3-min call ≈ $0.30); default cap $20/biz/mo (`FIRSTBACK_VOICE_MONTHLY_CAP_CENTS`).
    Per DEV-HANDOFF: price voice as a $29–$49/mo opt-in add-on once pricing/billing is live.
 

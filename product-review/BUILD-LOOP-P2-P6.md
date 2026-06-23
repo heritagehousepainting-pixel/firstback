@@ -44,7 +44,18 @@ Goal: build the two genuinely-new roadmap items from `DEV-HANDOFF-2026-06-23.md`
       `product-review/plan-audits/14-build-audit.md`. Confirmed all 5 fixes + clean smart-quote rescan.
       Orchestrator fixed P2-2 (naive-datetime→UTC) + P2-3 (added /settings render guard; outlook 85→88).
       **P6 committed + pushed to staging.**
-- [ ] **S7 HANDOFF** → update tracker + SETUP_NEEDED (owner creds to flip live) + memory. Loop stops; notify owner. ← **IN PROGRESS**
+- [x] **S7 HANDOFF** → DONE. SETUP_NEEDED updated with the owner-cred checklist for Jobber + Outlook;
+      memory updated; loop stopped; owner notified. **LOOP COMPLETE.**
+
+## Outcome (2026-06-23)
+Both features built, audited (plan + build), and committed to `staging` — gated/inert until the owner
+sets credentials. Owner gates the staging→main promotion (NOT yet promoted).
+- **P2 Jobber FSM sync** (read-only v1): commit `0c5433e`. test_fsm_sync 78/0.
+- **P6 Outlook calendar**: commit `0257f61`. test_outlook_cal 88/0.
+- Regressions green throughout (setup 147/0, sf8_connections 99/0, screening 57/0, scheduling 18/0).
+- Notable catch: the P6 build agent's editor mangled `settings.html` Jinja delimiters into smart quotes
+  (would have crashed `/settings`); orchestrator caught + fixed in verification, added a /settings render
+  regression guard. **Owner decision still open: Jobber vs Housecall Pro** for the FSM v1.
 
 ## Open decision to surface to owner (do not block the loop on it)
 - **Jobber vs Housecall Pro first** (doc open-question #2). Plan agent recommends; owner confirms

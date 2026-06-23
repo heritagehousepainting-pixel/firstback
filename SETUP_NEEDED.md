@@ -418,6 +418,24 @@ designed to be **inert/opt-in by default** until explicitly enabled.
 - **Soft-overage billing** vs hard cap — **HOLD** (owner deferred). Keep the shipped soft
   "we'll alert you" FAQ wording; no $0.75/extra-reply promise until billing is wired.
 
+### New integrations built 2026-06-23 (gated/inert — owner creds to flip live)
+Both shipped on `staging` via the autonomous build loop (`product-review/BUILD-LOOP-P2-P6.md`,
+plans 13/14). Inert no-ops until the env vars are set — nothing fires without them.
+- **Jobber FSM sync (P2, read-only v1)** — recommended over Housecall Pro; **owner: confirm
+  Jobber vs HCP** before going live (provider abstraction `fsm_provider.py` lets HCP swap in later).
+  To flip live: create a Jobber Developer app (scopes `read_clients`, `read_jobs`,
+  `write_quote_requests` — needs **Jobber Connect tier or higher**), then set Render env
+  `JOBBER_CLIENT_ID`, `JOBBER_CLIENT_SECRET`, `JOBBER_REDIRECT_URI` (+ optional `FSM_SYNC_INTERVAL_HOURS`,
+  default 24). Then **Settings → Connect Jobber** → OAuth → synced clients land as contact
+  *suggestions* to review (Bulk Accept available); accepted clients feed call screening so the AI
+  never cold-texts an existing customer. Booked estimates push back as Jobber quote-requests.
+- **Outlook / Microsoft 365 calendar (P6)** — second calendar provider alongside Google; both can be
+  connected at once. To flip live: register an Azure AD app (delegated `Calendars.ReadWrite` +
+  `offline_access`, account types "any org + personal"), then set Render env `MICROSOFT_CLIENT_ID`,
+  `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_REDIRECT_URI` (+ optional `MICROSOFT_TENANT_ID`, default
+  "common"). Then **Settings → Connect Outlook**. Note: personal MS accounts expire refresh tokens
+  (24h inactivity / 90d) → the card shows "Reconnect Outlook" if that happens.
+
 ### Still NEEDS-OWNER (not built — external credentials)
 - **Deposit link at booking** (plan 10-3): owner creates a Stripe **Payment Link**, pastes the URL.
 - **GBP review dashboard** (plan 10-4): Google **business-scope re-auth** + enable the GBP API.

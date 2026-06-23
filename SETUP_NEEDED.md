@@ -397,14 +397,19 @@ audit lanes passed). **Production (`main`) is untouched at `92aacde`.** Everythi
 - **Google review tracking** (Batch E): set `GOOGLE_PLACES_API_KEY` (already used for setup
   autocomplete). Inert/no-op without it.
 
-### Founder decisions (gate copy/policy I deliberately did NOT ship)
-- 30-day **money-back guarantee** badge (real refund commitment).
-- Lead the hero with **"it books the job" + the Vic briefing** framing (briefing is login-gated;
-  hero claim would overclaim until it's a public feature).
-- Bundle **paid caller-reputation** (Nomorobo/Hiya) into a paid tier — set
-  `FIRSTBACK_REPUTATION_PROVIDER`; has a real cost + pricing implication.
-- **Soft-overage billing** (charge per extra reply) vs the hard cap (the FAQ ships the soft
-  "we'll alert you" version only — no $0.75 promise until billing is wired).
+### Founder decisions (gate copy/policy I deliberately did NOT ship) — RESOLVED 2026-06-23
+- 30-day **money-back guarantee** badge — **NO** (owner: don't want to attract refund-seekers /
+  sign-ups gaming the guarantee). Not shipped.
+- Lead the hero with **"it books the job" + the Vic briefing** — **DONE.** Added a "morning
+  briefing" section below the homepage hero (`templates/onboarding.html` → `.ob-after` /
+  `.ob-brief*`, styles in `static/onboarding.css`): kicker "While you were on the ladder", H2
+  "You wake up to a plan, not a pile.", a static mock of the real dashboard briefing card
+  (`assistant.py:briefing`). On `staging`, awaiting owner OK to promote.
+- Bundle **paid caller-reputation** (Nomorobo/Hiya) into a paid tier — **GO but DEFERRED.**
+  Wait until `/pricing` is live, then ship the provider (`FIRSTBACK_REPUTATION_PROVIDER`) +
+  paid-tier copy together (no per-lookup cost until a paid tier captures it).
+- **Soft-overage billing** vs hard cap — **HOLD** (owner deferred). Keep the shipped soft
+  "we'll alert you" FAQ wording; no $0.75/extra-reply promise until billing is wired.
 
 ### Still NEEDS-OWNER (not built — external credentials)
 - **Deposit link at booking** (plan 10-3): owner creates a Stripe **Payment Link**, pastes the URL.

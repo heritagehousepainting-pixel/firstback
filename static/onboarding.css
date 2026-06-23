@@ -235,3 +235,60 @@
 @media (prefers-reduced-motion: reduce){
   .ob-chat,.ob-submit{transition:none}
 }
+
+/* ============================================================================
+   Morning-briefing band (below the hero). Same paper + registration-tick
+   language as .ob-proof; a static mock of the real dashboard briefing card so
+   the promise ("it doesn't just book — it tells you what to do") matches the
+   product. Tone dots/tags reuse the app's semantic hues.
+   ============================================================================ */
+.ob-after{border-top:1px solid var(--border);background:var(--surface);
+  padding:clamp(56px,8vw,104px) 24px clamp(60px,9vw,112px);text-align:center}
+.ob-after-inner{max-width:980px;margin:0 auto;display:flex;flex-direction:column;align-items:center}
+.ob-h2{margin:clamp(16px,2.4vw,26px) 0 0;font-weight:900;letter-spacing:-.035em;line-height:1.04;
+  font-size:clamp(1.9rem,4.4vw,3.2rem);color:var(--ink)}
+.ob-after-sub{margin:clamp(16px,2.2vw,22px) 0 0;max-width:620px;
+  font-size:clamp(1.02rem,1.4vw,1.18rem);line-height:1.55;color:var(--ink-soft)}
+
+.ob-proof-brief{margin-top:clamp(40px,5vw,60px);text-align:left;
+  grid-template-columns:minmax(0,420px) 1fr}
+
+/* the card */
+.ob-brief{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  padding:22px 22px 18px;box-shadow:0 18px 40px -22px rgba(11,14,20,.35),0 4px 14px rgba(11,14,20,.06)}
+.ob-brief-head{margin:0;font-size:1.16rem;font-weight:800;letter-spacing:-.015em;line-height:1.25;color:var(--ink)}
+.ob-brief-sub{margin:5px 0 0;font-family:var(--mono);font-size:.74rem;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-faint)}
+.ob-brief-list{list-style:none;margin:16px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.ob-brief-item{display:flex;align-items:center;gap:12px;padding:12px 14px;
+  background:var(--bg);border:1px solid var(--border);border-radius:11px}
+.ob-brief-dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:var(--ink-faint)}
+.ob-brief-item.is-warn .ob-brief-dot{background:var(--danger)}
+.ob-brief-item.is-hot  .ob-brief-dot{background:var(--accent)}
+.ob-brief-item.is-ok   .ob-brief-dot{background:var(--success)}
+.ob-brief-item.is-new  .ob-brief-dot{background:var(--warning)}
+.ob-brief-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ob-brief-t{font-size:.95rem;font-weight:700;color:var(--ink);line-height:1.25}
+.ob-brief-s{font-size:.8rem;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-brief-tag{flex:0 0 auto;font-family:var(--mono);font-size:.62rem;font-weight:600;letter-spacing:.06em;
+  padding:4px 9px;border-radius:var(--radius-pill);text-transform:uppercase}
+.ob-brief-item.is-warn .ob-brief-tag{background:var(--danger-bg);color:var(--danger)}
+.ob-brief-item.is-hot  .ob-brief-tag{background:var(--accent-bg);color:var(--accent-strong)}
+.ob-brief-item.is-ok   .ob-brief-tag{background:var(--success-bg);color:var(--success)}
+.ob-brief-item.is-new  .ob-brief-tag{background:var(--warning-bg);color:var(--warning)}
+.ob-brief-foot{margin:14px 0 0;text-align:center;font-family:var(--mono);font-size:.72rem;
+  letter-spacing:.04em;color:var(--ink-faint)}
+
+/* the "what you get" points beside the card */
+.ob-brief-points{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:16px}
+.ob-brief-points li{display:flex;align-items:flex-start;gap:12px;font-size:1.04rem;font-weight:600;
+  color:var(--ink);line-height:1.4}
+.ob-brief-ic{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;
+  border-radius:7px;background:var(--accent-bg);color:var(--accent-strong);margin-top:1px}
+.ob-brief-ic svg{width:15px;height:15px}
+
+@media(max-width:860px){
+  .ob-proof-brief{grid-template-columns:1fr}
+  .ob-brief{width:100%;max-width:420px}
+  .ob-brief-points{width:100%;max-width:420px}
+}

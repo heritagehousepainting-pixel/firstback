@@ -17,10 +17,13 @@ Goal: build the two genuinely-new roadmap items from `DEV-HANDOFF-2026-06-23.md`
 - Kernel files (`convos.py`, `llm.py`, `static/assistant.css`) — edit LOCAL copies, never run sync.py.
 
 ## Stages / state
-- [ ] **S1 PLAN** (sonnet) → `product-review/plans/13-jobber-sync.md` + `14-outlook-calendar.md`.
-      Recommend Jobber-vs-HCP with reasoning (flag as owner decision). ← **IN PROGRESS**
+- [x] **S1 PLAN** (sonnet) → `product-review/plans/13-fsm-sync.md` + `14-outlook-calendar.md`. DONE.
+      Recommends **Jobber** for v1 (owner to confirm Jobber vs HCP). NOTE: a read-only Plan agent
+      can't write files — it returned text, orchestrator wrote the files. Build stages MUST use a
+      write-capable agent (general-purpose/claude).
 - [ ] **S2 PLAN-AUDIT** (sonnet) → review both plans for scope creep, security (OAuth/token storage,
-      webhook signature, cross-tenant isolation), feasibility, honesty. Produce go/fix list.
+      webhook signature, cross-tenant isolation), feasibility, honesty. **Verify every assumed
+      function/table name against the real code.** Produce go/fix list. ← **IN PROGRESS**
 - [ ] **S3 BUILD P2** (sonnet) → gated read-only FSM sync + migrations + mocked tests.
 - [ ] **S4 BUILD-AUDIT P2** (sonnet) → review + full test sweep green. Then orchestrator commits/pushes staging.
 - [ ] **S5 BUILD P6** (sonnet) → gated Outlook/Graph calendar provider + mocked tests.

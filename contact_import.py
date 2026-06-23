@@ -221,7 +221,12 @@ def ingest(business_id, contacts, source):
     already put in the directory, nor re-raises one they already accepted/dismissed.
     Returns an honest summary dict for the UI.
 
-    `source` is 'import-file' or 'import-google'."""
+    `source` is 'import-file', 'import-google', or 'import-jobber'.
+
+    NOTE: Jobber sync does NOT use this function — it calls db.upsert_suggestion
+    directly (see fsm_sync.sync_clients) because presort() drops all new customers
+    who haven't previously booked and have no org field, which is 100% of a first
+    Jobber sync."""
     classified = {c["number"] for c in db.list_contacts(business_id)}
     decided = set()
     for st in ("accepted", "dismissed"):

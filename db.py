@@ -905,6 +905,18 @@ def init_db():
     if "recording_url" not in msg_cols:
         c.execute("ALTER TABLE messages ADD COLUMN recording_url TEXT")
 
+    # Plan 13 — FSM sync: Jobber (P2). Additive columns, idempotent pragma-check.
+    biz_cols = [r[1] for r in c.execute("PRAGMA table_info(businesses)").fetchall()]
+    for _col, _ddl in (("fsm_last_synced_at", "TEXT"),
+                       ("fsm_clients_synced", "INTEGER DEFAULT 0")):
+        if _col not in biz_cols:
+            c.execute(f"ALTER TABLE businesses ADD COLUMN {_col} {_ddl}")
+    appt_cols = [r[1] for r in c.execute("PRAGMA table_info(appointments)").fetchall()]
+    for _col, _ddl in (("fsm_external_id", "TEXT"),
+                       ("fsm_pushed_at", "TEXT")):
+        if _col not in appt_cols:
+            c.execute(f"ALTER TABLE appointments ADD COLUMN {_col} {_ddl}")
+
     # Seed "client zero" (business 1) if no business exists yet.
     if not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
         b = DEFAULT_BUSINESS
@@ -1222,6 +1234,27 @@ def set_google_event_id(appointment_id, event_id):
     conn = get_conn()
     conn.execute("UPDATE appointments SET google_event_id=? WHERE id=?",
                  (event_id, appointment_id))
+    conn.commit()
+    conn.close()
+
+
+def set_fsm_external_id(appointment_id, business_id, external_id, pushed_at):
+    """Store (or clear) the FSM (Jobber) quote-request id on an appointment.
+    Scoped by business_id to prevent cross-tenant writes."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE appointments SET fsm_external_id=?, fsm_pushed_at=? WHERE id=? AND business_id=?",
+        (external_id, pushed_at, appointment_id, business_id))
+    conn.commit()
+    conn.close()
+
+
+def set_fsm_sync_stamp(business_id, synced_at, clients_synced):
+    """Record the last successful FSM client sync time and count on the business."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE businesses SET fsm_last_synced_at=?, fsm_clients_synced=? WHERE id=?",
+        (synced_at, clients_synced, business_id))
     conn.commit()
     conn.close()
 

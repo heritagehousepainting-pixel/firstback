@@ -1096,6 +1096,12 @@ def tick_once(now=None):
         contacts_synced = _cs.get("businesses_synced", 0)
     except Exception as e:
         print(f"[firstback] contacts nightly sync tick failed: {e}", file=sys.stderr, flush=True)
+    # Plan 13: FSM (Jobber) periodic sync — inert until JOBBER_CLIENT_ID is set.
+    try:
+        import fsm_sync as _fsm_sync
+        _fsm_sync.maybe_sync_all(now)
+    except Exception as e:
+        print(f"[firstback] fsm sync tick failed: {e}", file=sys.stderr, flush=True)
     sent = run_due_once(now)
     # Phase 6c W4 (observability): a tick that runs long risks delaying the next pass's
     # sends. Log a one-line warning when it exceeds a soft budget (80% of the interval,

@@ -85,6 +85,68 @@
     </div>
   {% endcall %}
 
+
+  {% call card(anchor='set-jobber', title='Connect Jobber', subtitle='Import your existing Jobber clients so the AI recognizes returning customers and never treats them as cold leads. Requires Jobber Connect or higher.') %}
+    {% if fsmconnected %}<p class="provider-note provider-note-ok">Jobber connected. Importing your existing clients&hellip; <a href="/callers">Review suggestions</a></p>{% endif %}
+    {% if fsmerror %}<p class="provider-note provider-note-err">{% if fsmerror == 'unconfigured' %}Set JOBBER_CLIENT_ID and JOBBER_CLIENT_SECRET to enable.{% else %}We couldn’t finish connecting Jobber. Please try again.{% endif %}</p>{% endif %}
+    {% if jobber_configured %}
+      <div class="provider-grid">
+        <div class="provider-card{{ ' is-connected' if jobber_connected else '' }}" data-provider="jobber">
+          <span class="provider-logo" style="font-size:1.2rem;font-weight:700;color:var(--accent)">J</span>
+          <span class="provider-meta">
+            <span class="provider-name">Jobber</span>
+            <span class="provider-status">
+              {% if jobber_connected %}
+                Connected{% if fsm_clients_synced %} &mdash; {{ fsm_clients_synced }} client{{ 's' if fsm_clients_synced != 1 else '' }} synced{% endif %}
+              {% else %}
+                Not connected
+              {% endif %}
+            </span>
+          </span>
+          {% if jobber_connected %}
+            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="jobber-sync-btn">Sync now</button>
+            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="jobber-disconnect-btn" style="margin-left:0.5rem">Disconnect</button>
+          {% else %}
+            <a class="btn btn-primary btn-sm provider-btn" href="/api/fsm/jobber/connect">Connect</a>
+          {% endif %}
+        </div>
+      </div>
+      {% if jobber_connected %}
+        <p style="margin-top:var(--space-3);font-size:0.88rem;color:var(--text-muted)">
+          Synced clients appear as suggestions for you to confirm.
+          <a href="/api/suggestions/bulk">Bulk accept</a> to recognize them all at once.
+          {% if fsm_last_synced_at %} Last synced: {{ fsm_last_synced_at[:10] }}.{% endif %}
+        </p>
+      {% endif %}
+    {% else %}
+      <p class="provider-note provider-note-soft">Jobber sync coming soon &mdash; contact us to enable.</p>
+    {% endif %}
+  {% endcall %}
+  <script>
+  (function(){
+    var syncBtn = document.getElementById('jobber-sync-btn');
+    if (syncBtn) {
+      syncBtn.addEventListener('click', function(){
+        syncBtn.disabled = true;
+        syncBtn.textContent = 'Syncing…';
+        fetch('/api/fsm/sync', {method:'POST', headers:{'X-CSRF-Token': (document.querySelector('[name=_csrf]')||{}).value || ''}})
+          .then(function(r){return r.json();})
+          .then(function(d){ syncBtn.textContent = d.ok ? 'Synced' : (d.error || 'Error'); })
+          .catch(function(){ syncBtn.textContent = 'Error'; });
+      });
+    }
+    var discBtn = document.getElementById('jobber-disconnect-btn');
+    if (discBtn) {
+      discBtn.addEventListener('click', function(){
+        if (!confirm('Disconnect Jobber? Your imported contact suggestions will remain.')) return;
+        fetch('/api/fsm/jobber/disconnect', {method:'POST', headers:{'X-CSRF-Token': (document.querySelector('[name=_csrf]')||{}).value || ''}})
+          .then(function(r){return r.json();})
+          .then(function(){ location.reload(); });
+      });
+    }
+  })();
+  </script>
+
   {% call card(anchor='set-screening', title='Call screening', subtitle='Like your phone’s screen: FirstBack only texts back real prospects — it skips people you already know (they’re yours to handle) and suspected spam/robocallers. No setup, no contact import required.') %}
     {% if screen_mode == 'enforce' %}
     <div class="provider-note provider-note-soft" style="margin-bottom:var(--space-4)">

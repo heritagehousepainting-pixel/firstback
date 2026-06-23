@@ -38,6 +38,8 @@ import reputation
 import contact_import
 import google_contacts
 import growth
+import jobber_fsm
+import fsm_sync
 from config import (APP_NAME, TAGLINE, DEBUG, SECRET_KEY, TASKS_SECRET,
                     SESSION_COOKIE_SECURE, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD,
                     app_tz, VOICE_PUBLIC_URL, INTERNAL_SECRET,
@@ -1335,7 +1337,13 @@ def settings():
                            reputation_enabled=bool(biz.get("reputation_enabled")),
                            screening_hold=bool(biz.get("screening_hold")),
                            growth_mode=db.growth_mode(biz["id"]),
-                           growth_saved=request.args.get("growth_saved"))
+                           growth_saved=request.args.get("growth_saved"),
+                           jobber_configured=jobber_fsm.configured(),
+                           jobber_connected=jobber_fsm.is_connected(biz["id"]),
+                           fsm_last_synced_at=biz.get("fsm_last_synced_at"),
+                           fsm_clients_synced=biz.get("fsm_clients_synced") or 0,
+                           fsmconnected=request.args.get("fsmconnected"),
+                           fsmerror=request.args.get("fsmerror"))
 
 
 @app.route("/settings/password", methods=["POST"])
@@ -1570,6 +1578,7 @@ def setup():
         biz,
         calendar_connected=google_cal.is_connected(biz["id"]),
         contacts_connected=google_contacts.is_connected(biz["id"]),
+        jobber_connected=(fsm_sync.push_configured() and jobber_fsm.is_connected(biz["id"])),
         password_changed=not (user and check_password_hash(user["password_hash"], SEED_OWNER_PASSWORD)),
         ai_default=config.DEFAULT_BUSINESS.get("ai_instructions", ""))
     return render_template(
@@ -1944,6 +1953,8 @@ def open_conversation(biz, lead):
                     gday, gtime, tz=_tz)
                 reminders.enqueue_reminder(biz, lead, gday, gtime)
                 reminders.enqueue_morning_reminder(biz, lead, gday, gtime)
+                # Plan 13: push to Jobber as a quote request (additive, guarded daemon thread).
+                fsm_sync.push_booking_async(biz["id"], appt_id, lead, {"day": gday, "when": booking})
             # Phase-4: a first-turn booking is a real booking -> fire the owner's
             # Show-Up-Prepared alert + the ROI milestone check, same as handle_inbound
             # (previously only the reply-turn path did this).
@@ -2079,6 +2090,8 @@ def handle_inbound(biz, lead, body):
                     gday, gtime, tz=_tz)
                 reminders.enqueue_reminder(biz, lead, gday, gtime)
                 reminders.enqueue_morning_reminder(biz, lead, gday, gtime)
+                # Plan 13: push to Jobber as a quote request (additive, guarded daemon thread).
+                fsm_sync.push_booking_async(biz["id"], appt_id, lead, {"day": gday, "when": booking})
         else:
             # F03 double-booking recovery: slot was taken between turns.
             # Generate a recovery reply offering the next open slot.
@@ -2638,6 +2651,82 @@ def google_contacts_disconnect():
         return jsonify({"error": "bad_csrf"}), 403
     google_contacts.disconnect(current_business()["id"])
     return jsonify(connected=False)
+
+
+# ---- Plan 13: FSM / Jobber OAuth + sync routes ----
+
+@app.route("/api/fsm/jobber/connect")
+@login_required
+def fsm_jobber_connect():
+    """Start the Jobber OAuth2 flow. Redirect to the Jobber authorization page."""
+    if not jobber_fsm.configured():
+        return redirect("/settings?fsmerror=unconfigured")
+    state = secrets.token_urlsafe(16)
+    session["fsm_j_state"] = state   # CSRF guard, verified + consumed on callback
+    return redirect(jobber_fsm.auth_url(state))
+
+
+@app.route("/api/fsm/jobber/callback")
+@login_required
+def fsm_jobber_callback():
+    """Jobber OAuth2 callback: exchange the code for tokens and trigger a first sync."""
+    expected = session.pop("fsm_j_state", None)
+    if request.args.get("error") or not request.args.get("code"):
+        return redirect("/settings?fsmerror=denied")
+    if not expected or request.args.get("state") != expected:
+        return redirect("/settings?fsmerror=state")
+    try:
+        jobber_fsm.connect_with_code(current_business()["id"], request.args["code"])
+    except Exception as e:
+        print(f"[firstback] jobber connect failed: {e}", file=sys.stderr, flush=True)
+        return redirect("/settings?fsmerror=exchange")
+    # Kick off an immediate background sync now that we're connected.
+    biz_id = current_business()["id"]
+    threading.Thread(target=_fsm_background_sync, args=(biz_id,), daemon=True).start()
+    return redirect("/settings?fsmconnected=1")
+
+
+def _fsm_background_sync(business_id):
+    """Run a sync_clients pass in a daemon thread (called after connect + /api/fsm/sync)."""
+    try:
+        result = fsm_sync.sync_clients(business_id)
+        db.set_fsm_sync_stamp(business_id, datetime.now(timezone.utc).isoformat(),
+                              result.get("clients_fetched", 0))
+    except Exception as e:
+        print(f"[firstback] fsm background sync error (biz {business_id}): {e}",
+              file=sys.stderr, flush=True)
+
+
+@app.route("/api/fsm/jobber/disconnect", methods=["POST"])
+@login_required
+def fsm_jobber_disconnect():
+    """Disconnect Jobber for this business. Keeps already-synced contact suggestions."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
+    jobber_fsm.disconnect(current_business()["id"])
+    return jsonify(connected=False)
+
+
+@app.route("/api/fsm/sync", methods=["POST"])
+@login_required
+def fsm_sync_now():
+    """Trigger an immediate Jobber client sync for this business."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
+    biz = current_business()
+    if not jobber_fsm.configured():
+        return jsonify(error="Jobber sync is not configured."), 400
+    if not jobber_fsm.is_connected(biz["id"]):
+        return jsonify(error="Connect Jobber first."), 400
+    try:
+        result = fsm_sync.sync_clients(biz["id"])
+        db.set_fsm_sync_stamp(biz["id"], datetime.now(timezone.utc).isoformat(),
+                              result.get("clients_fetched", 0))
+    except Exception as e:
+        print(f"[firstback] fsm sync_now error (biz {biz['id']}): {e}",
+              file=sys.stderr, flush=True)
+        return jsonify(error="Sync failed. Please try again."), 502
+    return jsonify(ok=True, **result)
 
 
 # ---- Phase 1: usage fuel gauge ----

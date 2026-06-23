@@ -164,6 +164,19 @@ try:
 except (TypeError, ValueError):
     FLUSH_MAX_AGE_HOURS = 6.0
 
+# --- Jobber FSM sync (optional; gated — all entry points are safe no-ops when unset) ---
+# Register your app at developer.getjobber.com; add the redirect URI to your OAuth app.
+# Scopes needed: read_clients, read_jobs, write_quote_requests (requires Jobber Connect+).
+JOBBER_CLIENT_ID = os.environ.get("JOBBER_CLIENT_ID", "")
+JOBBER_CLIENT_SECRET = os.environ.get("JOBBER_CLIENT_SECRET", "")
+JOBBER_REDIRECT_URI = os.environ.get(
+    "JOBBER_REDIRECT_URI", "http://127.0.0.1:8800/api/fsm/jobber/callback")
+JOBBER_WEBHOOK_SECRET = os.environ.get("JOBBER_WEBHOOK_SECRET", "")  # v2, optional
+try:
+    FSM_SYNC_INTERVAL_HOURS = float(os.environ.get("FSM_SYNC_INTERVAL_HOURS", "") or 24)
+except (TypeError, ValueError):
+    FSM_SYNC_INTERVAL_HOURS = 24.0
+
 # --- Google Calendar (optional real two-way sync) -------------------------
 # To turn on: in Google Cloud Console create an OAuth 2.0 Client ID of type
 # "Web application", add the redirect URI below to its "Authorized redirect

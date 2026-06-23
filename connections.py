@@ -170,7 +170,7 @@ def golive_summary(business, sms_configured=None):
 # the password was changed off the seed) are dependency-injected by the route, mirroring
 # how golive_summary takes sms_configured -- so this stays pure and unit-testable.
 def recommended_setup(business, *, calendar_connected=False, contacts_connected=False,
-                      password_changed=False, ai_default=""):
+                      jobber_connected=False, password_changed=False, ai_default=""):
     """The recommended-connections checklist (the "Fully set up" tier). Returns
     {items: [{key,title,value,done,optional,href,cta}], done, total}. `optional` marks
     genuine add-ons (voice/scheduling/contacts) so the meter doesn't read as broken when
@@ -188,6 +188,7 @@ def recommended_setup(business, *, calendar_connected=False, contacts_connected=
         ("voice",      "AI voice callback",         "Let a caller reply CALL for a live AI call back",      bool(biz.get("voice_callback_enabled")), True, "/settings#set-voice", "Enable"),
         ("scheduling", "Scheduling & availability", "Your work days, estimate windows, and buffer",         bool(biz.get("estimate_times") or biz.get("working_days") or biz.get("buffer_minutes")), True, "/settings#set-scheduling", "Adjust"),
         ("contacts",   "Import your contacts",      "So the screen recognizes people you already know",     contacts_connected,   True,  "/api/contacts/google/connect",  "Connect"),
+        ("jobber",     "Sync Jobber clients",       "Imports existing clients so the AI recognizes them",   jobber_connected,     True,  "/settings#set-jobber",          "Connect"),
         ("password",   "Set your own password",     "Move off the starter password",                        password_changed,     False, "/settings#set-password",        "Change"),
     ]
     items = [{"key": k, "title": t, "value": v, "done": bool(d), "optional": o,

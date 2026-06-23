@@ -24,10 +24,17 @@ Goal: build the two genuinely-new roadmap items from `DEV-HANDOFF-2026-06-23.md`
 - [x] **S2 PLAN-AUDIT** (sonnet) → DONE. Both plans **GO-WITH-FIXES**. Audit at
       `product-review/plan-audits/13-14-audit.md`. Caught a CRITICAL bug (F1: `presort` drops all
       Jobber customers → use `db.upsert_suggestion` directly). Key fixes folded into both plans.
-- [ ] **S3 BUILD P2** (sonnet, **write-capable agent**) → gated read-only Jobber sync + migrations +
-      mocked tests, applying audit fixes F1/F2/F3 (+F4/F5 if time). ← **IN PROGRESS**
-- [ ] **S4 BUILD-AUDIT P2** (sonnet) → review + full test sweep green. Then orchestrator commits/pushes staging.
-- [ ] **S5 BUILD P6** (sonnet) → gated Outlook/Graph calendar provider + mocked tests.
+- [x] **S3 BUILD P2** (sonnet) → DONE. New: `fsm_provider.py`, `jobber_fsm.py`, `fsm_sync.py`,
+      `test_fsm_sync.py`. Modified: config/db/connections/contact_import/app/reminders/settings.html/test_setup.
+      Audit fixes F1–F5 applied. **Independently re-verified: test_fsm_sync 78/0; setup 147/0;
+      sf8_connections 99/0; screening 57/0; import 45/0; app imports clean.**
+- [x] **S4 BUILD-AUDIT P2** (sonnet) → DONE. **SHIP-WITH-NITS**; no P1/security holes. Audit at
+      `product-review/plan-audits/13-build-audit.md`. Orchestrator fixed all 4 nits (N1 dead code,
+      N2 stale counter, N3 dead CSRF ref, DC2 "imported"→"synced" honesty) + re-verified green.
+      **P2 committed + pushed to staging.**
+- [ ] **S5 BUILD P6** (sonnet, write-capable) → gated Outlook/Graph calendar provider + mocked tests,
+      applying audit fixes F6 (Windows-tz shim), F7 (recommended_setup 3-touch), F8 (refresh→reconnect),
+      F10 (module-top import). Runs AFTER P2 commit (shared files). ← **NEXT**
 - [ ] **S6 BUILD-AUDIT P6** (sonnet) → review + full test sweep green. Then orchestrator commits/pushes staging.
 - [ ] **S7 HANDOFF** → update this tracker + SETUP_NEEDED (owner creds to flip live) + memory. Loop stops; notify owner.
 

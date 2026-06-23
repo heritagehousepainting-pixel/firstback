@@ -18,7 +18,7 @@ import db
 db.DB_PATH = _TMP.name
 import messaging
 messaging.TWILIO_ACCOUNT_SID = ""               # sends simulate; opt-out still suppresses
-import app  # noqa: runs migrations
+import app  # noqa: F401  # runs migrations
 import growth
 
 _pass = _fail = 0

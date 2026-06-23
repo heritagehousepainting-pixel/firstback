@@ -66,8 +66,12 @@ def check(name, cond):
 
 
 def login():
-    return client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
-                                        "password": config.SEED_OWNER_PASSWORD})
+    r = client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
+                                    "password": config.SEED_OWNER_PASSWORD})
+    with client.session_transaction() as _s:
+        _s["csrf_token"] = "test_csrf"
+    client.environ_base["HTTP_X_CSRF_TOKEN"] = "test_csrf"
+    return r
 
 
 def reset_biz():

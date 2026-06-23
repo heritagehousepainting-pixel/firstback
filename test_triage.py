@@ -134,6 +134,7 @@ client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
 # Phase 6a D-1: seed the session CSRF token so mutating-family POSTs pass _csrf_ok().
 with client.session_transaction() as _s:
     _s["csrf_token"] = "test_csrf"
+client.environ_base["HTTP_X_CSRF_TOKEN"] = "test_csrf"
 r = client.post("/api/contacts",
                 json={"number": "+1 312 555 7777", "category": "vendor", "name": "Paint Supply"})
 check("POST /api/contacts tags a screened number", r.status_code == 200)

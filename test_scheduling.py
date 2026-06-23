@@ -96,6 +96,9 @@ check("blank working days fall back to default", prefs["working_days"] == set(co
 # --- the Settings form persists preferences ---
 client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
                             "password": config.SEED_OWNER_PASSWORD})
+with client.session_transaction() as _s:
+    _s["csrf_token"] = "test_csrf"
+client.environ_base["HTTP_X_CSRF_TOKEN"] = "test_csrf"
 r = client.get("/settings")
 check("settings page renders the scheduling card",
       r.status_code == 200 and b"Estimate windows" in r.data and b"Working days" in r.data)

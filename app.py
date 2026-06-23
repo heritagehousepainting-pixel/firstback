@@ -251,10 +251,15 @@ def _csrf_token():
 
 
 def _csrf_ok():
-    """The form's `_csrf` matches the session token (constant-time). Defense in depth on top
-    of the SameSite session cookie."""
+    """The request CSRF token matches the session token (constant-time).
+
+    Form posts carry `_csrf`; JSON/multipart fetches carry the same value in
+    `X-CSRF-Token`. This keeps the defense consistent across regular forms,
+    URL-encoded JS helpers, JSON APIs, and file uploads.
+    """
     tok = session.get("csrf_token")
-    return bool(tok) and secrets.compare_digest(tok, request.form.get("_csrf", ""))
+    sent = request.headers.get("X-CSRF-Token") or request.form.get("_csrf", "")
+    return bool(tok and sent) and secrets.compare_digest(tok, sent)
 
 
 def _sanitize_history(raw):
@@ -1104,6 +1109,8 @@ def training_convo(convo_id):
 @app.route("/training/teach", methods=["POST"])
 @login_required
 def training_teach():
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     pattern = (request.form.get("pattern") or "").strip()
     action = (request.form.get("action") or "").strip()
@@ -1123,6 +1130,8 @@ def training_teach():
 @app.route("/training/resolve", methods=["POST"])
 @login_required
 def training_resolve():
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     flag_id = request.form.get("flag_id")
     if flag_id and flag_id.isdigit():
@@ -1134,6 +1143,8 @@ def training_resolve():
 @login_required
 def digest_send():
     """Email this owner their weekly digest now (gated/simulated until SMTP is set)."""
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     user = current_user()
     em = convos.digest_email(biz)
@@ -1218,6 +1229,8 @@ def _save_screening_prefs(business_id, screen_hard, screen_mid, reputation_enabl
 def settings():
     biz = current_business()
     if request.method == "POST":
+        if not _csrf_ok():
+            abort(403)
         fields = {k: request.form.get(k, "") for k in
                   ["name", "trade", "service_area", "hours", "owner_name",
                    "phone", "ai_instructions"]}
@@ -1328,6 +1341,8 @@ def settings():
 @app.route("/settings/password", methods=["POST"])
 @login_required
 def settings_password():
+    if not _csrf_ok():
+        abort(403)
     user = current_user()
     current = request.form.get("current_password") or ""
     new = request.form.get("new_password") or ""
@@ -1573,6 +1588,8 @@ def setup():
 @app.route("/setup/profile", methods=["POST"])
 @login_required
 def setup_profile():
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     if biz is None:
         return redirect("/dashboard")
@@ -1595,6 +1612,8 @@ def setup_number():
     """Give the business its FirstBack number: buy a new local one (auto-wires the
     Voice+SMS webhooks via provision_number) or attach a number already owned in the
     Twilio account (the manual path, now one click)."""
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     if biz is None:
         return redirect("/dashboard")
@@ -1625,6 +1644,8 @@ def setup_a2p():
     (unchanged). `mode=auto` (default) dispatches via connections.submit_a2p which
     calls the Twilio Write API when Trust Hub is configured. `mode=submit` is an alias
     for `auto` kept for template back-compat."""
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     if biz is None:
         return redirect("/dashboard")
@@ -1665,6 +1686,8 @@ def setup_forwarding():
     forwarding is live. forwarding_confirmed is intentionally left False here; it is
     set True ONLY when the sentinel call arrives inbound (twilio_voice_inbound).
     [DECIDED] Honesty rule: never set confirmed=True on 'placed'."""
+    if not _csrf_ok():
+        abort(403)
     biz = current_business()
     if biz is None:
         return redirect("/dashboard")
@@ -2084,6 +2107,8 @@ def handle_inbound(biz, lead, body):
 @app.route("/api/sim/incoming", methods=["POST"])
 @login_required
 def sim_incoming():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     data = request.get_json(silent=True) or {}  # name/phone/scenario optional
     biz = current_business()
     scenario = (data.get("scenario") or "prospect").strip().lower()
@@ -2109,6 +2134,8 @@ def sim_incoming():
 @app.route("/api/sim/reply", methods=["POST"])
 @login_required
 def sim_reply():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     data, err = _get_json("lead_id", "body")
     if err:
         return err
@@ -2160,6 +2187,8 @@ def api_calendar():
 @app.route("/api/calendar/busy", methods=["POST"])
 @login_required
 def api_calendar_busy():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     data, err = _get_json("date")
     if err:
         return err
@@ -2171,6 +2200,8 @@ def api_calendar_busy():
 @app.route("/api/integrations", methods=["POST"])
 @login_required
 def api_integrations():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     data, err = _get_json("provider")
     if err:
         return err
@@ -2209,6 +2240,8 @@ def google_callback():
 @app.route("/api/calendar/google/disconnect", methods=["POST"])
 @login_required
 def google_disconnect():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     google_cal.disconnect(current_business()["id"])
     return jsonify(connected=False)
 
@@ -2259,6 +2292,8 @@ def api_contacts():
 def api_contacts_add():
     """Tag a number so FirstBack never cold-texts it. Only the owner-set categories
     are accepted (customer/prospect are learned automatically, never set by hand)."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     data, err = _get_json("number", "category")
     if err:
         return err
@@ -2274,6 +2309,8 @@ def api_contacts_add():
 @app.route("/api/contacts/delete", methods=["POST"])
 @login_required
 def api_contacts_delete():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     data, err = _get_json("number")
     if err:
         return err
@@ -2427,6 +2464,8 @@ def api_suggestions():
 def api_suggestion_accept(sug_id):
     """Confirm a suggestion (optionally recategorized): write it to the directory and
     mark the suggestion accepted. The owner is always the one who decides."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     biz = current_business()
     sug = db.get_suggestion(sug_id, biz["id"])
     if not sug:
@@ -2444,6 +2483,8 @@ def api_suggestion_accept(sug_id):
 @login_required
 def api_suggestion_dismiss(sug_id):
     """Dismiss a suggestion -- it won't be raised again for this number."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     biz = current_business()
     if not db.get_suggestion(sug_id, biz["id"]):
         return jsonify(error="Suggestion not found."), 404
@@ -2456,6 +2497,8 @@ def api_suggestion_dismiss(sug_id):
 def api_suggestion_reopen(sug_id):
     """Undo: move a sorted/dismissed suggestion back to 'to review'. If it had been
     accepted, the directory entry that accept created is reverted too."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     biz = current_business()
     sug = db.get_suggestion(sug_id, biz["id"])
     if not sug:
@@ -2471,6 +2514,8 @@ def api_suggestion_reopen(sug_id):
 def api_suggestions_bulk():
     """Apply one action (accept | dismiss | reopen) to many suggestions at once -- the
     bulk-select path that makes an imported address book tractable."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     biz = current_business()
     data, err = _get_json("ids", "action")
     if err:
@@ -2508,6 +2553,8 @@ def api_contacts_import():
     """Upload a vCard (.vcf) or CSV export -> parse -> pre-sort -> queue each contact
     as a PENDING suggestion in the review inbox. Nothing is screened automatically;
     the owner confirms (in bulk). Returns an import summary for the UI."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     biz = current_business()
     f = request.files.get("file")
     if not f or not (f.filename or "").strip():
@@ -2571,6 +2618,8 @@ def google_contacts_callback():
 @app.route("/api/contacts/google/sync", methods=["POST"])
 @login_required
 def google_contacts_sync():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     biz = current_business()
     if not google_contacts.is_connected(biz["id"]):
         return jsonify(error="Connect Google Contacts first."), 400
@@ -2585,6 +2634,8 @@ def google_contacts_sync():
 @app.route("/api/contacts/google/disconnect", methods=["POST"])
 @login_required
 def google_contacts_disconnect():
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
     google_contacts.disconnect(current_business()["id"])
     return jsonify(connected=False)
 

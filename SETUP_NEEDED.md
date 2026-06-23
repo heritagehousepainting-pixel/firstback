@@ -1,5 +1,10 @@
 # Setup Needed — to make every claim fully live & true
 
+> **Current repo note @ 2026-06-23:** this file contains a chronological ops ledger. Some older
+> sections were written while work lived on `staging`; the current cleanup sweep started from
+> `main` at `8163f56` with 76 root-level `test_*.py` scripts. Treat branch/test-count/deploy claims
+> below as historical unless re-verified against the live checkout and Render.
+
 The site truth-audit (see `SITE_TRUTH_AUDIT.md`) made the copy honest about what's live
 vs. gated. This is the list of things **you** must do to turn the honest-but-gated /
 beta / placeholder states into fully live ones. Integration credential steps live in
@@ -25,7 +30,8 @@ Full spec + the rest of the build order: `~/apps/COO/firstback-blueprint/phase0/
 ## Autonomy Blueprint — Phase 1 (2026-06-18) — OWNER OPS to flip it live
 Phase 1 CODE is built + merged on `staging` (Stripe billing + subscription gating; auth password-reset + SECRET_KEY/seed hardening + login rate-limit; LLM cost spine = Sonnet/Haiku + prompt caching + token ledger + per-tenant dollar cap; usage "conversations" fuel gauge; SF-6 quiet-hours backstop + START re-opt-in). 28/28 test files green; billing/auth security spot-check passed. Owner ops to flip live:
 - **Stripe account (test mode first):** set `STRIPE_SECRET_KEY=sk_test_…`, `STRIPE_WEBHOOK_SECRET=whsec_…`, and create **6 Price IDs** — monthly `STRIPE_PRICE_{STARTER,PRO,CREW}` ($99/$199/$399 /mo) **+ annual (20% off, billed yearly) `STRIPE_PRICE_{STARTER,PRO,CREW}_ANNUAL` ($950 / $1,910 / $3,830 per year)** — and wire them in. (Code is built + tested against mocked Stripe; nothing hits Stripe until these are set.) Note: annual subscribers still get the SAME monthly conversation allotment — the fuel gauge refills every calendar month regardless of billing interval.
-- **Set `CLAUDE_DAILY_COST_CAP_USD`** if you want a per-tenant daily AI spend cap other than the $1.00 default.
+- **Set `FIRSTBACK_DAILY_COST_CAP`** if you want a per-tenant daily AI spend cap other than the
+  current $5.00 default in `config.py`.
 - **`be-audit` before any production deploy** of the `/webhooks/stripe` + `/auth/reset` paths (money/security gate). Minor P2: wrap `get_llm_spend_today` to fail-open.
 - Phase-0 ops above still pending (Render env, cron, Resend, voice decision).
 
@@ -380,9 +386,10 @@ launch-blockers in code (commit cbfa24d). Remaining items that are NOT code:
 
 ## Autonomous build C–G (this session) — owner items to go live
 
-The batches C/D/E/F/G shipped to **`staging` only** (13 commits, 76/76 tests green, 4 ship-gate
-audit lanes passed). **Production (`main`) is untouched at `92aacde`.** Everything new is
-**inert/opt-in by default** — nothing changes for the live Heritage tenant until you act.
+Historical note: the batches C/D/E/F/G originally shipped to **`staging` only** (13 commits, 76/76
+tests green, 4 ship-gate audit lanes passed). The current repo may already be on `main`; verify with
+`git status --short --branch` before treating this section as an active gate. Everything new was
+designed to be **inert/opt-in by default** until explicitly enabled.
 
 ### The one hard gate
 - **Promote `staging` → `main`.** Held all session by design. Review the staging deploy on the

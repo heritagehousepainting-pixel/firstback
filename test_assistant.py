@@ -310,7 +310,7 @@ _fl = db.list_flags(1, resolved=0, limit=5)
 if _fl:
     r = client.post("/training/teach",
                     data={"pattern": "show my pipeline", "action": "get_stats",
-                          "flag_id": str(_fl[0]["id"])})
+                          "flag_id": str(_fl[0]["id"]), "_csrf": CSRF})
     check("teaching through the page adds a learning and resolves the flag",
           r.status_code == 302
           and any(l["pattern"] == "show my pipeline" for l in db.list_learnings(1))
@@ -385,7 +385,7 @@ _cv._tool_suggest_hook = _oh
 _em = _cv.digest_email(db.get_business(1))
 check("the digest email has a subject and body",
       bool(_em["subject"]) and "digest" in _em["body"].lower())
-r = client.post("/digest/send", data={})
+r = client.post("/digest/send", data={"_csrf": CSRF})
 check("emailing the digest goes through the gated seam (simulated until SMTP)",
       r.status_code == 302 and "digest=" in r.headers["Location"])
 import app as _appmod

@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Local cleanup tooling. Tests remain standalone scripts; see tools/run_tests.sh.
+ruff>=0.8,<1

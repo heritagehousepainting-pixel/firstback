@@ -1,14 +1,14 @@
-Flask
-gunicorn        # production WSGI server (Render/host); the dev server is local-only
-requests        # MiniMax brain (HTTPS + certifi) + Twilio REST (SMS/voice)
-stripe          # Phase 1 A: Stripe billing (Checkout, portal, webhooks)
+Flask>=3.0,<4
+gunicorn>=22,<24        # production WSGI server (Render/host); the dev server is local-only
+requests>=2.32,<3      # MiniMax brain (HTTPS + certifi) + Twilio REST (SMS/voice)
+stripe>=10,<15         # Stripe billing (Checkout, portal, webhooks)
 # The Claude brain (FIRSTBACK_PROVIDER=claude + ANTHROPIC_API_KEY). Safe to ship even on
 # MiniMax/demo: it's only imported when the Claude path actually runs.
-anthropic>=0.40
+anthropic>=0.40,<1
 
-# AI voice agent (Phase 3): the separate ConversationRelay service in
+# AI voice agent: the separate ConversationRelay service in
 # voice_service.py. Only needed to run the voice leg; the Flask app + simulator
 # run without these.
-fastapi
-uvicorn
-websockets
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+websockets>=13,<16

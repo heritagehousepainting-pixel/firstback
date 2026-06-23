@@ -13,7 +13,7 @@
 
 <div class="settings-col">
   {% if digest and digest.has_content %}<p class="provider-note provider-note-soft" style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-3)"><span>{{ digest.line }} Over the last {{ digest.days }} days across {{ digest.convos }} conversation(s).</span>
-    <form method="post" action="/digest/send" style="margin:0"><button class="btn btn-secondary btn-sm" type="submit">Email me this</button></form></p>{% endif %}
+    <form method="post" action="/digest/send" style="margin:0"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-secondary btn-sm" type="submit">Email me this</button></form></p>{% endif %}
 
   {% if top_unmet %}
   {% call card(title='Build these next', subtitle="The requests FirstBack couldn't handle, most frequent first. Teach it below, or build the tool.") %}
@@ -36,6 +36,7 @@
         <details style="margin-top:var(--space-2)">
           <summary>Teach FirstBack what to do when you say this</summary>
           <form method="post" action="/training/teach" style="margin-top:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="flag_id" value="{{ f.id }}">
             {{ field('When I say something like', name='pattern', value=f.turn_content) }}
             <label class="field-label">FirstBack should</label>
@@ -51,6 +52,7 @@
           </form>
         </details>
         <form method="post" action="/training/resolve" style="margin-top:var(--space-2)">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="flag_id" value="{{ f.id }}">
           <button class="btn btn-secondary btn-sm" type="submit">Dismiss</button>
         </form>

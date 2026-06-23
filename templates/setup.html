@@ -74,6 +74,7 @@
         {# ===== Step: Business profile (Phase 1) ===== #}
         {% if s.key == 'profile' %}
         <form method="post" action="/setup/profile" class="step-form">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <div class="field-grid">
             {{ field('Business name', name='name', value=business.name or '', required=true) }}
             {{ field('Trade / services', name='trade', value=business.trade or '', placeholder='e.g. Painting') }}
@@ -102,6 +103,7 @@
           {{ button('Show available numbers', variant='secondary', size='sm', type='submit') }}
         </form>
         <form method="post" action="/setup/number" class="step-form">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="mode" value="buy">
           <input type="hidden" name="area_code" value="{{ area_code }}">
           {% if available %}
@@ -118,6 +120,7 @@
         </form>
         <p class="setup-note">Already bought a number? Attach it instead:</p>
         <form method="post" action="/setup/number" class="step-form">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="mode" value="attach">
           <div class="field-grid">
             {{ field('Your Twilio number', name='number', value='', type='tel', placeholder='+1 267 756 2454') }}
@@ -142,12 +145,14 @@
         {% elif status == 'failed' %}
         <p class="setup-note is-pending">We hit a snag activating texting. Double-check your legal name and address in step&nbsp;1, then try again.</p>
         <form method="post" action="/setup/a2p" class="step-form">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="mode" value="auto">
           {{ button('Try again', type='submit') }}
         </form>
         {% else %}
         <p class="setup-note">One last thing: we need to activate texting for your number. Takes about a minute to submit -- texting usually turns on within a day after that. Your AI is already answering calls in the meantime.</p>
         <form method="post" action="/setup/a2p" class="step-form">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="mode" value="auto">
           {{ button('Activate texting', type='submit') }}
         </form>
@@ -155,6 +160,7 @@
         <details class="setup-adv">
           <summary>Installer: paste your campaign details</summary>
           <form method="post" action="/setup/a2p" class="step-form">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="mode" value="record">
             <div class="field-grid">
               {{ field('Brand SID', name='brand_sid', value=business.a2p_brand_sid or '', placeholder='BN...') }}
@@ -186,12 +192,14 @@
           <p class="code-cancel">To turn it off later, dial <strong>{{ fwd.cancel }}</strong>.</p>
         </div>
         <form method="post" action="/setup/forwarding" class="step-form">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="mode" value="catcher">
           {{ button("I've set up forwarding", type='submit') }}
         </form>
         <details class="setup-adv">
           <summary>Advanced: ring my cell first instead</summary>
           <form method="post" action="/setup/forwarding" class="step-form">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="mode" value="dial">
             <p class="setup-note">{{ app_name }} rings this number first; if you don't pick up, it texts the caller back. (Use this only if customers will call your FirstBack number directly.)</p>
             <div class="field-grid">

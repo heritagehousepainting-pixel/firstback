@@ -207,6 +207,9 @@ from io import BytesIO
 _client = _app.app.test_client()
 _client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
                              "password": config.SEED_OWNER_PASSWORD})
+with _client.session_transaction() as _sess:
+    _sess["csrf_token"] = "test_csrf"
+_client.environ_base["HTTP_X_CSRF_TOKEN"] = "test_csrf"
 
 # A vCard with contacts but NO phone numbers at all.
 VCARD_NO_PHONES = b"""BEGIN:VCARD

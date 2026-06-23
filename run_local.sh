@@ -37,7 +37,8 @@ PY
 echo "-----------------------------------------------------------------"
 echo " FirstBack local  ->  http://localhost:8800"
 echo " Login:  owner@firstback.local  /  test1234"
-echo " Brain:  demo (no API keys)    DB: local_test.db (isolated)"
+echo " Brain:  inherits FIRSTBACK_PROVIDER/.env (force demo with FIRSTBACK_PROVIDER=demo)"
+echo " DB:     local_test.db (isolated)"
 echo " Ctrl-C to stop."
 echo "-----------------------------------------------------------------"
 exec .venv/bin/python app.py

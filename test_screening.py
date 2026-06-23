@@ -162,6 +162,7 @@ client.post("/login", data={"email": config.SEED_OWNER_EMAIL,
 # Phase 6a D-1: seed the session CSRF token so mutating-family POSTs pass _csrf_ok().
 with client.session_transaction() as _s:
     _s["csrf_token"] = "test_csrf"
+client.environ_base["HTTP_X_CSRF_TOKEN"] = "test_csrf"
 flag_res = client.post(f"/api/calls/{cg['id']}/flag-spam", data={"_csrf": "test_csrf"})
 check("flag-spam returns ok", flag_res.status_code == 200 and flag_res.get_json().get("ok"))
 check("flag-spam blocks the number for this business",
@@ -275,10 +276,12 @@ check("per-business OFF leaves screen_mode unset on the call", bool(co) and not 
 db.set_screen_mode(1, None)                           # restore inherit
 
 # Settings POST round-trips the mode (include name so the profile isn't blanked).
-client.post("/settings", data={"name": db.get_business(1)["name"], "screen_mode": "enforce"})
+client.post("/settings", data={"name": db.get_business(1)["name"], "screen_mode": "enforce",
+                                "_csrf": "test_csrf"})
 check("settings POST persists the chosen screening mode",
       db.get_business(1).get("screen_mode") == "enforce")
-client.post("/settings", data={"name": db.get_business(1)["name"], "screen_mode": ""})
+client.post("/settings", data={"name": db.get_business(1)["name"], "screen_mode": "",
+                                "_csrf": "test_csrf"})
 check("settings POST with blank clears back to inherit",
       db.get_business(1).get("screen_mode") is None)
 check("settings page renders the screening-mode selector",

@@ -6,23 +6,25 @@ their questions, and books an estimate -- automatically.
 
 ## Run it
 
+For an isolated local instance that does not touch the real SQLite database:
+
 ```bash
-cd ~/firstback
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
+python -m pip install -r requirements.txt
+FIRSTBACK_PROVIDER=demo ./run_local.sh
 ```
 
-Then open **http://localhost:8800** and sign in. The seeded owner login and the
-one-time setup steps live in [USER_TO_DO.md](USER_TO_DO.md).
+Then open **http://localhost:8800** and sign in with the credentials printed by
+the script. The seeded owner login and the one-time setup steps live in
+[USER_TO_DO.md](USER_TO_DO.md).
 
 ## The AI brain
 
 Pluggable, chosen by `FIRSTBACK_PROVIDER` in `.env`:
 
-- **`minimax`** -- MiniMax (the default today; key already in `.env`).
-- **`claude`** -- Anthropic Claude, for the public launch (`ANTHROPIC_API_KEY`).
+- **`claude`** -- Anthropic Claude, the current default (`ANTHROPIC_API_KEY`).
+- **`minimax`** -- MiniMax (`MINIMAX_API_KEY`), available by setting `FIRSTBACK_PROVIDER=minimax`.
 - **`demo`** -- a zero-setup scripted fallback used automatically if the chosen
   provider has no key or errors, so the app never breaks.
 

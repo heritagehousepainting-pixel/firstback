@@ -27,6 +27,7 @@
 
 {% block content %}
 <form method="post" class="settings-col">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   {% call card(title='Business profile', subtitle='The basics your AI uses to sound like you.') %}
     <div class="field-grid">
       {{ field('Business name', name='name', value=business.name) }}
@@ -271,6 +272,7 @@
 </form>
 
 <form method="post" action="/settings/growth_mode" class="settings-col" style="margin-top:var(--space-5)">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   {% call card(anchor='set-growth', title='Growth Autopilot', subtitle='I draft texts to past customers overnight. Pick how much you want to control.') %}
     {% if growth_saved %}<p class="provider-note provider-note-ok">Growth mode saved.</p>{% endif %}
     <div class="radio-group" style="flex-direction:column;gap:var(--space-3)">
@@ -299,6 +301,7 @@
 </form>
 
 <form method="post" action="/settings/password" class="settings-col" style="margin-top:var(--space-5)">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   {% call card(anchor='set-password', title='Password', subtitle='Change the password you use to sign in to FirstBack.') %}
     {% if pw %}<p class="provider-note provider-note-ok">Your password has been updated.</p>{% endif %}
     {% if pwerror %}<p class="provider-note provider-note-err">{{ {'current':'Your current password is incorrect.', 'short':'New password must be at least 8 characters.'}.get(pwerror, 'Could not update your password.') }}</p>{% endif %}

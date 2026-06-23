@@ -1,14 +1,14 @@
 # HANDOFF — FirstBack Command Center / "Vic" (read this FIRST)
 
-You're taking over an in-flight upgrade of FirstBack's **command center** (`/dashboard`). The prior
-chat's context ran low; everything you need is in this file, the repo docs, and auto-memory. **Read
-§0, run the suite, confirm reality, then continue WITH the user — small slices, check in, take the
-redirect.**
+You're taking over FirstBack's **command center** (`/dashboard`). This file contains useful
+historical product memory, but the branch/deploy facts have changed over time. **Always verify the
+current checkout with `git status --short --branch`, count tests with `find . -maxdepth 1 -name
+'test_*.py' | wc -l`, then continue in small slices.**
 
-> **Status @ 2026-06-17:** Phases **0–5 built, audited, green** (15 standalone test files / **682
-> checks**, 0 failing). All committed + pushed to a **`staging` branch** (`origin/staging`).
-> **`main`/prod untouched.** The **Claude brain is LIVE** (key in `.env`). **Not deployed yet.**
-> **Next: Phase 6 "Vic, the hub"** (defined below, NOT built), then the staging deploy.
+> **Current repo reality @ 2026-06-23:** checkout is `main` at `8163f56`, with **76**
+> root-level standalone `test_*.py` scripts. `.env` is gitignored and was not inspected during the
+> cleanup sweep; do not assume live Claude/Twilio/Stripe keys are present. Older notes below that
+> mention `staging`, 15 tests, or Phase 6 as unbuilt are historical context unless re-verified.
 
 ## 0. Read these, in order
 1. **This file.**
@@ -32,24 +32,19 @@ source of truth for prod.
 
 ## 2. Operational facts (don't relearn the hard way)
 - **Tests are standalone scripts**, NOT pytest. Run with the venv python:
-  `for t in test_*.py; do .venv/bin/python "$t"; done`. **15 files / 682 checks — keep it green.**
+  `for t in test_*.py; do .venv/bin/python "$t"; done`. There are currently **76** root-level test
+  scripts; keep them green.
   (Each test file pins `FIRSTBACK_PROVIDER=demo`, so the suite is free + deterministic regardless of
   `.env`.)
 - **Local app:** `./run_local.sh` → `http://localhost:8800`, login `owner@firstback.local` /
   `test1234`, isolated `local_test.db`. **It now honors `.env`** → with the Claude key set it runs the
   **real Claude brain locally and SPENDS API credit** on each chat turn. Force the free demo brain
   with `FIRSTBACK_PROVIDER=demo ./run_local.sh`.
-- **`.env` is set up:** `ANTHROPIC_API_KEY` (uncommented) + `FIRSTBACK_PROVIDER=claude`; the `anthropic`
-  SDK is installed in `.venv` (install via `.venv/bin/python -m pip …` — the venv's bare `pip` has a
-  stale shebang). `.env` + `*.db` are gitignored.
-- **Git:** you are on branch **`staging`** (`1404c0a` phases 0–5, `4c436fa` render.yaml), synced with
-  `origin/staging`. Committing/pushing to **staging is authorized**; **`main`/prod is hands-off.**
-  DESIGN.md + screenshots/ + .playwright-mcp/ are intentionally excluded.
-- **Deploy (NOT done yet):** `render.yaml` on `staging` names the service **`firstbackv2`** (+ disk
-  `firstbackv2-data`) so a Render **Blueprint from the `staging` branch** stands up a SEPARATE staging
-  service that never touches prod `firstback`. User's steps: Render → New+ → Blueprint → repo → **Branch
-  = staging** → Apply; then add `ANTHROPIC_API_KEY` + `FIRSTBACK_PROVIDER=claude` in the `firstbackv2`
-  Environment. Twilio stays off on staging (texts simulate — correct for "stage-ready, not live").
+- **`.env` + `*.db` are gitignored.** Do not inspect or assume secrets unless the user asks.
+- **Git:** verify the branch before any work. During the 2026-06-23 cleanup sweep the checkout was
+  `main...origin/main` and clean before edits.
+- **Deploy:** `render.yaml` currently provisions a Render service named `firstbackv2`; treat this as
+  deployment configuration that must be reconciled with the intended environment before any deploy.
 - **Claude path:** verified **live-fired** end-to-end (real reply + multi-step tool chaining + SSE).
   Model `claude-opus-4-8`. **Invoke the `claude-api` skill before touching any Claude/llm.py code.**
 

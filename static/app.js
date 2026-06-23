@@ -19,10 +19,17 @@ function clearEmpty(container) {
   if (empty) empty.remove();
 }
 
-// Single fetch helper for every API call: throws on a non-2xx response and
-// surfaces the server's JSON {error} message, so callers can try/catch, show a
-// graceful message, and re-enable their controls in a finally block.
+// Single fetch helper for every API call: attaches the session CSRF token to
+// same-origin mutating requests, throws on a non-2xx response, and surfaces the
+// server's JSON {error} message so callers can re-enable controls cleanly.
 async function apiFetch(url, options) {
+  options = options || {};
+  const method = String(options.method || "GET").toUpperCase();
+  if (APP_CSRF && !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("X-CSRF-Token")) headers.set("X-CSRF-Token", APP_CSRF);
+    options = Object.assign({}, options, { headers });
+  }
   const res = await fetch(url, options);
   if (!res.ok) {
     let msg = "Request failed (" + res.status + ")";

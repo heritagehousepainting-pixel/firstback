@@ -505,7 +505,8 @@ def company():
 @app.route("/pricing")
 def pricing():
     return render_template("pricing.html",
-                           voice_configured=bool(VOICE_PUBLIC_URL))
+                           voice_configured=bool(VOICE_PUBLIC_URL),
+                           billing_live=_billing.configured())
 
 
 @app.route("/contact", methods=["GET", "POST"])

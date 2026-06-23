@@ -20,7 +20,7 @@ import stripe
 
 import db
 import mail
-from config import VOICE_PUBLIC_URL, SEED_OWNER_EMAIL  # re-use the base URL pattern
+from config import VOICE_PUBLIC_URL, PUBLIC_BASE_URL, SEED_OWNER_EMAIL
 
 # ── Config ────────────────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY     = os.environ.get("STRIPE_SECRET_KEY", "")
@@ -44,6 +44,21 @@ PLAN_GRANTS: dict[str, int] = {
     "pro":     1000,
     "crew":    3000,
 }
+
+
+def configured() -> bool:
+    """True when Stripe billing is wired: secret key + the three monthly Price IDs.
+    Used to gate the subscribe UI so checkout buttons only appear once billing is live."""
+    return bool(STRIPE_SECRET_KEY
+                and PRICE_IDS.get(("starter", "month"))
+                and PRICE_IDS.get(("pro", "month"))
+                and PRICE_IDS.get(("crew", "month")))
+
+
+def _web_base() -> str:
+    """Base URL for Checkout success/cancel + portal return — the FLASK web app, NOT the
+    voice service. (Was VOICE_PUBLIC_URL, which is the separate voice host — wrong target.)"""
+    return (PUBLIC_BASE_URL or VOICE_PUBLIC_URL or "").rstrip("/")
 
 
 def _norm_interval(interval: str) -> str:
@@ -103,7 +118,7 @@ def create_checkout_session(business_id: int, plan: str, interval: str = "month"
     if not price_id:
         raise ValueError(f"Unknown or unconfigured plan/interval: {plan!r}/{interval!r}")
 
-    base = (VOICE_PUBLIC_URL or "").rstrip("/")
+    base = _web_base()
     biz = db.get_business(business_id) or {}
 
     # Reuse the Stripe customer if we already created one for this tenant.
@@ -151,7 +166,7 @@ def create_portal_session(business_id: int, return_url: str = None):
     if not customer_id:
         raise ValueError(f"Business {business_id} has no Stripe customer yet.")
 
-    base = (VOICE_PUBLIC_URL or "").rstrip("/")
+    base = _web_base()
     session = s.billing_portal.Session.create(
         customer=customer_id,
         return_url=return_url or f"{base}/settings",

@@ -1,6 +1,23 @@
 {% extends "marketing_base.html" %}
 {% from "components/ui/badge.html" import pill %}
 {% set check %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;color:var(--accent)"><path d="M20 6L9 17l-5-5"/></svg>{% endset %}
+{# Plan CTA: when billing is live, a logged-in owner gets a real Subscribe (CSRF POST to
+   checkout); an anonymous visitor carries the plan into signup; otherwise the original
+   signup link. Stays inert (current behavior) until billing.configured() is True. #}
+{% macro plan_cta(plan, label, accent) -%}
+{%- if billing_live and current_user -%}
+  <form method="post" action="/billing/checkout" style="margin:0">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="plan" value="{{ plan }}">
+    <input type="hidden" name="interval" value="month">
+    <button type="submit" class="ob-btn {{ accent }}" style="width:100%">Subscribe</button>
+  </form>
+{%- elif billing_live -%}
+  <a class="ob-btn {{ accent }}" href="/signup?plan={{ plan }}">{{ label }}</a>
+{%- else -%}
+  <a class="ob-btn {{ accent }}" href="/signup">{{ label }}</a>
+{%- endif -%}
+{%- endmacro %}
 
 {% block title %}Pricing{% endblock %}
 {% block meta %}
@@ -56,7 +73,7 @@
         <li>{{ check }} Up to 250 missed-call replies / mo</li>
         <li>{{ check }} 1 phone number</li>
       </ul>
-      <a class="ob-btn ob-btn-light" href="/signup">Get started</a>
+      {{ plan_cta('starter', 'Get started', 'ob-btn-light') }}
     </div>
 
     <div class="mk-price featured">
@@ -78,7 +95,7 @@
         <li>{{ check }} Calendar integration</li>
         <li>{{ check }} Priority support</li>
       </ul>
-      <a class="ob-btn ob-btn-accent" href="/signup">Get started</a>
+      {{ plan_cta('pro', 'Get started', 'ob-btn-accent') }}
     </div>
 
     <div class="mk-price">

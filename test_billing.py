@@ -413,6 +413,16 @@ with mock.patch.object(billing.mail, "send_email") as _m_empty, _ctx.redirect_st
 check("D-2 empty price_id is quiet (no warning, no email)",
       _plan_empty == "starter" and "BILLING WARNING" not in _buf3.getvalue() and not _m_empty.called)
 
+# ── Pricing wiring: configured() gate + web-base URL (bug fix) ───────────────────
+check("configured() True when secret key + 3 monthly price IDs set", billing.configured() is True)
+check("_web_base() targets the FLASK web app, not the voice host",
+      billing._web_base() == "https://ringback-gixe.onrender.com")
+_saved_key = billing.STRIPE_SECRET_KEY
+billing.STRIPE_SECRET_KEY = ""
+check("configured() False when STRIPE_SECRET_KEY missing (subscribe UI stays gated)",
+      billing.configured() is False)
+billing.STRIPE_SECRET_KEY = _saved_key
+
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 print(f"\n{'='*50}")

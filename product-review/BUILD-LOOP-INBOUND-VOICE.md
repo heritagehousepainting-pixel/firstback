@@ -29,9 +29,11 @@ texts CALL → AI phones back). Reuse the existing ConversationRelay infra (`voi
       (forward-first, AI on no-answer; always-AI = blank forward_to, no code). Reuses voice service unchanged;
       net-new is surgical (1 col + 1 helper + 2 hooks + greeting param + toggle). Compliance: quiet-hours N/A,
       AI disclosure in greeting, attorney review = go-live gate not build gate.
-- [ ] **S2 AUDIT** (sonnet) → verify hook points + sentinel-first ordering + metering SID reuse vs real code;
-      confirm no break to forwarding/sentinel/callback; compliance check; go/fix list. ← **IN PROGRESS**
-- [ ] **S3 BUILD** (sonnet, write-capable) → implement; mocked tests green; don't break existing flows.
+- [x] **S2 AUDIT** (sonnet) → DONE. **GO-WITH-FIXES** (`plan-audits/17-audit.md`). Verified hooks +
+      sentinel-can't-hijack + no-regression + metering race-free + compliance. 3 P1 fixes caught:
+      FIX-1 (canceled→skip AI), FIX-2 (log_call ai-answered), FIX-3 (no double screen). + health-probe for downtime.
+- [ ] **S3 BUILD** (sonnet, write-capable) → implement plan 17 with FIX-1..6 + health probe; mocked tests
+      green; don't break existing flows; ASCII Jinja only. ← **IN PROGRESS**
 - [ ] **S4 BUILD-AUDIT** (sonnet/inline) → review (compliance/honesty/regression/smart-quote) + tests green. Commit/push staging.
 - [ ] **S5 HANDOFF** → SETUP_NEEDED inbound-voice go-live + memory; loop stops; notify owner. END of the 2-loop run.
 

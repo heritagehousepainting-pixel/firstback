@@ -21,10 +21,12 @@ or per-business column, or "whichever is connected"). Plan must specify; recomme
 option and flag if it's an owner decision.
 
 ## Stages / state
-- [ ] **S1 PLAN** (sonnet) → `product-review/plans/16-hcp-sync.md`: HCP API/OAuth shape, provider-selection
-      design, the exact files to touch (config, hcp_fsm.py, fsm_sync routing, settings card, tests),
-      build order, mocked-test plan, reuse of audited Jobber fixes (F1 upsert, recommended_setup 3-touch). ← **IN PROGRESS**
-- [ ] **S2 PLAN-AUDIT** (sonnet) → verify assumed names vs real code + the Jobber patterns; go/fix list.
+- [x] **S1 PLAN** (sonnet) → DONE. `product-review/plans/16-hcp-sync.md`. Recommends provider-selection
+      **Option C** (route to whichever connected, HCP>Jobber, no double-fire). ⚠️ HCP API shapes are
+      ASSUMED — flagged Q1–Q8 for S2 to verify against live docs.
+- [ ] **S2 PLAN-AUDIT** (sonnet) → verify assumed FirstBack names vs real code + **verify the HCP API
+      assumptions (Q1–Q6) against live HCP docs via WebSearch/WebFetch** + sign off provider-selection.
+      go/fix list. ← **IN PROGRESS**
 - [ ] **S3 BUILD** (sonnet, write-capable) → hcp_fsm.py + routing + settings + mocked tests green.
 - [ ] **S4 BUILD-AUDIT** (sonnet) → review (security/honesty/smart-quote scan) + tests green. Orchestrator commits/pushes staging.
 - [ ] **S5 HANDOFF** → SETUP_NEEDED HCP creds; memory; loop stops; then kick the inbound-voice loop.

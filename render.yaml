@@ -78,7 +78,8 @@ services:
       # (No key set => safe demo responder, fine for a first smoke test.)
       #
       # Real texts/calls (later, see USER_TO_DO.md):
-      #   PUBLIC_BASE_URL = https://<your-render-url>
+      #   FIRSTBACK_PUBLIC_URL = https://<your-render-url>   (the code reads THIS exact key;
+      #       a bare PUBLIC_BASE_URL is IGNORED — config.py does os.environ.get("FIRSTBACK_PUBLIC_URL"))
       #   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER
       # Email alerts (optional):
       #   SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM (see placeholders above)

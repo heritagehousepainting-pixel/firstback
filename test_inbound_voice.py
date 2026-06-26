@@ -392,7 +392,8 @@ except Exception as e:
 # VI-e: no smart/curly quotes in the NEW toggle block (inbound_voice_enabled).
 # Pre-existing smart quotes elsewhere in the file are out of scope for this check;
 # this scan targets only the lines containing the new toggle.
-_html = open("/Users/jonathanmorris/Documents/apps/firstback/templates/settings.html", "rb").read()
+_settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "settings.html")
+_html = open(_settings_path, "rb").read()
 _src_str = _html.decode("utf-8", errors="replace")
 _smarts = [b"\xe2\x80\x98", b"\xe2\x80\x99", b"\xe2\x80\x9c", b"\xe2\x80\x9d"]
 # Find just the new toggle block lines.

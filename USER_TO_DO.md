@@ -1,5 +1,8 @@
 # FirstBack — Your To-Do List
 
+> **➡️ Work from `OWNER_TODO.md` instead — it's the single, complete, up-to-date owner
+> to-do list. This file (local-dev framed, older) is kept for reference detail only.**
+
 Things only **you** can do (set up accounts, keys, passwords). Each item has
 step-by-step instructions. Work top to bottom; the first section matters today,
 the last only when you're ready to put FirstBack online for real.

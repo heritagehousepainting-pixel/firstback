@@ -1,5 +1,8 @@
 # FirstBack — Go-Live Checklist
 
+> **➡️ Work from `OWNER_TODO.md` instead — it's the single, complete owner to-do list
+> (this file + the credential how-tos merged). This file is kept for reference.**
+
 > Synthesized from `SETUP_NEEDED.md` (the chronological ops ledger) into one ordered,
 > actionable list. Everything here is **owner-ops the code cannot do for itself** — the
 > code ships honest-but-gated and only goes live when these are set. Work top-down:

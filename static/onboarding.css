@@ -288,7 +288,9 @@
 .ob-brief-ic svg{width:15px;height:15px}
 
 @media(max-width:860px){
-  .ob-proof-brief{grid-template-columns:1fr}
+  /* minmax(0,1fr) so the briefing card can't push the track past the viewport
+     (bare 1fr = minmax(auto,1fr) blows out on the card's min-content). */
+  .ob-proof-brief{grid-template-columns:minmax(0,1fr)}
   .ob-brief{width:100%;max-width:420px}
   .ob-brief-points{width:100%;max-width:420px}
 }

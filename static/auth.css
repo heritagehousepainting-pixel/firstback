@@ -11,8 +11,8 @@
 /* Firecrawl-style: dark blueprint "terminal" panel. White text on near-black
    clears AA with huge margin; orange stays a confined glow (a scalpel). */
 .au-art{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:40px;
-  padding:clamp(32px,4vw,56px);color:#fff;overflow:hidden;
-  background-color:#0B0E14;
+  padding:clamp(32px,4vw,56px);color:var(--surface);overflow:hidden;
+  background-color:var(--ink);
   background-image:
     linear-gradient(to right, rgba(255,255,255,.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255,255,255,.05) 1px, transparent 1px);
@@ -20,10 +20,10 @@
 .au-art::after{content:"";position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(58% 42% at 82% 6%, rgba(234,88,12,.30) 0%, rgba(234,88,12,0) 60%)}
 .au-art > *{position:relative;z-index:1}
-.au-logo{display:inline-flex;align-items:center;gap:10px;color:#fff;text-decoration:none;
+.au-logo{display:inline-flex;align-items:center;gap:10px;color:var(--surface);text-decoration:none;
   font-size:20px;font-weight:800;letter-spacing:-.02em}
 .au-logo .mark{display:flex;align-items:center;justify-content:center;width:30px;height:30px;
-  border-radius:8px;background:rgba(255,255,255,.18);color:#fff}
+  border-radius:8px;background:rgba(255,255,255,.18);color:var(--surface)}
 .au-logo .mark svg{width:18px;height:18px}
 .au-art-body{max-width:34ch}
 .au-art-title{font-size:clamp(2rem,3.2vw,2.9rem);font-weight:900;letter-spacing:-.03em;line-height:1.02;margin:0}
@@ -32,7 +32,7 @@
   border:1px solid rgba(255,255,255,.12);max-width:42ch}
 .au-stars{display:inline-flex;gap:2px;color:var(--star)}
 .au-stars svg{width:16px;height:16px;fill:currentColor}
-.au-quote{font-size:1.05rem;line-height:1.45;font-weight:500;margin:12px 0 0;color:#fff}
+.au-quote{font-size:1.05rem;line-height:1.45;font-weight:500;margin:12px 0 0;color:var(--surface)}
 .au-by{font-size:.85rem;margin:10px 0 0;color:rgba(255,255,255,.8)}
 .au-foot{font-size:.8rem;color:rgba(255,255,255,.7);margin:0}
 

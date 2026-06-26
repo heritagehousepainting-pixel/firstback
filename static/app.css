@@ -231,7 +231,7 @@
 .provider-card:hover{border-color:var(--border-strong);box-shadow:var(--shadow-card)}
 .provider-card.is-connected{border-color:var(--success);background:var(--success-bg)}
 .provider-logo{flex:0 0 auto;width:36px;height:36px;border-radius:var(--radius-sm);
-  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:var(--text-md)}
+  display:flex;align-items:center;justify-content:center;color:var(--surface);font-weight:800;font-size:var(--text-md)}
 .provider-logo svg{width:22px;height:22px}
 .provider-logo-google{background:var(--surface);border:1px solid var(--border)}
 .provider-logo-outlook{background:#0F6CBD}
@@ -325,7 +325,7 @@
 .toggle{display:inline-flex;align-items:center;gap:12px;cursor:pointer;user-select:none}
 .toggle > input{position:absolute;width:1px;height:1px;opacity:0;margin:0}
 .toggle-track{flex:0 0 auto;width:42px;height:24px;border-radius:999px;background:var(--border-strong);position:relative;transition:background .15s ease}
-.toggle-thumb{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}
+.toggle-thumb{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}
 .toggle > input:checked + .toggle-track{background:var(--accent)}
 .toggle > input:checked + .toggle-track .toggle-thumb{transform:translateX(18px)}
 .toggle > input:focus-visible + .toggle-track{outline:none;box-shadow:0 0 0 3px var(--accent-ring)}

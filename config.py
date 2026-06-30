@@ -286,7 +286,9 @@ try:
     VOICE_SERVICE_PORT = int(os.environ.get("FIRSTBACK_VOICE_PORT", "8810") or "8810")
 except ValueError:
     VOICE_SERVICE_PORT = 8810
-CONVERSATIONRELAY_VOICE = os.environ.get("FIRSTBACK_VOICE_TTS", "")
+# Default to the "Justin" ElevenLabs voice (owner-chosen product voice). Override
+# per-environment with FIRSTBACK_VOICE_TTS to use a different voice id.
+CONVERSATIONRELAY_VOICE = os.environ.get("FIRSTBACK_VOICE_TTS", "BzWc3iJ0MiRdqIo6RCvM")
 # FIRSTBACK_TTS_PROVIDER picks the ConversationRelay TTS engine ("ElevenLabs",
 # "Google", "Amazon"). Defaults to ElevenLabs (Twilio's own 2026 default) so calls
 # use a natural voice rather than the generic fallback that sounds robotic. Making

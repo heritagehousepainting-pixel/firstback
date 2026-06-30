@@ -99,6 +99,16 @@ html_live = client.get("/settings").data
 check("settings golive: id=set-setup present in HTML", b'id="set-setup"' in html_live)
 check("settings golive: #set-setup link in sub-nav",   b'#set-setup'    in html_live)
 
+# 12 — Settings sub-nav grouped into labeled clusters (IA polish)
+check("registry: every /settings section has a 'group'",
+      all('group' in sec for sec in PAGE_SECTIONS['/settings']))
+check("settings: sec-nav-group headers rendered",       b'sec-nav-group' in html)
+check("settings: 'Your business' group header present", b'Your business' in html)
+check("settings: 'Calls &amp; AI' group header present", b'Calls &amp; AI' in html)
+check("settings: 'Account' group header present",       b'Account' in html)
+check("pipeline: no group headers (ungrouped page stays flat)",
+      b'sec-nav-group' not in phtml)
+
 _fail and sys.exit(1)
 print(f"\n{_pass} passed, {_fail} failed")
 os.unlink(_TMP.name)

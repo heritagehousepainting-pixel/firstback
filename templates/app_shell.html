@@ -23,6 +23,17 @@
       <span class="mark"><img src="/static/firstback-mark-light.svg" width="28" height="28" alt=""></span>
       {{ app_name }}
     </a>
+    {# Section sub-nav. Renders an optional uppercase group header whenever a section's
+       'group' changes (Settings is grouped; other pages have no group key → flat list). #}
+    {% macro sec_nav(sections, base, label='Sections') -%}
+    <ul class="sec-nav" aria-label="{{ label }}">
+      {%- set ns = namespace(grp=None) -%}
+      {%- for sec in sections -%}
+        {%- if sec.group and sec.group != ns.grp %}<li class="sec-nav-group" aria-hidden="true">{{ sec.group }}</li>{% set ns.grp = sec.group %}{%- endif -%}
+        <li><a class="sec-nav-item" href="{{ base }}#{{ sec.id }}">{{ sec.label }}</a></li>
+      {%- endfor -%}
+    </ul>
+    {%- endmacro %}
     <nav class="sidebar-nav">
       {# Setup is pinned to the top (and accent-emphasized) until the tenant is live;
          once golive_complete it is removed from the sidebar entirely (surfaces inside Settings). #}
@@ -39,11 +50,7 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
           <span>Dashboard</span>
         </a>
-        {% if path.startswith('/pipeline') and nav_sections|length > 1 %}
-        <ul class="sec-nav" aria-label="Dashboard sections">
-          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/pipeline#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
-        </ul>
-        {% endif %}
+        {% if path.startswith('/pipeline') and nav_sections|length > 1 %}{{ sec_nav(nav_sections, '/pipeline', 'Dashboard sections') }}{% endif %}
       </div>
       <div class="nav-group">
         <a class="nav-item {{ 'active' if path.startswith('/dashboard') }}" href="/dashboard">
@@ -57,22 +64,14 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2z"/><path d="M9 22h6"/></svg>
           <span>Memory</span>
         </a>
-        {% if path.startswith('/training') and nav_sections|length > 1 %}
-        <ul class="sec-nav" aria-label="Memory sections">
-          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/training#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
-        </ul>
-        {% endif %}
+        {% if path.startswith('/training') and nav_sections|length > 1 %}{{ sec_nav(nav_sections, '/training', 'Memory sections') }}{% endif %}
       </div>
       <div class="nav-group">
         <a class="nav-item {{ 'active' if path.startswith('/callers') }}" href="/callers">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Callers</span>
         </a>
-        {% if path.startswith('/callers') and nav_sections|length > 1 %}
-        <ul class="sec-nav" aria-label="Callers sections">
-          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/callers#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
-        </ul>
-        {% endif %}
+        {% if path.startswith('/callers') and nav_sections|length > 1 %}{{ sec_nav(nav_sections, '/callers', 'Callers sections') }}{% endif %}
       </div>
       <div class="nav-group">
         <a class="nav-item {{ 'active' if path.startswith('/customers') }}" href="/customers">
@@ -86,11 +85,7 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
           <span>Settings</span>
         </a>
-        {% if path.startswith('/settings') and nav_sections|length > 1 %}
-        <ul class="sec-nav" aria-label="Settings sections">
-          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/settings#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
-        </ul>
-        {% endif %}
+        {% if path.startswith('/settings') and nav_sections|length > 1 %}{{ sec_nav(nav_sections, '/settings', 'Settings sections') }}{% endif %}
       </div>
     </nav>
     <div class="sidebar-foot">

@@ -450,6 +450,11 @@
 .sec-nav-item.is-active,.sec-nav-item[aria-current]{color:var(--accent-strong);
   font-weight:600;background:var(--accent-bg)}
 .sec-nav-item:focus-visible{outline:2px solid var(--accent-ring);outline-offset:-2px}
+/* Group header inside a sec-nav (e.g. Settings clusters). Left padding aligns with items. */
+.sec-nav-group{padding:9px var(--space-3) 3px 38px;font-size:.66rem;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);
+  user-select:none;pointer-events:none}
+.sec-nav-group:first-child{padding-top:3px}
 
 /* Mobile pill row: hidden on desktop, shown between page-head and page-body on mobile. */
 .section-pill-row{display:none}

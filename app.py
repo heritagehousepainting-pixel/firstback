@@ -185,21 +185,24 @@ app.jinja_env.filters["slotwhen"] = fmt_slot_when
 
 
 PAGE_SECTIONS = {
+    # Grouped into labeled clusters so the 14-item sub-nav scans cleanly. The optional
+    # 'group' key drives a section header in the sidebar; pages without it render flat.
+    # set-setup is filtered out below until golive_complete.
     '/settings': [
-        {'id': 'set-setup',      'label': 'Setup'},
-        {'id': 'set-profile',    'label': 'Business profile'},
-        {'id': 'set-voice',      'label': 'Phone & AI callback'},
-        {'id': 'set-calendar',   'label': 'Calendar'},
-        {'id': 'set-crm',        'label': 'CRM'},
-        {'id': 'set-screening',  'label': 'Call screening'},
-        {'id': 'set-scheduling', 'label': 'Scheduling'},
-        {'id': 'set-alerts',     'label': 'Alerts'},
-        {'id': 'set-reminders',  'label': 'Reminders'},
-        {'id': 'set-widget',     'label': 'Widget'},
-        {'id': 'set-ai',         'label': 'AI instructions'},
-        {'id': 'set-growth',     'label': 'Growth mode'},
-        {'id': 'set-billing',    'label': 'Plan & billing'},
-        {'id': 'set-password',   'label': 'Password'},
+        {'id': 'set-profile',    'label': 'Business profile',    'group': 'Your business'},
+        {'id': 'set-ai',         'label': 'AI instructions',     'group': 'Your business'},
+        {'id': 'set-voice',      'label': 'Phone & AI callback', 'group': 'Calls & AI'},
+        {'id': 'set-screening',  'label': 'Call screening',      'group': 'Calls & AI'},
+        {'id': 'set-reminders',  'label': 'Reminders',           'group': 'Calls & AI'},
+        {'id': 'set-widget',     'label': 'Widget & voicemail',  'group': 'Calls & AI'},
+        {'id': 'set-scheduling', 'label': 'Scheduling',          'group': 'Scheduling'},
+        {'id': 'set-calendar',   'label': 'Calendar',            'group': 'Scheduling'},
+        {'id': 'set-alerts',     'label': 'Alerts',              'group': 'Notifications'},
+        {'id': 'set-crm',        'label': 'CRM',                 'group': 'Growth & data'},
+        {'id': 'set-growth',     'label': 'Growth mode',         'group': 'Growth & data'},
+        {'id': 'set-billing',    'label': 'Plan & billing',      'group': 'Account'},
+        {'id': 'set-password',   'label': 'Password',            'group': 'Account'},
+        {'id': 'set-setup',      'label': 'Setup',               'group': 'Account'},
     ],
     '/pipeline': [
         {'id': 'dash-overview', 'label': 'Overview'},

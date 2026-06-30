@@ -4,10 +4,11 @@
 
 {% block content %}
 <link rel="stylesheet" href="/static/assistant.css?v=13">
-<section class="command-shell" id="command"
+<section class="app-section command-shell" id="command"
          data-suggestions='{{ suggestions|tojson }}'
          data-feed-sig="{{ feed_sig }}"
-         data-hello="{{ hello }}">
+         data-hello="{{ hello }}"
+         data-label="Chat">
 
   {# ---- The Jarvis core: a living orb that is the assistant's presence ---- #}
   <div class="orb-stage" aria-hidden="true">

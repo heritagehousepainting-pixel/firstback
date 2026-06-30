@@ -8,6 +8,7 @@
 
 {% block content %}
 <div id="callers">
+  <div class="app-section" id="cal-import" data-label="Import">
   {% call card(title='Import your contacts', subtitle='Bring your whole address book in at once, then sort it below. FirstBack adds each contact to the review queue as a suggestion — it never screens anyone automatically.') %}
     <div class="cl-import">
       <form id="cl-import-form" class="cl-import-row">
@@ -30,12 +31,14 @@
           <span class="cl-import-hint">Coming soon.</span>
         {% endif %}
       </div>
-      {% if gcerror %}<p class="provider-note provider-note-err">{{ 'Add your Google credentials to enable Google Contacts.' if gcerror == 'unconfigured' else 'We couldn’t connect Google Contacts. Nothing was changed — please try again.' }}</p>{% endif %}
-      <p class="cl-import-note">We keep only each contact’s name, number, and company — nothing else from your phone.</p>
+      {% if gcerror %}<p class="provider-note provider-note-err">{{ 'Add your Google credentials to enable Google Contacts.' if gcerror == 'unconfigured' else "We couldn't connect Google Contacts. Nothing was changed — please try again." }}</p>{% endif %}
+      <p class="cl-import-note">We keep only each contact's name, number, and company — nothing else from your phone.</p>
       <p class="cl-import-result" id="cl-import-result" role="status" aria-live="polite"></p>
     </div>
   {% endcall %}
+  </div>
 
+  <div class="app-section" id="cal-review" data-label="Review">
   {% call card(title='For review', subtitle='FirstBack watched these callers and guessed where they belong. Confirm it, change it, or dismiss it — one at a time or in bulk.', flush=true) %}
     <div class="cl-toolbar">
       <div class="cl-tabs" role="tablist" aria-label="Caller review">
@@ -51,8 +54,10 @@
     </div>
     <div class="cl-inbox" id="cl-inbox"></div>
   {% endcall %}
+  </div>
 
-  {% call card(title='Screened numbers', subtitle='Numbers FirstBack should never cold-text — the owner’s family, your suppliers, known spam. Your booked clients are recognized automatically.') %}
+  <div class="app-section" id="cal-screened" data-label="Screened">
+  {% call card(title='Screened numbers', subtitle="Numbers FirstBack should never cold-text — the owner's family, your suppliers, known spam. Your booked clients are recognized automatically.") %}
     <div class="screen-add-row">
       <input class="field-control" id="screen-number" type="tel" placeholder="Phone number" aria-label="Phone number to screen" autocomplete="off">
       <select class="field-control" id="screen-category" aria-label="Why this number is screened">
@@ -66,5 +71,6 @@
     <div class="screen-list" id="screen-list"></div>
     <p class="screen-customers" id="screen-customers"></p>
   {% endcall %}
+  </div>
 </div>
 {% endblock %}

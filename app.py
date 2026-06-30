@@ -184,6 +184,48 @@ app.jinja_env.filters["nicedate"] = fmt_date
 app.jinja_env.filters["slotwhen"] = fmt_slot_when
 
 
+PAGE_SECTIONS = {
+    '/settings': [
+        {'id': 'set-setup',      'label': 'Setup'},
+        {'id': 'set-profile',    'label': 'Business profile'},
+        {'id': 'set-voice',      'label': 'Phone & AI callback'},
+        {'id': 'set-calendar',   'label': 'Calendar'},
+        {'id': 'set-crm',        'label': 'CRM'},
+        {'id': 'set-screening',  'label': 'Call screening'},
+        {'id': 'set-scheduling', 'label': 'Scheduling'},
+        {'id': 'set-alerts',     'label': 'Alerts'},
+        {'id': 'set-reminders',  'label': 'Reminders'},
+        {'id': 'set-widget',     'label': 'Widget'},
+        {'id': 'set-ai',         'label': 'AI instructions'},
+        {'id': 'set-growth',     'label': 'Growth mode'},
+        {'id': 'set-billing',    'label': 'Plan & billing'},
+        {'id': 'set-password',   'label': 'Password'},
+    ],
+    '/pipeline': [
+        {'id': 'dash-overview', 'label': 'Overview'},
+        {'id': 'dash-leads',    'label': 'Leads'},
+        {'id': 'dash-activity', 'label': 'Activity'},
+        {'id': 'dash-roi',      'label': 'ROI'},
+    ],
+    '/training': [
+        {'id': 'mem-review',    'label': 'Review'},
+        {'id': 'mem-teachings', 'label': 'Teachings'},
+        {'id': 'mem-history',   'label': 'History'},
+    ],
+    '/callers': [
+        {'id': 'cal-import',   'label': 'Import'},
+        {'id': 'cal-review',   'label': 'Review'},
+        {'id': 'cal-screened', 'label': 'Screened'},
+    ],
+    '/customers': [
+        {'id': 'cust-book', 'label': 'Customer book'},
+    ],
+    '/dashboard': [
+        {'id': 'command', 'label': 'Chat'},
+    ],
+}
+
+
 @app.context_processor
 def inject_globals():
     # Available in every template. `business` is the logged-in tenant when signed
@@ -194,9 +236,12 @@ def inject_globals():
     # tenant is live, then retires to the bottom with a check. Only meaningful when
     # signed in (no template renders on JSON/webhook routes, so this stays cheap).
     golive_complete = bool(u and connections.is_live(biz))
+    sections = PAGE_SECTIONS.get(request.path, [])
+    if request.path == '/settings' and not golive_complete:
+        sections = [s for s in sections if s['id'] != 'set-setup']
     return {"app_name": APP_NAME, "tagline": TAGLINE, "brain": ai.brain_mode(),
             "business": biz, "current_user": u, "golive_complete": golive_complete,
-            "csrf_token": _csrf_token()}
+            "csrf_token": _csrf_token(), "nav_sections": sections}
 
 
 # ---- Command-center hardening: CSRF, history sanitization, rate limiting ----

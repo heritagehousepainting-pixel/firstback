@@ -9,6 +9,7 @@
 {% block page_sub %}<p class="page-sub">Every customer you've booked — their names, history, and threads. This is yours.</p>{% endblock %}
 
 {% block content %}
+<div class="app-section" id="cust-book" data-label="Customer book">
 {% if stats.total_customers %}
 {% call stat_row() %}
   {{ stat_tile(stats.total_customers, 'Customers served') }}
@@ -49,4 +50,5 @@
     thread. Your first booked job starts your book.',
    action_label='See your pipeline', action_href='/pipeline') }}
 {% endif %}
+</div>
 {% endblock %}

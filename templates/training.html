@@ -15,6 +15,7 @@
   {% if digest and digest.has_content %}<p class="provider-note provider-note-soft" style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-3)"><span>{{ digest.line }} Over the last {{ digest.days }} days across {{ digest.convos }} conversation(s).</span>
     <form method="post" action="/digest/send" style="margin:0"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-secondary btn-sm" type="submit">Email me this</button></form></p>{% endif %}
 
+  <div class="app-section" id="mem-review" data-label="Review">
   {% if top_unmet %}
   {% call card(title='Build these next', subtitle="The requests FirstBack couldn't handle, most frequent first. Teach it below, or build the tool.") %}
     {% for u in top_unmet %}
@@ -62,7 +63,9 @@
       <p>Nothing to review yet. When FirstBack can't do something, has to ask twice, or you correct it, it shows up here to teach.</p>
     {% endif %}
   {% endcall %}
+  </div>
 
+  <div class="app-section" id="mem-teachings" data-label="Teachings">
   {% call card(title='What you have taught FirstBack') %}
     {% if learnings %}
       {% for l in learnings %}
@@ -75,7 +78,9 @@
       <p>Nothing taught yet. Teach FirstBack from a flagged exchange above and it lands here.</p>
     {% endif %}
   {% endcall %}
+  </div>
 
+  <div class="app-section" id="mem-history" data-label="History">
   {% call card(title='Recent conversations') %}
     {% if convos %}
       {% for cv in convos %}
@@ -88,5 +93,6 @@
       <p>No conversations yet. Talk to FirstBack on the <a href="/dashboard">Assistant</a> and they'll be saved here.</p>
     {% endif %}
   {% endcall %}
+  </div>
 </div>
 {% endblock %}

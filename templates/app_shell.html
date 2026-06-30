@@ -27,35 +27,71 @@
       {# Setup is pinned to the top (and accent-emphasized) until the tenant is live;
          once golive_complete it is removed from the sidebar entirely (surfaces inside Settings). #}
       {% if not golive_complete %}
-      <a class="nav-item nav-item-golive {{ 'active' if path.startswith('/setup') }}" href="/setup">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
-        <span>Setup</span>
-      </a>
+      <div class="nav-group">
+        <a class="nav-item nav-item-golive {{ 'active' if path.startswith('/setup') }}" href="/setup">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Setup</span>
+        </a>
+      </div>
       {% endif %}
-      <a class="nav-item {{ 'active' if path.startswith('/pipeline') }}" href="/pipeline">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
-        <span>Dashboard</span>
-      </a>
-      <a class="nav-item {{ 'active' if path.startswith('/dashboard') }}" href="/dashboard">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg>
-        <span>Assistant</span>
-      </a>
-      <a class="nav-item {{ 'active' if path.startswith('/training') }}" href="/training">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2z"/><path d="M9 22h6"/></svg>
-        <span>Memory</span>
-      </a>
-      <a class="nav-item {{ 'active' if path.startswith('/callers') }}" href="/callers">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        <span>Callers</span>
-      </a>
-      <a class="nav-item {{ 'active' if path.startswith('/customers') }}" href="/customers">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        <span>Customers</span>
-      </a>
-      <a class="nav-item {{ 'active' if path.startswith('/settings') }}" href="/settings">
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-        <span>Settings</span>
-      </a>
+      <div class="nav-group">
+        <a class="nav-item {{ 'active' if path.startswith('/pipeline') }}" href="/pipeline">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          <span>Dashboard</span>
+        </a>
+        {% if path.startswith('/pipeline') and nav_sections|length > 1 %}
+        <ul class="sec-nav" aria-label="Dashboard sections">
+          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/pipeline#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      <div class="nav-group">
+        <a class="nav-item {{ 'active' if path.startswith('/dashboard') }}" href="/dashboard">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg>
+          <span>Assistant</span>
+        </a>
+        {# /dashboard has 1 section (command); nav_sections|length > 1 is False — no sub-nav renders #}
+      </div>
+      <div class="nav-group">
+        <a class="nav-item {{ 'active' if path.startswith('/training') }}" href="/training">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2z"/><path d="M9 22h6"/></svg>
+          <span>Memory</span>
+        </a>
+        {% if path.startswith('/training') and nav_sections|length > 1 %}
+        <ul class="sec-nav" aria-label="Memory sections">
+          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/training#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      <div class="nav-group">
+        <a class="nav-item {{ 'active' if path.startswith('/callers') }}" href="/callers">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Callers</span>
+        </a>
+        {% if path.startswith('/callers') and nav_sections|length > 1 %}
+        <ul class="sec-nav" aria-label="Callers sections">
+          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/callers#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      <div class="nav-group">
+        <a class="nav-item {{ 'active' if path.startswith('/customers') }}" href="/customers">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <span>Customers</span>
+        </a>
+        {# /customers has 1 section; no sub-nav renders #}
+      </div>
+      <div class="nav-group">
+        <a class="nav-item {{ 'active' if path.startswith('/settings') }}" href="/settings">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          <span>Settings</span>
+        </a>
+        {% if path.startswith('/settings') and nav_sections|length > 1 %}
+        <ul class="sec-nav" aria-label="Settings sections">
+          {% for sec in nav_sections %}<li><a class="sec-nav-item" href="/settings#{{ sec.id }}">{{ sec.label }}</a></li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
     </nav>
     <div class="sidebar-foot">
       <span class="avatar">{{ (business.name or 'R')[0]|upper }}</span>
@@ -77,6 +113,11 @@
       </div>
       <div class="page-actions">{% block header_actions %}{% endblock %}</div>
     </header>
+    {% if nav_sections|length > 1 %}
+    <nav class="section-pill-row" aria-label="Page sections">
+      {% for sec in nav_sections %}<a class="sec-pill" href="{{ request.path }}#{{ sec.id }}">{{ sec.label }}</a>{% endfor %}
+    </nav>
+    {% endif %}
     <div class="page-body">{% block content %}{% endblock %}</div>
   </main>
 </div>
@@ -84,5 +125,6 @@
 <input type="hidden" id="csrfToken" value="{{ csrf_token }}">
 <script src="/static/app.js"></script>
 <script src="/static/motion.js"></script>
+<script src="/static/sections.js" defer></script>
 </body>
 </html>

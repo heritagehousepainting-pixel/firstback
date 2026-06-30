@@ -24,6 +24,7 @@
 {% set screen_label = 'Would screen' if monitoring else 'Calls screened' %}
 {% set screen_sub = ((screen_stats.spam ~ ' spam · ' ~ screen_stats.contact ~ ' known') if (screen_stats and screen_stats.screened)
                      else ('Monitoring — not blocking yet' if monitoring else 'No spam reached you')) %}
+<div class="app-section" id="dash-overview" data-label="Overview">
 {% call stat_row() %}
   {{ stat_tile(stats.leads, 'Leads captured') }}
   {{ stat_tile(stats.appointments, 'Estimates booked', sub=(booked_pct ~ '% of leads'), sub_tone=('good' if stats.appointments else '')) }}
@@ -35,7 +36,7 @@
 {% if monitoring %}
 <div class="review-nudge" role="status" style="cursor:default">
   <span class="review-nudge-badge">{{ screen_stats.would_screen if screen_stats else 0 }}</span>
-  <span class="review-nudge-text"><strong>Call screening is in monitor mode.</strong> It’s logging what it <em>would</em> screen — spam and saved contacts — but still texting everyone, so nothing real gets silenced. Review the “Would screen” list below, then switch to <strong>Enforce</strong> in <a href="/settings">Settings → Call screening</a> when the numbers look right.</span>
+  <span class="review-nudge-text"><strong>Call screening is in monitor mode.</strong> It's logging what it <em>would</em> screen — spam and saved contacts — but still texting everyone, so nothing real gets silenced. Review the "Would screen" list below, then switch to <strong>Enforce</strong> in <a href="/settings">Settings → Call screening</a> when the numbers look right.</span>
 </div>
 {% endif %}
 
@@ -46,7 +47,9 @@
   <span class="review-nudge-cta">Review callers <svg class="ico-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
 </a>
 {% endif %}
+</div>
 
+<div class="app-section" id="dash-leads" data-label="Leads">
 <div class="dash-2col">
   {% call card(title='Leads', flush=true) %}
     {% if leads %}
@@ -131,7 +134,9 @@
     {{ empty_state('No estimates booked yet', 'Estimates your AI books during a conversation show up here, ready for your calendar.') }}
   {% endif %}
 {% endcall %}
+</div>
 
+<div class="app-section" id="dash-activity" data-label="Activity">
 {% if screening_promoted_at %}
 <div class="review-nudge shield-active" role="status" style="cursor:default" id="spam-shield-card">
   <span class="review-nudge-text"><strong>Spam Shield is active.</strong>
@@ -147,7 +152,7 @@
 {% endif %}
 
 {% if screened %}
-{% set screened_subtitle = ('In monitor mode FirstBack still texts these callers — this is what it WOULD screen: a contact you’d handle yourself, or a suspected spam/robocaller. Wrong about one? Mark it spam to confirm.' if monitoring else 'Callers FirstBack didn’t text back — a known contact you handle yourself, or a suspected spam/robocaller. Was one actually a customer? Text them back.') %}
+{% set screened_subtitle = ("In monitor mode FirstBack still texts these callers — this is what it WOULD screen: a contact you'd handle yourself, or a suspected spam/robocaller. Wrong about one? Mark it spam to confirm." if monitoring else "Callers FirstBack didn't text back — a known contact you handle yourself, or a suspected spam/robocaller. Was one actually a customer? Text them back.") %}
 {% call card(title=('Would screen' if monitoring else 'Screened calls'), subtitle=screened_subtitle, flush=true) %}
   {% call data_table(['Caller','Why','When','']) %}
     {% for c in screened %}
@@ -194,9 +199,10 @@
       {% endfor %}
     {% endcall %}
   {% else %}
-    {{ empty_state('No alerts yet', 'When a lead comes in or an estimate books, FirstBack notes it here — and texts or emails you if you’ve set that up in Settings.') }}
+    {{ empty_state('No alerts yet', "When a lead comes in or an estimate books, FirstBack notes it here — and texts or emails you if you've set that up in Settings.") }}
   {% endif %}
 {% endcall %}
+</div>
 
 <script>
 // E5 / Plan 06 Change 4: "Mark closed ($)" -- inline won-amount entry on the lead panel.
@@ -248,6 +254,7 @@
   });
 }());
 </script>
+<div class="app-section" id="dash-roi" data-label="ROI">
 <h2 class="section-sep">Return on investment</h2>
 <style>.section-sep{margin-top:var(--space-4);margin-bottom:calc(-1 * var(--space-2));font-size:var(--text-base);color:var(--ink-soft);font-weight:600}</style>
 <div id="roi" data-endpoint="/api/analytics">
@@ -344,4 +351,5 @@
   document.addEventListener('roi:data', function (e) { renderHeadline(e.detail); });
 }());
 </script>
+</div>
 {% endblock %}

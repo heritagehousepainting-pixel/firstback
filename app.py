@@ -43,6 +43,8 @@ import growth
 import jobber_fsm
 import hcp_fsm
 import servicetitan_fsm
+import workiz_fsm
+import fieldedge_fsm
 import fsm_sync
 from config import (APP_NAME, TAGLINE, DEBUG, SECRET_KEY, TASKS_SECRET,
                     SESSION_COOKIE_SECURE, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD,
@@ -1321,7 +1323,39 @@ def settings():
         if _cur_hard == _h and _cur_mid == _m:
             _cur_preset = _name
             break
+    # Unified "Connect your CRM" dropdown context: every CRM we support, its kind (how it
+    # connects), and whether it's enabled (configured) + connected for this business.
+    _b = biz["id"]
+    crm_providers = [
+        {"key": "jobber", "label": "Jobber", "kind": "oauth",
+         "configured": jobber_fsm.configured(), "connected": jobber_fsm.is_connected(_b),
+         "connect_url": "/api/fsm/jobber/connect", "disconnect_url": "/api/fsm/jobber/disconnect"},
+        {"key": "hcp", "label": "Housecall Pro", "kind": "oauth",
+         "configured": hcp_fsm.configured(), "connected": hcp_fsm.is_connected(_b),
+         "connect_url": "/api/fsm/hcp/connect", "disconnect_url": "/api/fsm/hcp/disconnect"},
+        {"key": "servicetitan", "label": "ServiceTitan", "kind": "tenant",
+         "configured": servicetitan_fsm.configured(), "connected": servicetitan_fsm.is_connected(_b),
+         "field_label": "ServiceTitan tenant ID", "field_hint":
+         "Settings → Integrations → API Application Access (after installing the FirstBack app).",
+         "connect_url": "/api/fsm/servicetitan/connect", "field_name": "tenant_id",
+         "disconnect_url": "/api/fsm/servicetitan/disconnect"},
+        {"key": "workiz", "label": "Workiz", "kind": "token",
+         "configured": workiz_fsm.configured(), "connected": workiz_fsm.is_connected(_b),
+         "field_label": "Workiz API token", "field_hint": "Workiz → Settings → API.",
+         "connect_url": "/api/fsm/workiz/connect-token", "field_name": "token",
+         "disconnect_url": "/api/fsm/workiz/disconnect-token"},
+        {"key": "fieldedge", "label": "FieldEdge", "kind": "token",
+         "configured": fieldedge_fsm.configured(), "connected": fieldedge_fsm.is_connected(_b),
+         "field_label": "FieldEdge API key", "field_hint": "From your FieldEdge account / partner portal.",
+         "connect_url": "/api/fsm/fieldedge/connect-token", "field_name": "token",
+         "disconnect_url": "/api/fsm/fieldedge/disconnect-token"},
+    ]
+    crm_active = next((p for p in crm_providers if p["connected"]), None)
     return render_template("settings.html", business=biz,
+                           crm_providers=crm_providers, crm_active=crm_active,
+                           crmconnected=request.args.get("crmconnected"),
+                           crmerror=request.args.get("crmerror"),
+                           crm_sel=request.args.get("crm"),
                            sched=db.scheduling_prefs(biz["id"]),
                            integrations=db.list_integrations(biz["id"]),
                            saved=request.args.get("saved"),
@@ -2917,6 +2951,67 @@ def fsm_servicetitan_disconnect():
         return jsonify({"error": "bad_csrf"}), 403
     servicetitan_fsm.disconnect(current_business()["id"])
     return jsonify(connected=False)
+
+
+# ---- Token-based CRMs (Workiz, FieldEdge): the owner pastes their account API key/token ----
+_TOKEN_FSM = {"workiz": workiz_fsm, "fieldedge": fieldedge_fsm}
+
+
+@app.route("/api/fsm/<provider>/connect-token", methods=["POST"])
+@login_required
+def fsm_token_connect(provider):
+    """Connect a token-based CRM (Workiz / FieldEdge): store the pasted API token/key."""
+    if not _csrf_ok():
+        abort(403)
+    mod = _TOKEN_FSM.get(provider)
+    if mod is None:
+        abort(404)
+    if not mod.configured():
+        return redirect(f"/settings?crmerror=unconfigured&crm={provider}")
+    token = (request.form.get("token") or "").strip()
+    try:
+        mod.connect_token(current_business()["id"], token)
+    except ValueError:
+        return redirect(f"/settings?crmerror=token&crm={provider}")
+    except Exception as e:
+        print(f"[firstback] {provider} connect failed: {e}", file=sys.stderr, flush=True)
+        return redirect(f"/settings?crmerror=exchange&crm={provider}")
+    threading.Thread(target=_fsm_background_sync, args=(current_business()["id"],), daemon=True).start()
+    return redirect(f"/settings?crmconnected={provider}")
+
+
+@app.route("/api/fsm/<provider>/disconnect-token", methods=["POST"])
+@login_required
+def fsm_token_disconnect(provider):
+    """Disconnect a token-based CRM. Keeps already-synced contact suggestions."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
+    mod = _TOKEN_FSM.get(provider)
+    if mod is None:
+        return jsonify({"error": "unknown_provider"}), 404
+    mod.disconnect(current_business()["id"])
+    return jsonify(connected=False)
+
+
+@app.route("/api/fsm/crm-request", methods=["POST"])
+@login_required
+def fsm_crm_request():
+    """'Other' in the CRM dropdown: record which CRM a contractor wants, so we know demand.
+    No new table — logged + an owner alert; returns a friendly ack."""
+    if not _csrf_ok():
+        return jsonify({"error": "bad_csrf"}), 403
+    name = (request.form.get("crm_name") or "").strip()[:120]
+    if not name:
+        return jsonify(ok=False, error="empty"), 400
+    biz = current_business()
+    print(f"[firstback] CRM integration requested (biz {biz['id']}): {name}",
+          file=sys.stderr, flush=True)
+    try:
+        alerts.notify_async(biz, "lead", {"name": f"CRM request: {name}", "phone": "",
+                                          "known": True})
+    except Exception:
+        pass
+    return jsonify(ok=True, crm=name)
 
 
 @app.route("/api/fsm/sync", methods=["POST"])

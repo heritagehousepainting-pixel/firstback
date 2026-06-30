@@ -24,25 +24,28 @@ import db
 import jobber_fsm
 import hcp_fsm
 import servicetitan_fsm
+import workiz_fsm
+import fieldedge_fsm
 from config import FSM_SYNC_INTERVAL_HOURS
 
 
 # ------------------------------------------------------------------
 # Gate helpers
 # ------------------------------------------------------------------
+# All FSM providers, in tiebreak priority order (a contractor uses one CRM; this is just a
+# deterministic pick when more than one is connected — safe for single-tenant, no double-fire).
+_ALL_PROVIDERS = (servicetitan_fsm, workiz_fsm, fieldedge_fsm, hcp_fsm, jobber_fsm)
+
+
 def configured() -> bool:
-    """True if ANY FSM provider has credentials set."""
-    return jobber_fsm.configured() or hcp_fsm.configured() or servicetitan_fsm.configured()
+    """True if ANY FSM provider is enabled/has credentials."""
+    return any(p.configured() for p in _ALL_PROVIDERS)
 
 
 def push_configured() -> bool:
-    """True if the push (quote-request) path is configured.
-
-    In v1 this is the same gate as configured(). Jobber + ServiceTitan support real push;
-    HCP push is a v1 no-op but the credential gate still returns True so the booking path is
-    attempted (the no-op is transparent to callers).
-    """
-    return jobber_fsm.configured() or hcp_fsm.configured() or servicetitan_fsm.configured()
+    """True if the push (quote-request) path is configured. Same gate as configured() in v1
+    (Jobber/ServiceTitan/Workiz/FieldEdge attempt a real push; HCP push is a v1 no-op)."""
+    return configured()
 
 
 # ------------------------------------------------------------------
@@ -51,31 +54,21 @@ def push_configured() -> bool:
 def _get_active_provider(business_id: int):
     """Return the single active FSMProvider for this business, or None.
 
-    Priority ServiceTitan > HCP > Jobber when more than one is connected (a contractor uses one
-    CRM; this is just a deterministic tiebreak, safe for single-tenant — no double-fire). A
-    per-business fsm_provider column is the v2 path for multi-tenant multi-provider.
+    Priority order is _ALL_PROVIDERS (ServiceTitan > Workiz > FieldEdge > HCP > Jobber): the
+    first enabled+connected provider wins. A contractor uses one CRM, so this is just a
+    deterministic tiebreak, safe for single-tenant — no double-fire. A per-business fsm_provider
+    column is the v2 path for multi-tenant multi-provider.
     """
-    if servicetitan_fsm.configured() and servicetitan_fsm.is_connected(business_id):
-        return servicetitan_fsm._provider
-
-    hcp_ok = hcp_fsm.configured() and hcp_fsm.is_connected(business_id)
-    job_ok = jobber_fsm.configured() and jobber_fsm.is_connected(business_id)
-
-    if hcp_ok and job_ok:
+    connected = [p for p in _ALL_PROVIDERS if p.configured() and p.is_connected(business_id)]
+    if len(connected) > 1:
+        winner = connected[0]._provider.PROVIDER_KEY
+        others = ", ".join(p._provider.PROVIDER_KEY for p in connected[1:])
         print(
-            f"[firstback] fsm: both HCP and Jobber connected for biz {business_id}; "
-            "using HCP (tiebreak). Jobber sync paused until HCP is disconnected.",
+            f"[firstback] fsm: multiple CRMs connected for biz {business_id} "
+            f"({winner} + {others}); using {winner} (tiebreak). Others paused until disconnected.",
             file=sys.stderr, flush=True,
         )
-        return hcp_fsm._provider
-
-    if hcp_ok:
-        return hcp_fsm._provider
-
-    if job_ok:
-        return jobber_fsm._provider
-
-    return None
+    return connected[0]._provider if connected else None
 
 
 # ------------------------------------------------------------------
@@ -107,6 +100,8 @@ def sync_clients(business_id: int) -> dict:
         "jobber": "Jobber",
         "housecall_pro": "Housecall Pro",
         "servicetitan": "ServiceTitan",
+        "workiz": "Workiz",
+        "fieldedge": "FieldEdge",
     }
     provider_label = _provider_labels.get(provider_key, provider_key)
 

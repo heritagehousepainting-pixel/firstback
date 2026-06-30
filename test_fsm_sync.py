@@ -708,8 +708,8 @@ check("recommended_setup: jobber item present",                  jobber_item_nc 
 check("recommended_setup: jobber optional=True",                 jobber_item_nc and jobber_item_nc.get("optional"))
 check("recommended_setup: jobber done=False when not connected", jobber_item_nc and not jobber_item_nc.get("done"))
 check("recommended_setup: jobber done=True when connected",      jobber_item_c  and jobber_item_c.get("done"))
-check("recommended_setup: jobber href points to #set-jobber",
-      jobber_item_nc and "#set-jobber" in (jobber_item_nc.get("href") or ""))
+check("recommended_setup: jobber href points to #set-crm (unified CRM card)",
+      jobber_item_nc and "#set-crm" in (jobber_item_nc.get("href") or ""))
 
 
 # ===========================================================================
@@ -867,8 +867,8 @@ check("recommended_setup: hcp item present",                  hcp_item_nc is not
 check("recommended_setup: hcp optional=True",                 hcp_item_nc and hcp_item_nc.get("optional"))
 check("recommended_setup: hcp done=False when not connected", hcp_item_nc and not hcp_item_nc.get("done"))
 check("recommended_setup: hcp done=True when connected",      hcp_item_c  and hcp_item_c.get("done"))
-check("recommended_setup: hcp href points to #set-hcp",
-      hcp_item_nc and "#set-hcp" in (hcp_item_nc.get("href") or ""))
+check("recommended_setup: hcp href points to #set-crm (unified CRM card)",
+      hcp_item_nc and "#set-crm" in (hcp_item_nc.get("href") or ""))
 
 
 # ===========================================================================

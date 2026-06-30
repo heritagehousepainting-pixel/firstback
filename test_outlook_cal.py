@@ -795,7 +795,8 @@ _rv = _client.get("/settings")
 check("/settings renders 200", _rv.status_code == 200)
 _settings_html = _rv.get_data(as_text=True)
 check("/settings shows the Outlook card", "Outlook Calendar" in _settings_html)
-check("/settings shows the Jobber card", "Connect Jobber" in _settings_html)
+check("/settings shows the unified CRM card with Jobber as an option",
+      "Connect your CRM" in _settings_html and "Jobber" in _settings_html)
 
 # ===========================================================================
 # Summary

@@ -119,205 +119,111 @@
   {% endcall %}
 
 
-  {% call card(anchor='set-jobber', title='Connect Jobber', subtitle='Import your existing Jobber clients so the AI recognizes returning customers and never treats them as cold leads. Requires Jobber Connect or higher.') %}
-    {% if fsmconnected %}<p class="provider-note provider-note-ok">Jobber connected. Importing your existing clients&hellip; <a href="/callers">Review suggestions</a></p>{% endif %}
-    {% if fsmerror %}<p class="provider-note provider-note-err">{% if fsmerror == 'unconfigured' %}Set JOBBER_CLIENT_ID and JOBBER_CLIENT_SECRET to enable.{% else %}We couldn’t finish connecting Jobber. Please try again.{% endif %}</p>{% endif %}
-    {% if jobber_configured %}
+  {% call card(anchor='set-crm', title='Connect your CRM', subtitle='Sync your existing customers so the AI recognizes returning clients and never treats them as cold leads. Pick your CRM below.') %}
+    {% if crmconnected %}<p class="provider-note provider-note-ok">Connected. Syncing your existing customers&hellip; <a href="/callers">Review suggestions</a></p>{% endif %}
+    {% if crmerror %}<p class="provider-note provider-note-err">{% if crmerror == 'unconfigured' %}That CRM isn’t enabled yet — contact us to turn it on.{% elif crmerror == 'token' %}Please enter your API token / ID.{% else %}We couldn’t finish connecting. Check your details and try again.{% endif %}</p>{% endif %}
+
+    {% if crm_active %}
+      {# Already connected to one CRM — show status + sync / disconnect. #}
       <div class="provider-grid">
-        <div class="provider-card{{ ' is-connected' if jobber_connected else '' }}" data-provider="jobber">
-          <span class="provider-logo" style="font-size:1.2rem;font-weight:700;color:var(--accent)">J</span>
+        <div class="provider-card is-connected" data-provider="{{ crm_active.key }}">
+          <span class="provider-logo" style="font-size:1.2rem;font-weight:700;color:var(--accent)">{{ crm_active.label[0] }}</span>
           <span class="provider-meta">
-            <span class="provider-name">Jobber</span>
-            <span class="provider-status">
-              {% if jobber_connected %}
-                Connected{% if fsm_clients_synced %} &mdash; {{ fsm_clients_synced }} client{{ 's' if fsm_clients_synced != 1 else '' }} synced{% endif %}
-              {% else %}
-                Not connected
-              {% endif %}
-            </span>
+            <span class="provider-name">{{ crm_active.label }}</span>
+            <span class="provider-status">Connected{% if fsm_clients_synced %} &mdash; {{ fsm_clients_synced }} client{{ 's' if fsm_clients_synced != 1 else '' }} synced{% endif %}</span>
           </span>
-          {% if jobber_connected %}
-            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="jobber-sync-btn">Sync now</button>
-            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="jobber-disconnect-btn" style="margin-left:0.5rem">Disconnect</button>
-          {% else %}
-            <a class="btn btn-primary btn-sm provider-btn" href="/api/fsm/jobber/connect">Connect</a>
-          {% endif %}
+          <button type="button" class="btn btn-secondary btn-sm provider-btn" id="crm-sync-btn">Sync now</button>
+          <button type="button" class="btn btn-secondary btn-sm provider-btn" id="crm-disconnect-btn"
+                  data-disconnect="{{ crm_active.disconnect_url | default('/api/fsm/' + crm_active.key + '/disconnect', true) }}" style="margin-left:0.5rem">Disconnect</button>
         </div>
       </div>
-      {% if jobber_connected %}
-        <p style="margin-top:var(--space-3);font-size:0.88rem;color:var(--text-muted)">
-          Synced clients appear as suggestions for you to confirm.
-          <a href="/api/suggestions/bulk">Bulk accept</a> to recognize them all at once.
-          {% if fsm_last_synced_at %} Last synced: {{ fsm_last_synced_at[:10] }}.{% endif %}
-        </p>
-      {% endif %}
+      <p style="margin-top:var(--space-3);font-size:0.88rem;color:var(--text-muted)">
+        Synced customers appear as suggestions for you to confirm. <a href="/api/suggestions/bulk">Bulk accept</a> to recognize them all at once.{% if fsm_last_synced_at %} Last synced: {{ fsm_last_synced_at[:10] }}.{% endif %}
+      </p>
     {% else %}
-      <p class="provider-note provider-note-soft">Jobber sync coming soon &mdash; contact us to enable.</p>
-    {% endif %}
-  {% endcall %}
+      {# Not connected — choose a CRM, then the matching connect panel appears. #}
+      <label for="crm-select" style="display:block;font-weight:600;margin-bottom:var(--space-2)">Which CRM do you use?</label>
+      <select id="crm-select" data-pre="{{ crm_sel or '' }}"
+              style="max-width:380px;width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--ink)">
+        <option value="">Choose your CRM…</option>
+        {% for p in crm_providers %}
+        <option value="{{ p.key }}">{{ p.label }}{% if not p.configured %} (coming soon){% endif %}</option>
+        {% endfor %}
+        <option value="other">Other…</option>
+      </select>
 
-
-  {% call card(anchor='set-hcp', title='Connect Housecall Pro', subtitle='Sync your existing Housecall Pro customers so the AI recognizes returning clients and never treats them as cold leads.') %}
-    {% if hcpconnected %}<p class="provider-note provider-note-ok">Housecall Pro connected. Syncing your existing customers&hellip; <a href="/callers">Review suggestions</a></p>{% endif %}
-    {% if hcperror %}<p class="provider-note provider-note-err">{% if hcperror == 'unconfigured' %}Set HCP_CLIENT_ID and HCP_CLIENT_SECRET to enable.{% else %}We couldn't finish connecting Housecall Pro. Please try again.{% endif %}</p>{% endif %}
-    {% if hcp_configured %}
-      <div class="provider-grid">
-        <div class="provider-card{{ ' is-connected' if hcp_connected else '' }}" data-provider="housecall_pro">
-          <span class="provider-logo" style="font-size:1.2rem;font-weight:700;color:var(--accent)">H</span>
-          <span class="provider-meta">
-            <span class="provider-name">Housecall Pro</span>
-            <span class="provider-status">
-              {% if hcp_connected %}
-                Connected{% if fsm_clients_synced and hcp_connected %} &mdash; {{ fsm_clients_synced }} client{{ 's' if fsm_clients_synced != 1 else '' }} synced{% endif %}
-              {% else %}
-                Not connected
-              {% endif %}
-            </span>
-          </span>
-          {% if hcp_connected %}
-            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="hcp-sync-btn">Sync now</button>
-            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="hcp-disconnect-btn" style="margin-left:0.5rem">Disconnect</button>
-          {% else %}
-            <a class="btn btn-primary btn-sm provider-btn" href="/api/fsm/hcp/connect">Connect</a>
-          {% endif %}
-        </div>
+      {% for p in crm_providers %}
+      <div class="crm-panel" data-panel="{{ p.key }}" hidden style="margin-top:var(--space-3)">
+        {% if not p.configured %}
+          <p class="provider-note provider-note-soft">{{ p.label }} isn’t enabled yet — <a href="/contact">contact us</a> to turn it on.</p>
+        {% elif p.kind == 'oauth' %}
+          <a class="btn btn-primary btn-sm" href="{{ p.connect_url }}">Connect {{ p.label }}</a>
+        {% else %}
+          <form method="post" action="{{ p.connect_url }}" style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="text" name="{{ p.field_name }}"{% if p.key == 'servicetitan' %} inputmode="numeric" pattern="[0-9]+"{% endif %} placeholder="{{ p.field_label }}" required
+                   style="flex:1 1 240px;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+            <button type="submit" class="btn btn-primary btn-sm">Connect</button>
+          </form>
+          <p style="margin-top:var(--space-2);font-size:0.82rem;color:var(--text-muted)">{{ p.field_hint }}</p>
+        {% endif %}
       </div>
-      {% if hcp_connected %}
-        <p style="margin-top:var(--space-3);font-size:0.88rem;color:var(--text-muted)">
-          Synced customers appear as suggestions for you to confirm.
-          <a href="/api/suggestions/bulk">Bulk accept</a> to recognize them all at once.
-          {% if fsm_last_synced_at %} Last synced: {{ fsm_last_synced_at[:10] }}.{% endif %}
-        </p>
-      {% endif %}
-    {% else %}
-      <p class="provider-note provider-note-soft">Housecall Pro sync coming soon &mdash; contact us to enable.</p>
-    {% endif %}
-  {% endcall %}
+      {% endfor %}
 
-
-  {% call card(anchor='set-servicetitan', title='Connect ServiceTitan', subtitle='Sync your existing ServiceTitan customers so the AI recognizes returning clients and never treats them as cold leads.') %}
-    {% if stconnected %}<p class="provider-note provider-note-ok">ServiceTitan connected. Syncing your existing customers&hellip; <a href="/callers">Review suggestions</a></p>{% endif %}
-    {% if sterror %}<p class="provider-note provider-note-err">{% if sterror == 'unconfigured' %}Set SERVICETITAN_CLIENT_ID, SERVICETITAN_CLIENT_SECRET and SERVICETITAN_APP_KEY to enable.{% elif sterror == 'tenant' %}Enter your numeric ServiceTitan tenant ID.{% else %}We couldn't finish connecting ServiceTitan. Check your tenant ID and try again.{% endif %}</p>{% endif %}
-    {% if st_configured %}
-      <div class="provider-grid">
-        <div class="provider-card{{ ' is-connected' if st_connected else '' }}" data-provider="servicetitan">
-          <span class="provider-logo" style="font-size:1.2rem;font-weight:700;color:var(--accent)">S</span>
-          <span class="provider-meta">
-            <span class="provider-name">ServiceTitan</span>
-            <span class="provider-status">
-              {% if st_connected %}
-                Connected{% if fsm_clients_synced and st_connected %} &mdash; {{ fsm_clients_synced }} client{{ 's' if fsm_clients_synced != 1 else '' }} synced{% endif %}
-              {% else %}
-                Not connected
-              {% endif %}
-            </span>
-          </span>
-          {% if st_connected %}
-            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="st-sync-btn">Sync now</button>
-            <button type="button" class="btn btn-secondary btn-sm provider-btn" id="st-disconnect-btn" style="margin-left:0.5rem">Disconnect</button>
-          {% endif %}
-        </div>
-      </div>
-      {% if not st_connected %}
-        <form method="post" action="/api/fsm/servicetitan/connect" class="provider-form" style="margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center">
+      <div class="crm-panel" data-panel="other" hidden style="margin-top:var(--space-3)">
+        <form id="crm-other-form" style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-          <input type="text" name="tenant_id" inputmode="numeric" pattern="[0-9]+" placeholder="Your ServiceTitan tenant ID" required
-                 style="flex:1 1 220px;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
-          <button type="submit" class="btn btn-primary btn-sm">Connect</button>
+          <input type="text" name="crm_name" placeholder="Which CRM do you use?" required
+                 style="flex:1 1 240px;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+          <button type="submit" class="btn btn-secondary btn-sm">Request it</button>
         </form>
-        <p style="margin-top:var(--space-2);font-size:0.82rem;color:var(--text-muted)">Find your tenant ID in ServiceTitan under Settings &rarr; Integrations &rarr; API Application Access (after installing the FirstBack app).</p>
-      {% else %}
-        <p style="margin-top:var(--space-3);font-size:0.88rem;color:var(--text-muted)">
-          Synced customers appear as suggestions for you to confirm.
-          <a href="/api/suggestions/bulk">Bulk accept</a> to recognize them all at once.
-          {% if fsm_last_synced_at %} Last synced: {{ fsm_last_synced_at[:10] }}.{% endif %}
-        </p>
-      {% endif %}
-    {% else %}
-      <p class="provider-note provider-note-soft">ServiceTitan sync coming soon &mdash; contact us to enable.</p>
+        <p id="crm-other-msg" style="margin-top:var(--space-2);font-size:0.82rem;color:var(--text-muted)">Don’t see your CRM? Tell us which one and we’ll look into adding it.</p>
+      </div>
     {% endif %}
   {% endcall %}
   <script>
   (function(){
     var csrf = function(){ return (document.querySelector('[name=_csrf]')||{}).value || ''; };
-    var syncBtn = document.getElementById('jobber-sync-btn');
+    var sel = document.getElementById('crm-select');
+    if (sel) {
+      var panels = document.querySelectorAll('.crm-panel');
+      var show = function(key){ panels.forEach(function(p){ p.hidden = (p.getAttribute('data-panel') !== key); }); };
+      sel.addEventListener('change', function(){ show(sel.value); });
+      var pre = sel.getAttribute('data-pre');
+      if (pre) { sel.value = pre; show(pre); }
+    }
+    var syncBtn = document.getElementById('crm-sync-btn');
     if (syncBtn) {
       syncBtn.addEventListener('click', function(){
-        syncBtn.disabled = true;
-        syncBtn.textContent = 'Syncing…';
+        syncBtn.disabled = true; syncBtn.textContent = 'Syncing…';
         fetch('/api/fsm/sync', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
           .then(function(r){return r.json();})
           .then(function(d){ syncBtn.textContent = d.ok ? 'Synced' : (d.error || 'Error'); })
           .catch(function(){ syncBtn.textContent = 'Error'; });
       });
     }
-    var discBtn = document.getElementById('jobber-disconnect-btn');
+    var discBtn = document.getElementById('crm-disconnect-btn');
     if (discBtn) {
       discBtn.addEventListener('click', function(){
-        if (!confirm('Disconnect Jobber? Your imported contact suggestions will remain.')) return;
-        fetch('/api/fsm/jobber/disconnect', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
+        if (!confirm('Disconnect this CRM? Your synced contact suggestions will remain.')) return;
+        fetch(discBtn.getAttribute('data-disconnect'), {method:'POST', headers:{'X-CSRF-Token': csrf()}})
           .then(function(r){return r.json();})
           .then(function(){ location.reload(); });
       });
     }
-    var hcpSyncBtn = document.getElementById('hcp-sync-btn');
-    if (hcpSyncBtn) {
-      hcpSyncBtn.addEventListener('click', function(){
-        hcpSyncBtn.disabled = true;
-        hcpSyncBtn.textContent = 'Syncing…';
-        fetch('/api/fsm/sync', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
+    var otherForm = document.getElementById('crm-other-form');
+    if (otherForm) {
+      otherForm.addEventListener('submit', function(e){
+        e.preventDefault();
+        fetch('/api/fsm/crm-request', {method:'POST', headers:{'X-CSRF-Token': csrf()}, body: new FormData(otherForm)})
           .then(function(r){return r.json();})
-          .then(function(d){ hcpSyncBtn.textContent = d.ok ? 'Synced' : (d.error || 'Error'); })
-          .catch(function(){ hcpSyncBtn.textContent = 'Error'; });
-      });
-    }
-    var hcpDiscBtn = document.getElementById('hcp-disconnect-btn');
-    if (hcpDiscBtn) {
-      hcpDiscBtn.addEventListener('click', function(){
-        if (!confirm('Disconnect Housecall Pro? Your synced contact suggestions will remain.')) return;
-        fetch('/api/fsm/hcp/disconnect', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
-          .then(function(r){return r.json();})
-          .then(function(){ location.reload(); });
-      });
-    }
-    var stSyncBtn = document.getElementById('st-sync-btn');
-    if (stSyncBtn) {
-      stSyncBtn.addEventListener('click', function(){
-        stSyncBtn.disabled = true;
-        stSyncBtn.textContent = 'Syncing…';
-        fetch('/api/fsm/sync', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
-          .then(function(r){return r.json();})
-          .then(function(d){ stSyncBtn.textContent = d.ok ? 'Synced' : (d.error || 'Error'); })
-          .catch(function(){ stSyncBtn.textContent = 'Error'; });
-      });
-    }
-    var stDiscBtn = document.getElementById('st-disconnect-btn');
-    if (stDiscBtn) {
-      stDiscBtn.addEventListener('click', function(){
-        if (!confirm('Disconnect ServiceTitan? Your synced contact suggestions will remain.')) return;
-        fetch('/api/fsm/servicetitan/disconnect', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
-          .then(function(r){return r.json();})
-          .then(function(){ location.reload(); });
+          .then(function(d){ var m=document.getElementById('crm-other-msg'); if(m){ m.textContent = d.ok ? ('Thanks — we’ll look into adding ' + (d.crm||'it') + '.') : 'Please enter a CRM name.'; } });
       });
     }
     var gDisc = document.getElementById('google-disconnect');
-    if (gDisc) {
-      gDisc.addEventListener('click', function(){
-        if (!confirm('Disconnect Google Calendar?')) return;
-        fetch('/api/calendar/google/disconnect', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
-          .then(function(r){return r.json();})
-          .then(function(){ location.reload(); });
-      });
-    }
+    if (gDisc) { gDisc.addEventListener('click', function(){ if(!confirm('Disconnect Google Calendar?')) return; fetch('/api/calendar/google/disconnect',{method:'POST',headers:{'X-CSRF-Token':csrf()}}).then(function(r){return r.json();}).then(function(){location.reload();}); }); }
     var olDisc = document.getElementById('outlook-disconnect');
-    if (olDisc) {
-      olDisc.addEventListener('click', function(){
-        if (!confirm('Disconnect Outlook Calendar?')) return;
-        fetch('/api/calendar/outlook/disconnect', {method:'POST', headers:{'X-CSRF-Token': csrf()}})
-          .then(function(r){return r.json();})
-          .then(function(){ location.reload(); });
-      });
-    }
+    if (olDisc) { olDisc.addEventListener('click', function(){ if(!confirm('Disconnect Outlook Calendar?')) return; fetch('/api/calendar/outlook/disconnect',{method:'POST',headers:{'X-CSRF-Token':csrf()}}).then(function(r){return r.json();}).then(function(){location.reload();}); }); }
   })();
   </script>
 

@@ -198,6 +198,17 @@ SERVICETITAN_APP_KEY = os.environ.get("SERVICETITAN_APP_KEY", "")
 # "production" (default) or "integration" (ServiceTitan's sandbox environment).
 SERVICETITAN_ENV = os.environ.get("SERVICETITAN_ENV", "production")
 
+# --- Workiz FSM sync (per-account API token; no app-level OAuth) ---
+# Contractors paste their Workiz API token (Workiz → Settings → API). Set WORKIZ_ENABLED=1 to
+# offer it once validated against a live account.
+WORKIZ_ENABLED = os.environ.get("WORKIZ_ENABLED", "")
+
+# --- FieldEdge FSM sync (per-account API key; partner API, unverified) ---
+# Set FIELDEDGE_ENABLED=1 to offer it. Its API is partner-gated/undocumented, so leave OFF until
+# the endpoint contract is confirmed (see fieldedge_fsm.py honesty note).
+FIELDEDGE_ENABLED = os.environ.get("FIELDEDGE_ENABLED", "")
+FIELDEDGE_API_BASE = os.environ.get("FIELDEDGE_API_BASE", "https://api.fieldedge.com")
+
 # --- Google Calendar (optional real two-way sync) -------------------------
 # To turn on: in Google Cloud Console create an OAuth 2.0 Client ID of type
 # "Web application", add the redirect URI below to its "Authorized redirect

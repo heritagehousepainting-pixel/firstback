@@ -194,8 +194,8 @@ def recommended_setup(business, *, calendar_connected=False, contacts_connected=
         ("voice",      "AI voice callback",         "Let a caller reply CALL for a live AI call back",      bool(biz.get("voice_callback_enabled")), True, "/settings#set-voice", "Enable"),
         ("scheduling", "Scheduling & availability", "Your work days, estimate windows, and buffer",         bool(biz.get("estimate_times") or biz.get("working_days") or biz.get("buffer_minutes")), True, "/settings#set-scheduling", "Adjust"),
         ("contacts",   "Import your contacts",      "So the screen recognizes people you already know",     contacts_connected,   True,  "/api/contacts/google/connect",  "Connect"),
-        ("jobber",     "Sync Jobber clients",       "Imports existing clients so the AI recognizes them",   jobber_connected,     True,  "/settings#set-jobber",          "Connect"),
-        ("hcp",        "Sync Housecall Pro clients", "Imports existing clients so the AI recognizes them",  hcp_connected,        True,  "/settings#set-hcp",             "Connect"),
+        ("jobber",     "Sync Jobber clients",       "Imports existing clients so the AI recognizes them",   jobber_connected,     True,  "/settings#set-crm",             "Connect"),
+        ("hcp",        "Sync Housecall Pro clients", "Imports existing clients so the AI recognizes them",  hcp_connected,        True,  "/settings#set-crm",             "Connect"),
         ("outlook",    "Connect Outlook Calendar",  "Booked estimates also sync to Outlook / Microsoft 365", outlook_connected,  True,  "/api/calendar/outlook/connect", "Connect"),
         ("password",   "Set your own password",     "Move off the starter password",                        password_changed,     False, "/settings#set-password",        "Change"),
     ]

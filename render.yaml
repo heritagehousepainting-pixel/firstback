@@ -85,13 +85,29 @@ services:
       #   SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM (see placeholders above)
       # First-login owner (optional; defaults to the seeded creds you then change):
       #   FIRSTBACK_OWNER_EMAIL / FIRSTBACK_OWNER_PASSWORD
+      # AI VOICE answering (set these two ONLY when you deploy the firstback-voice service
+      # below; until FIRSTBACK_VOICE_URL is set, the app + homepage stay text-led on their own):
+      #   FIRSTBACK_VOICE_URL       = https://<firstback-voice service URL>   (flips voice on)
+      #   FIRSTBACK_INTERNAL_SECRET = <same random value set on BOTH services>
+      #   FIRSTBACK_VOICE_TTS       = <a ConversationRelay TTS voice id>      (optional but recommended)
 
-# ---- OPTIONAL: the AI voice agent (Phase 3) as a second service. ----
-# Do NOT just uncomment: a separate Render service cannot share this one's SQLite
-# disk, so enabling voice in production first needs a SHARED database (Render
-# Postgres) or routing the voice service's booking writes back through the web app.
-# We'll wire that when you turn on the "reply CALL" voice callback. For now the
-# voice leg stays off and an SMS "call me" simply keeps the text conversation going.
+# ---- AI voice answering (Phase 3): the ConversationRelay agent as a SECOND service. ----
+# Flask/WSGI can't host the long-lived WebSocket ConversationRelay needs, so voice runs as its
+# own uvicorn service. It does NOT need a shared database: with FIRSTBACK_WEB_URL set, the voice
+# service relays every spoken turn + booking back to THIS web app over HTTP (/internal/voice/*,
+# guarded by the shared FIRSTBACK_INTERNAL_SECRET), so the web app stays the single SQLite
+# writer. (An earlier note here said "needs Postgres" -- that was over-cautious; the HTTP relay
+# is already built in voice_service.py, so no shared DB is required.)
+#
+# TO TURN VOICE ON (turnkey):
+#   1. Uncomment this service block, set its 4 dashboard secrets below, and deploy it.
+#   2. On the MAIN service above, add  FIRSTBACK_VOICE_URL = <this voice service's https URL>.
+#      That ONE var flips voice_configured true everywhere -- the homepage auto-becomes
+#      voice-led, no code change.
+#   3. Set the SAME  FIRSTBACK_INTERNAL_SECRET  on BOTH services (web + voice) so the
+#      /internal/voice/* relay authenticates.
+#   4. In the Twilio console, point the number's Voice webhook at the web app's inbound-voice
+#      route (it returns the ConversationRelay TwiML that hands the call to wss://<voice URL>).
 #
 #  - type: web
 #    name: firstback-voice
@@ -102,4 +118,13 @@ services:
 #    envVars:
 #      - key: PYTHON_VERSION
 #        value: "3.12.7"
-#      # + a SHARED database + FIRSTBACK_PROVIDER/ANTHROPIC_API_KEY
+#      - key: FIRSTBACK_PROVIDER          # same brain as the text path
+#        value: claude
+#      - key: ANTHROPIC_API_KEY           # secret -- set in the dashboard
+#        sync: false
+#      - key: FIRSTBACK_WEB_URL           # the MAIN web app's https URL (relay target)
+#        sync: false
+#      - key: FIRSTBACK_INTERNAL_SECRET   # MUST match the main service's value
+#        sync: false
+#      - key: FIRSTBACK_VOICE_TTS         # a ConversationRelay TTS voice id (don't leave blank -- default sounds robotic)
+#        sync: false

@@ -55,6 +55,37 @@ def configured() -> bool:
                 and PRICE_IDS.get(("crew", "month")))
 
 
+# ── PS-3 billing gate ───────────────────────────────────────────────────────
+# The subscription must NOT start until the contractor is genuinely live:
+#   1. activation_state has reached 'voice_live' (call forwarding confirmed,
+#      the AI is answering), AND
+#   2. first_call_nudge_sent == 1 (at least one REAL AI-answered call has happened).
+# Charging before that invites the worst pre-reputation churn: a confused signup is
+# charged $99, disputes it, churns, and warns their contractor network (decisions.md
+# PS-3 — a Bucket-1 red line). The pricing UI hides the Subscribe button until this
+# passes; billing_checkout enforces it server-side so a hand-crafted POST can't bypass it.
+def checkout_gate_ok(biz) -> bool:
+    """True when this business is allowed to start a paid subscription (PS-3)."""
+    if not biz:
+        return False
+    state = biz.get("activation_state") or "setup"
+    voice_live = state in ("voice_live", "live_sms")
+    had_real_call = bool(biz.get("first_call_nudge_sent"))
+    return voice_live and had_real_call
+
+
+def checkout_gate_reason(biz) -> str:
+    """A short, owner-facing reason the Subscribe gate is closed; '' when it's open."""
+    if checkout_gate_ok(biz):
+        return ""
+    state = (biz or {}).get("activation_state") or "setup"
+    if state == "setup":
+        return ("Confirm call forwarding first so FirstBack can answer your missed "
+                "calls — then you can subscribe.")
+    # Voice is live but no real call has been answered yet.
+    return "You can subscribe right after FirstBack answers your first call."
+
+
 def _web_base() -> str:
     """Base URL for Checkout success/cancel + portal return — the FLASK web app, NOT the
     voice service. (Was VOICE_PUBLIC_URL, which is the separate voice host — wrong target.)"""

@@ -5,13 +5,17 @@
    checkout); an anonymous visitor carries the plan into signup; otherwise the original
    signup link. Stays inert (current behavior) until billing.configured() is True. #}
 {% macro plan_cta(plan, label, accent) -%}
-{%- if billing_live and current_user -%}
+{%- if billing_live and current_user and billing_gate_ok -%}
   <form method="post" action="/billing/checkout" style="margin:0">
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <input type="hidden" name="plan" value="{{ plan }}">
     <input type="hidden" name="interval" value="month">
     <button type="submit" class="ob-btn {{ accent }}" style="width:100%">Subscribe</button>
   </form>
+{%- elif billing_live and current_user -%}
+  {# PS-3 gate: voice not live / no real call yet — explain instead of charging. #}
+  <button type="button" class="ob-btn {{ accent }}" style="width:100%;opacity:.55;cursor:not-allowed" disabled>Subscribe</button>
+  <p class="ob-gate-note" style="margin:.5rem 0 0;font-size:.82rem;color:var(--muted,#667)">{{ billing_gate_reason }}</p>
 {%- elif billing_live -%}
   <a class="ob-btn {{ accent }}" href="/signup?plan={{ plan }}">{{ label }}</a>
 {%- else -%}

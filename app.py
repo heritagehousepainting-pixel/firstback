@@ -509,9 +509,19 @@ def company():
 
 @app.route("/pricing")
 def pricing():
+    # PS-3: a logged-in owner only sees a real Subscribe button once voice is live + a
+    # real call has been answered. Anonymous visitors are unaffected (they go to signup).
+    gate_ok, gate_reason = True, ""
+    u = current_user()
+    if u:
+        _biz = db.get_business(u["business_id"])
+        gate_ok = _billing.checkout_gate_ok(_biz)
+        gate_reason = _billing.checkout_gate_reason(_biz)
     return render_template("pricing.html",
                            voice_configured=bool(VOICE_PUBLIC_URL),
-                           billing_live=_billing.configured())
+                           billing_live=_billing.configured(),
+                           billing_gate_ok=gate_ok,
+                           billing_gate_reason=gate_reason)
 
 
 @app.route("/contact", methods=["GET", "POST"])
@@ -3823,6 +3833,12 @@ def billing_checkout():
         return jsonify({"error": "bad_csrf"}), 403
     u   = current_user()
     biz = db.get_business(u["business_id"])
+    # PS-3 red line: never start the billing clock before voice is live + a real call
+    # has been answered. The UI hides Subscribe until then; this is the server backstop
+    # against a hand-crafted POST.
+    if not _billing.checkout_gate_ok(biz):
+        return jsonify(error="billing_locked",
+                       reason=_billing.checkout_gate_reason(biz)), 403
     plan = request.form.get("plan", "starter").lower().strip()
     if plan not in ("starter", "pro", "crew"):
         return jsonify(error="Invalid plan"), 400
@@ -3854,6 +3870,22 @@ def billing_portal():
         return jsonify(error=str(exc)), 400
     except Exception as exc:
         return jsonify(error=str(exc)), 500
+
+
+@app.route("/billing/success")
+@login_required
+def billing_success():
+    """Stripe Checkout success redirect. The subscription is actually activated by the
+    webhook (checkout.session.completed) — we never trust this client redirect for
+    activation — so this just lands the owner safely back on the dashboard with a flag."""
+    return redirect("/dashboard?billing=success")
+
+
+@app.route("/billing/cancel")
+@login_required
+def billing_cancel():
+    """Stripe Checkout cancel/back redirect — owner abandoned checkout, no charge."""
+    return redirect("/dashboard?billing=canceled")
 
 
 # ---- SF-3: Ticker heartbeat health endpoint ----

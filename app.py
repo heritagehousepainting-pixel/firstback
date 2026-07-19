@@ -429,17 +429,32 @@ def _login_rate_key(email):
     return f"{email}:{ip}"
 
 
+def _login_email_key(email):
+    """Per-EMAIL bucket, independent of IP. X-Forwarded-For is client-supplied and can be
+    spoofed, so an attacker credential-stuffing ONE account could rotate the header to mint
+    fresh (email, ip) buckets and slip past the per-pair ceiling. A second bucket keyed on the
+    email alone throttles attempts against an account no matter what IP they claim. A real
+    owner won't exceed the ceiling of failed logins to their own account in the window, so
+    this never locks out normal use (it is per-account, not per-IP / shared-NAT)."""
+    return f"email:{email}"
+
+
 def _login_blocked(email):
-    """True if this (email, IP) pair has exceeded the failure ceiling in the window."""
-    key = _login_rate_key(email)
+    """True if EITHER the (email, IP) pair OR the email alone has exceeded the failure ceiling
+    in the window. The email bucket closes the X-Forwarded-For spoof bypass."""
     cutoff = _time.monotonic() - LOGIN_WINDOW_SECONDS
-    _LOGIN_FAILURES[key] = [t for t in _LOGIN_FAILURES[key] if t > cutoff]
-    return len(_LOGIN_FAILURES[key]) >= LOGIN_MAX_ATTEMPTS
+    for key in (_login_rate_key(email), _login_email_key(email)):
+        kept = [t for t in _LOGIN_FAILURES[key] if t > cutoff]
+        _LOGIN_FAILURES[key] = kept
+        if len(kept) >= LOGIN_MAX_ATTEMPTS:
+            return True
+    return False
 
 
 def _login_record_failure(email):
-    key = _login_rate_key(email)
-    _LOGIN_FAILURES[key].append(_time.monotonic())
+    ts = _time.monotonic()
+    for key in (_login_rate_key(email), _login_email_key(email)):
+        _LOGIN_FAILURES[key].append(ts)
 
 
 @app.route("/login", methods=["GET", "POST"])

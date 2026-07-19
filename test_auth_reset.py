@@ -229,6 +229,31 @@ _rc3, _err3 = _import_config({})
 check("D-8 non-prod with no token key is inert (import succeeds)", _rc3 == 0)
 
 
+# ---- Security fixes (2026-07-19 cross-product audit) ----
+
+# _safe_next open-redirect: the shared trades_core guard used to allow /\evil.com because
+# it only blocked a literal '//' prefix, but browsers normalize \ to / in the authority.
+import auth as _auth
+check("safe_next keeps a legit relative path", _auth._safe_next("/dashboard?x=1") == "/dashboard?x=1")
+for _evil in ("//evil.com", "/\\evil.com", "\\\\evil.com", "https://evil.com",
+              "https:evil.com", "/ok\nx", "", None):
+    check(f"safe_next neutralizes {_evil!r}", _auth._safe_next(_evil) == "/dashboard")
+
+# Login rate-limit email-keying: X-Forwarded-For is client-supplied, so an attacker
+# credential-stuffing ONE account can rotate the header to mint fresh (email,ip) buckets.
+# The per-email bucket must still block after LOGIN_MAX_ATTEMPTS despite a fresh IP each time.
+_rl_email = "ratelimit-probe@example.com"
+_codes = []
+for _i in range(_app.LOGIN_MAX_ATTEMPTS + 1):
+    _r = client.post("/login",
+                     data={"email": _rl_email, "password": "definitely-wrong"},
+                     headers={"X-Forwarded-For": f"203.0.113.{_i}"})  # DIFFERENT IP each attempt
+    _codes.append(_r.status_code)
+check("login: first attempt is 401 (wrong password), not blocked", _codes[0] == 401)
+check("login: blocked 429 despite a rotating/spoofed X-Forwarded-For (email-keyed)",
+      _codes[-1] == 429)
+
+
 # ---- Cleanup ----
 try:
     os.unlink(_TMP.name)

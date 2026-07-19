@@ -14,13 +14,14 @@ from config import (PROVIDER, ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MODEL_VOIC
                     MINIMAX_API_KEY, MINIMAX_MODEL, MINIMAX_BASE_URL)
 
 # Phase 1 — Claude pricing (per 1 M tokens, USD) so we can compute cost without
-# a live API call. These are the published rates for Sonnet/Haiku at launch; update
-# when Anthropic changes pricing. Voice uses CLAUDE_MODEL_VOICE (Haiku).
+# a live API call. CURRENT published Claude 4.x rates (refreshed 2026-07-19; the old table
+# carried stale Claude-3-era Opus $15/$75 + Haiku $0.80/$4, which over-reported cost).
+# Voice uses CLAUDE_MODEL_VOICE (Haiku).
 _CLAUDE_PRICE = {
     # model-id-prefix -> (input_per_1m, output_per_1m)
     "claude-sonnet": (3.00, 15.00),
-    "claude-haiku":  (0.80,  4.00),
-    "claude-opus":   (15.00, 75.00),
+    "claude-haiku":  (1.00,  5.00),
+    "claude-opus":   (5.00, 25.00),
 }
 
 

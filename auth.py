@@ -36,6 +36,20 @@ def login_required(view):
 
 
 def _safe_next(target):
-    """Only allow same-site relative redirects (never //evil.com)."""
-    return (target if (target and target.startswith("/")
-                       and not target.startswith("//")) else "/dashboard")
+    """Only allow same-site relative redirects; fall back to /dashboard for anything else.
+    Rejects off-site targets in every form we've seen bypass a naive startswith('//') check:
+      //evil.com          (protocol-relative)
+      /\\evil.com          (BACKSLASH bypass — browsers normalize \\ to /, so this becomes
+                            //evil.com after the browser parses it; the old guard let it through)
+      https:evil.com      (embedded scheme)
+      whitespace/control-char smuggling (\\n \\r \\t) used to split or obscure the value
+    We normalize backslashes to forward slashes FIRST, then require a single leading slash."""
+    t = (target or "").strip()
+    if not t:
+        return "/dashboard"
+    if any(ch in t for ch in ("\n", "\r", "\t", "\x00")):
+        return "/dashboard"
+    norm = t.replace("\\", "/")                 # browsers treat \\ as / in the authority
+    if norm.startswith("/") and not norm.startswith("//") and "://" not in norm:
+        return t
+    return "/dashboard"

@@ -149,7 +149,7 @@ else:
     fail("_claude_cost Sonnet input rate wrong", cost)
 
 cost2 = llm._claude_cost("claude-haiku-4-5", 0, 1_000_000)
-if abs(cost2 - 4.00) < 0.01:
+if abs(cost2 - 5.00) < 0.01:   # current Haiku 4.5 output rate (refreshed from stale $4.00)
     ok("_claude_cost Haiku output rate correct")
 else:
     fail("_claude_cost Haiku output rate wrong", cost2)
